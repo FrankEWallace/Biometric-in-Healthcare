@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
@@ -7,12 +9,14 @@ class FingerprintPreviewScreen extends StatefulWidget {
   final String? patientName;
   final String? patientId;
   final bool isRegistration;
+  final XFile? capturedImage;
 
   const FingerprintPreviewScreen({
     super.key,
     this.patientName,
     this.patientId,
     this.isRegistration = false,
+    this.capturedImage,
   });
 
   @override
@@ -115,21 +119,19 @@ class _FingerprintPreviewScreenState extends State<FingerprintPreviewScreen> {
                 ),
                 child: Column(
                   children: [
-                    Container(
-                      width: 160,
-                      height: 160,
-                      decoration: BoxDecoration(
-                        color: AppColors.secondary,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.2),
-                            width: 3),
-                      ),
-                      child: const Icon(
-                        Icons.fingerprint,
-                        size: 100,
-                        color: AppColors.primary,
-                      ),
+                    // Show real captured image or fallback icon
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: widget.capturedImage != null
+                          ? Image.file(
+                              File(widget.capturedImage!.path),
+                              width: 160,
+                              height: 160,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stack) =>
+                                  _fingerprintFallback(),
+                            )
+                          : _fingerprintFallback(),
                     ),
                     const SizedBox(height: 20),
 
@@ -172,6 +174,20 @@ class _FingerprintPreviewScreenState extends State<FingerprintPreviewScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _fingerprintFallback() {
+    return Container(
+      width: 160,
+      height: 160,
+      decoration: BoxDecoration(
+        color: AppColors.secondary,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.2), width: 3),
+      ),
+      child: const Icon(Icons.fingerprint, size: 100, color: AppColors.primary),
     );
   }
 

@@ -1,7 +1,9 @@
+import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
-import '../widgets/fingerprint_overlay.dart';
+import 'camera_screen.dart';
 import 'fingerprint_preview_screen.dart';
 
 class FingerprintCaptureScreen extends StatefulWidget {
@@ -22,19 +24,24 @@ class FingerprintCaptureScreen extends StatefulWidget {
 }
 
 class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
-  bool _isScanning = false;
-  bool _captured = false;
+  XFile? _capturedImage;
 
-  void _startCapture() {
-    setState(() => _isScanning = true);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() {
-          _isScanning = false;
-          _captured = true;
-        });
-      }
-    });
+  Future<void> _openCamera() async {
+    final XFile? result = await Navigator.push<XFile?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CameraScreen(
+          title: widget.isRegistration
+              ? 'Capture Fingerprint'
+              : 'Scan Fingerprint',
+          showFingerprintOverlay: true,
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      setState(() => _capturedImage = result);
+    }
   }
 
   void _proceedToPreview() {
@@ -45,6 +52,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
           patientName: widget.patientName,
           patientId: widget.patientId,
           isRegistration: widget.isRegistration,
+          capturedImage: _capturedImage,
         ),
       ),
     );
@@ -91,73 +99,28 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
               ],
 
-              // Camera preview placeholder
+              // Preview / placeholder area
               Expanded(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0F1923),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // Simulated camera background
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          color: const Color(0xFF0F1923),
-                        ),
+                child: _capturedImage == null
+                    ? _PlaceholderArea(onOpenCamera: _openCamera)
+                    : _CapturedPreview(
+                        imagePath: _capturedImage!.path,
+                        onRetake: _openCamera,
                       ),
-
-                      // Finger placement overlay
-                      FingerprintOverlay(isScanning: _isScanning),
-
-                      // Bottom instruction
-                      Positioned(
-                        bottom: 24,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          child: _captured
-                              ? _StatusChip(
-                                  key: const ValueKey('captured'),
-                                  label: 'Fingerprint captured!',
-                                  icon: Icons.check_circle,
-                                  color: AppColors.success,
-                                )
-                              : _isScanning
-                                  ? _StatusChip(
-                                      key: const ValueKey('scanning'),
-                                      label: 'Scanning...',
-                                      icon: Icons.sensors,
-                                      color: AppColors.primaryLight,
-                                    )
-                                  : _StatusChip(
-                                      key: const ValueKey('idle'),
-                                      label: 'Place finger inside the frame',
-                                      icon: Icons.touch_app,
-                                      color: Colors.white70,
-                                    ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
               const SizedBox(height: 24),
 
               // Action buttons
-              if (!_captured) ...[
+              if (_capturedImage == null)
                 PrimaryButton(
-                  label: _isScanning ? 'Scanning...' : 'Capture',
+                  label: 'Open Camera',
                   icon: Icons.camera_alt,
-                  onPressed: _isScanning ? null : _startCapture,
-                  isLoading: _isScanning,
-                ),
-              ] else ...[
+                  onPressed: _openCamera,
+                )
+              else ...[
                 PrimaryButton(
                   label: 'Confirm & Continue',
                   icon: Icons.check,
@@ -167,10 +130,7 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                 SecondaryButton(
                   label: 'Retake',
                   icon: Icons.refresh,
-                  onPressed: () => setState(() {
-                    _captured = false;
-                    _isScanning = false;
-                  }),
+                  onPressed: _openCamera,
                 ),
               ],
             ],
@@ -181,42 +141,120 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
   }
 }
 
-class _StatusChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
+// ── Supporting widgets ────────────────────────────────────────────────────────
 
-  const _StatusChip({
-    super.key,
-    required this.label,
-    required this.icon,
-    required this.color,
-  });
+/// Shown before any image is captured.
+class _PlaceholderArea extends StatelessWidget {
+  final VoidCallback onOpenCamera;
+
+  const _PlaceholderArea({required this.onOpenCamera});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
+    return GestureDetector(
+      onTap: onOpenCamera,
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F1923),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.3), width: 1.5),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.camera_alt,
+                  color: AppColors.primaryLight, size: 38),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Tap to open camera',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Place finger inside the frame when prompted',
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            ),
+          ],
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 16),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
+    );
+  }
+}
+
+/// Shown after an image is captured — displays the thumbnail.
+class _CapturedPreview extends StatelessWidget {
+  final String imagePath;
+  final VoidCallback onRetake;
+
+  const _CapturedPreview(
+      {required this.imagePath, required this.onRetake});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Image.file(
+            File(imagePath),
+            width: double.infinity,
+            height: double.infinity,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (context, error, stack) => const Center(
+              child: Icon(Icons.broken_image, color: Colors.white38, size: 48),
             ),
           ),
-        ],
-      ),
+        ),
+        // Success badge
+        Positioned(
+          bottom: 16,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(
+                    color: AppColors.success.withValues(alpha: 0.5)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle,
+                      color: AppColors.success, size: 16),
+                  SizedBox(width: 8),
+                  Text(
+                    'Fingerprint captured',
+                    style: TextStyle(
+                      color: AppColors.success,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
