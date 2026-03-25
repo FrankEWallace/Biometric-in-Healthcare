@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
-import '../widgets/primary_button.dart';
 import '../widgets/custom_text_field.dart';
+import '../widgets/primary_button.dart';
 import 'home_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -15,8 +17,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _isLoading = false;
-  String? _errorMessage;
 
   @override
   void dispose() {
@@ -25,19 +25,18 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _handleLogin() async {
+  Future<void> _handleLogin() async {
+    // Clear any previous error first
+    context.read<AuthProvider>().clearError();
+
     if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
 
-    // Simulate API call — replace with real auth later
-    await Future.delayed(const Duration(seconds: 2));
+    final success = await context.read<AuthProvider>().login(
+          _emailController.text.trim(),
+          _passwordController.text,
+        );
 
-    if (mounted) {
-      setState(() => _isLoading = false);
-      // Demo: any credentials succeed
+    if (success && mounted) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const HomeDashboard()),
@@ -56,7 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const SizedBox(height: 48),
 
-              // Header
+              // Logo
               Center(
                 child: Container(
                   width: 72,
@@ -107,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       prefixIcon: Icons.email_outlined,
                       keyboardType: TextInputType.emailAddress,
                       validator: (val) {
-                        if (val == null || val.isEmpty) {
+                        if (val == null || val.trim().isEmpty) {
                           return 'Email is required';
                         }
                         if (!val.contains('@')) return 'Enter a valid email';
@@ -137,47 +136,60 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
 
-              // Error message
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: AppColors.error.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.error_outline,
-                          color: AppColors.error, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: const TextStyle(
-                            color: AppColors.error,
-                            fontSize: 13,
-                          ),
-                        ),
+              // API error message from AuthProvider
+              Consumer<AuthProvider>(
+                builder: (context, auth, child) {
+                  if (auth.errorMessage == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: AppColors.error.withValues(alpha: 0.3)),
                       ),
-                    ],
-                  ),
-                ),
-              ],
-
-              const SizedBox(height: 32),
-              PrimaryButton(
-                label: 'Login',
-                icon: Icons.login,
-                onPressed: _handleLogin,
-                isLoading: _isLoading,
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline,
+                              color: AppColors.error, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              auth.errorMessage!,
+                              style: const TextStyle(
+                                color: AppColors.error,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: auth.clearError,
+                            child: const Icon(Icons.close,
+                                color: AppColors.error, size: 16),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
+
               const SizedBox(height: 32),
 
-              // Footer
+              // Login button — driven by AuthProvider loading state
+              Consumer<AuthProvider>(
+                builder: (context, auth, child) => PrimaryButton(
+                  label: 'Login',
+                  icon: Icons.login,
+                  onPressed: _handleLogin,
+                  isLoading: auth.isLoading,
+                ),
+              ),
+
+              const SizedBox(height: 32),
               Center(
                 child: Text(
                   'Smartphone Biometric Verification System\nHospital Staff Access Only',
