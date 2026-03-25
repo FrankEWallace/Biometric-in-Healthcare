@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\FingerprintController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\VerificationController;
@@ -60,6 +61,12 @@ Route::middleware('auth:sanctum')->group(function () {
             '/{patient}/fingerprints/{fingerprint}',
             [PatientController::class, 'removeFingerprint']
         );
+    });
+
+    // Fingerprint upload (enroll from mobile camera)
+    Route::prefix('fingerprint')->group(function () {
+        Route::post('upload', [FingerprintController::class, 'upload'])
+             ->middleware('throttle:20,1');
     });
 
     // Fingerprint verification — tighter rate limit (30 req/min)
