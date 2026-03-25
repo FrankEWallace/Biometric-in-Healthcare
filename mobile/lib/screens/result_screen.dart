@@ -1,0 +1,295 @@
+import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+import '../widgets/primary_button.dart';
+import 'home_dashboard.dart';
+
+class ResultScreen extends StatefulWidget {
+  final bool isSuccess;
+  final String? patientName;
+  final String? patientId;
+  final bool isRegistration;
+
+  const ResultScreen({
+    super.key,
+    required this.isSuccess,
+    this.patientName,
+    this.patientId,
+    this.isRegistration = false,
+  });
+
+  @override
+  State<ResultScreen> createState() => _ResultScreenState();
+}
+
+class _ResultScreenState extends State<ResultScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnim;
+  late Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _scaleAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
+    );
+    _fadeAnim = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(
+          parent: _controller, curve: const Interval(0.3, 1.0)),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        widget.isSuccess ? AppColors.success : AppColors.error;
+    final bgColor = widget.isSuccess
+        ? AppColors.success.withValues(alpha: 0.08)
+        : AppColors.error.withValues(alpha: 0.08);
+    final icon =
+        widget.isSuccess ? Icons.check_circle : Icons.cancel;
+    final headline = widget.isRegistration
+        ? (widget.isSuccess
+            ? 'Patient Registered!'
+            : 'Registration Failed')
+        : (widget.isSuccess ? 'Patient Verified' : 'No Match Found');
+    final subtext = widget.isRegistration
+        ? (widget.isSuccess
+            ? 'Fingerprint saved successfully.'
+            : 'Could not save fingerprint. Please try again.')
+        : (widget.isSuccess
+            ? 'Identity confirmed successfully.'
+            : 'The fingerprint did not match any registered patient.');
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const SizedBox(height: 40),
+
+              // Animated result icon
+              AnimatedBuilder(
+                animation: _controller,
+                builder: (_, child) => Transform.scale(
+                  scale: _scaleAnim.value,
+                  child: child,
+                ),
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: color.withValues(alpha: 0.3), width: 3),
+                  ),
+                  child: Icon(icon, size: 64, color: color),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              FadeTransition(
+                opacity: _fadeAnim,
+                child: Column(
+                  children: [
+                    Text(
+                      headline,
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      subtext,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Patient detail card (only on success)
+              if (widget.isSuccess &&
+                  widget.patientName != null) ...[
+                const SizedBox(height: 36),
+                FadeTransition(
+                  opacity: _fadeAnim,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Patient Details',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: AppColors.secondary,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.person,
+                                  color: AppColors.primary, size: 26),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.patientName!,
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.patientId ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color:
+                                    AppColors.success.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'Verified',
+                                style: TextStyle(
+                                  color: AppColors.success,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Divider(color: AppColors.divider),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            _InfoChip(
+                                icon: Icons.fingerprint,
+                                label: 'Match: 97%'),
+                            const SizedBox(width: 10),
+                            _InfoChip(
+                                icon: Icons.access_time,
+                                label: _currentTime()),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
+              const Spacer(),
+
+              PrimaryButton(
+                label: 'Back to Dashboard',
+                icon: Icons.home,
+                onPressed: () => Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const HomeDashboard()),
+                  (route) => false,
+                ),
+              ),
+              if (!widget.isSuccess) ...[
+                const SizedBox(height: 12),
+                SecondaryButton(
+                  label: 'Try Again',
+                  icon: Icons.refresh,
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _currentTime() {
+    final now = DateTime.now();
+    return '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _InfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: AppColors.textSecondary),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+}
