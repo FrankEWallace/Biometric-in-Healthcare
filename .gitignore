@@ -1,0 +1,26 @@
+# Laravel
+laravel/.env
+laravel/vendor/
+laravel/node_modules/
+laravel/storage/logs/
+laravel/storage/framework/cache/
+laravel/storage/framework/sessions/
+laravel/storage/framework/views/
+laravel/bootstrap/cache/
+laravel/.phpunit.result.cache
+
+# Python
+python-service/__pycache__/
+python-service/*.pyc
+python-service/.venv/
+python-service/venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
