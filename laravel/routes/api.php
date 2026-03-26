@@ -63,10 +63,19 @@ Route::middleware('auth:sanctum')->group(function () {
         );
     });
 
-    // Fingerprint upload (enroll from mobile camera)
+    // Fingerprint endpoints
     Route::prefix('fingerprint')->group(function () {
+        // Legacy — base64 pipeline (kept for VerificationController)
         Route::post('upload', [FingerprintController::class, 'upload'])
              ->middleware('throttle:20,1');
+
+        // Enhanced pipeline — multipart image → full preprocessing + ORB
+        Route::post('register', [FingerprintController::class, 'register'])
+             ->middleware('throttle:20,1');
+
+        // Direct patient verification (known patient ID)
+        Route::post('verify', [FingerprintController::class, 'verify'])
+             ->middleware('throttle:30,1');
     });
 
     // Fingerprint verification — tighter rate limit (30 req/min)
