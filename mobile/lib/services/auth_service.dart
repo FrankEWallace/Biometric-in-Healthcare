@@ -11,7 +11,7 @@ class AuthException implements Exception {
 
 class AuthService {
   // Base URL — update to match your Laravel server
-  static const String _baseUrl = 'http://localhost:8000/api';
+  static const String _baseUrl = 'http://192.168.1.4:8000/api';
 
   // In-memory token storage (replace with flutter_secure_storage later)
   String? _token;
@@ -21,9 +21,9 @@ class AuthService {
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _token != null;
 
-  /// POST /api/login  →  { user, token }
-  Future<User> login(String email, String password) async {
-    final Uri url = Uri.parse('$_baseUrl/login');
+  /// POST /api/auth/login  →  { user, token }
+  Future<User> login(String username, String password) async {
+    final Uri url = Uri.parse('$_baseUrl/auth/login');
 
     late http.Response response;
 
@@ -35,7 +35,7 @@ class AuthService {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
-            body: jsonEncode({'email': email, 'password': password}),
+            body: jsonEncode({'username': username, 'password': password}),
           )
           .timeout(const Duration(seconds: 15));
     } catch (_) {

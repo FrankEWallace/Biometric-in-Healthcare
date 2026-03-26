@@ -15,8 +15,8 @@ return new class extends Migration
             $table->string('email', 120)->unique();
             $table->string('password');
 
-            // Role-based access: admin | operator | doctor
-            $table->enum('role', ['admin', 'operator', 'doctor'])->default('operator');
+            // Role-based access: admin | nurse | doctor
+            $table->enum('role', ['admin', 'nurse', 'doctor'])->default('nurse');
 
             $table->foreignId('hospital_id')
                   ->constrained('hospitals')

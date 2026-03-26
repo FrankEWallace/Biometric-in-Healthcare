@@ -14,13 +14,13 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _formKey           = GlobalKey<FormState>();
-  final _emailController   = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _formKey              = GlobalKey<FormState>();
+  final _usernameController   = TextEditingController();
+  final _passwordController   = TextEditingController();
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -30,7 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final success = await context.read<AuthProvider>().login(
-          _emailController.text.trim(),
+          _usernameController.text.trim(),
           _passwordController.text,
         );
 
@@ -44,82 +44,74 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final headerH = size.height * 0.38;
-
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Stack(
+      body: Column(
         children: [
-          // ── Blue gradient header ────────────────────────────────────────
-          Container(
-            height: headerH + 40,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppColors.primaryDark, AppColors.primary],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-          ),
-
-          // ── Header content ──────────────────────────────────────────────
-          SafeArea(
-            bottom: false,
-            child: SizedBox(
-              height: headerH,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Logo ring
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.15),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.25),
-                          width: 1.5),
-                    ),
-                    child: const Icon(
-                      Icons.fingerprint,
-                      size: 44,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'BiH Biometric System',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Secure Patient Identification',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.75),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w400,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // ── White form card ─────────────────────────────────────────────
-          Positioned(
-            top: headerH,
-            left: 0,
-            right: 0,
-            bottom: 0,
+          // ── Blue gradient header ──────────────────────────────────────
+          Flexible(
+            flex: 38,
             child: Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [AppColors.primaryDark, AppColors.primary],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.15),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.25),
+                            width: 1.5),
+                      ),
+                      child: const Icon(
+                        Icons.fingerprint,
+                        size: 44,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'BiH Biometric System',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Secure Patient Identification',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // ── White form card ───────────────────────────────────────────
+          Expanded(
+            flex: 62,
+            child: Container(
+              width: double.infinity,
               decoration: const BoxDecoration(
                 color: AppColors.surface,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -153,18 +145,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         children: [
                           CustomTextField(
-                            label: 'Email Address',
-                            hint: 'nurse@hospital.ba',
-                            controller: _emailController,
-                            prefixIcon: Icons.email_outlined,
-                            keyboardType: TextInputType.emailAddress,
+                            label: 'Username',
+                            hint: 'admin.sarajevo',
+                            controller: _usernameController,
+                            prefixIcon: Icons.person_outline,
+                            keyboardType: TextInputType.text,
                             textInputAction: TextInputAction.next,
                             validator: (val) {
                               if (val == null || val.trim().isEmpty) {
-                                return 'Email is required';
-                              }
-                              if (!val.contains('@')) {
-                                return 'Enter a valid email address';
+                                return 'Username is required';
                               }
                               return null;
                             },
