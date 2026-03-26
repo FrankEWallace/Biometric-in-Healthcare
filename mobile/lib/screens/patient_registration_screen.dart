@@ -403,34 +403,82 @@ class _StepBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(steps.length, (i) {
-        final done = i < current;
-        final active = i == current;
-        final color = (done || active) ? AppColors.primary : AppColors.divider;
-        return Expanded(
-          child: Column(
-            children: [
-              Container(
-                height: 4,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(4),
-                ),
+      children: List.generate(steps.length * 2 - 1, (i) {
+        // Even indices → step circles; odd indices → connector lines
+        if (i.isOdd) {
+          final stepIndex = i ~/ 2;
+          final filled = stepIndex < current;
+          return Expanded(
+            child: Container(
+              height: 2,
+              color: filled ? AppColors.primary : AppColors.divider,
+            ),
+          );
+        }
+
+        final stepIndex = i ~/ 2;
+        final done   = stepIndex < current;
+        final active = stepIndex == current;
+        final bgColor = done
+            ? AppColors.primary
+            : active
+                ? AppColors.primary
+                : AppColors.divider;
+        final labelColor = active
+            ? AppColors.primary
+            : done
+                ? AppColors.textSecondary
+                : AppColors.textHint;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: bgColor,
+                border: active
+                    ? Border.all(
+                        color: AppColors.primaryLight, width: 2)
+                    : null,
+                boxShadow: active
+                    ? [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.25),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      ]
+                    : null,
               ),
-              const SizedBox(height: 6),
-              Text(
-                steps[i],
-                style: TextStyle(
-                  fontSize: 10,
-                  color: active
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
-                  fontWeight:
-                      active ? FontWeight.w600 : FontWeight.normal,
-                ),
+              child: done
+                  ? const Icon(Icons.check, color: Colors.white, size: 16)
+                  : Center(
+                      child: Text(
+                        '${stepIndex + 1}',
+                        style: TextStyle(
+                          color: active || done
+                              ? Colors.white
+                              : AppColors.textSecondary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              steps[stepIndex],
+              style: TextStyle(
+                fontSize: 10,
+                color: labelColor,
+                fontWeight:
+                    active ? FontWeight.w600 : FontWeight.normal,
               ),
-            ],
-          ),
+            ),
+          ],
         );
       }),
     );

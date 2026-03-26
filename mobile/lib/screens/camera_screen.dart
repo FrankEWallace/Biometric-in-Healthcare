@@ -7,22 +7,33 @@ import '../services/fingerprint_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/fingerprint_overlay.dart';
 
-/// Full-screen camera that handles capture → preview → upload in one place.
+/// Full-screen camera that handles capture → preview → (upload) in one place.
 ///
-/// Returns an [XFile] via [Navigator.pop] after a successful upload,
-/// or `null` if the user cancels.
+/// When [returnImageOnly] is false (default) the screen uploads the captured
+/// image via POST /api/fingerprint/register and pops with the [XFile] on
+/// success, or `null` if the user cancels.
+///
+/// When [returnImageOnly] is true the screen skips the upload entirely and
+/// pops with the [XFile] immediately after the user taps "Use Photo".  Use
+/// this mode when the parent screen handles the API call itself (e.g. the
+/// verification flow).
 class CameraScreen extends StatefulWidget {
   final String title;
   final bool showFingerprintOverlay;
 
-  /// Optional patient ID forwarded to the upload endpoint.
+  /// Patient ID forwarded to the register endpoint (required when
+  /// [returnImageOnly] is false).
   final String? patientId;
+
+  /// When true, skip upload and just return the captured image to the caller.
+  final bool returnImageOnly;
 
   const CameraScreen({
     super.key,
     this.title = 'Capture Image',
     this.showFingerprintOverlay = false,
     this.patientId,
+    this.returnImageOnly = false,
   });
 
   @override
@@ -152,7 +163,20 @@ class _CameraScreenState extends State<CameraScreen>
     setState(() => _isCapturing = true);
     try {
       final file = await ctrl.takePicture();
-      if (await File(file.path).exists() && mounted) {
+
+      // Guard: verify the file was actually written to disk.
+      if (!await File(file.path).exists()) {
+        if (mounted) {
+          _showSnackbar(
+            'Captured file was not saved. Please try again.',
+            isError: true,
+          );
+          setState(() => _isCapturing = false);
+        }
+        return;
+      }
+
+      if (mounted) {
         setState(() {
           _capturedImage = file;
           _stage = _Stage.preview;
@@ -162,6 +186,14 @@ class _CameraScreenState extends State<CameraScreen>
     } on CameraException catch (e) {
       if (mounted) {
         _showSnackbar(_friendlyCameraError(e), isError: true);
+        setState(() => _isCapturing = false);
+      }
+    } catch (_) {
+      if (mounted) {
+        _showSnackbar(
+          'Capture failed unexpectedly. Please try again.',
+          isError: true,
+        );
         setState(() => _isCapturing = false);
       }
     }
@@ -180,26 +212,82 @@ class _CameraScreenState extends State<CameraScreen>
     final image = _capturedImage;
     if (image == null) return;
 
+    // returnImageOnly mode — skip upload, let caller handle the API call.
+    if (widget.returnImageOnly) {
+      Navigator.pop(context, image);
+      return;
+    }
+
     final token = context.read<AuthProvider>().user?.token;
     if (token == null) {
       _showSnackbar('Session expired. Please log in again.', isError: true);
       return;
     }
 
+    final patientId = widget.patientId;
+    if (patientId == null) {
+      _showSnackbar('No patient ID provided.', isError: true);
+      return;
+    }
+
     setState(() => _stage = _Stage.uploading);
 
     try {
-      await FingerprintService().uploadFingerprint(
+      await FingerprintService().registerFingerprint(
         File(image.path),
         token: token,
-        patientId: widget.patientId,
+        patientId: patientId,
       );
       if (mounted) Navigator.pop(context, image);
     } on FingerprintException catch (e) {
       if (mounted) {
-        _showSnackbar(e.message, isError: true);
         setState(() => _stage = _Stage.preview);
+        _showUploadError(e);
       }
+    } catch (_) {
+      // Guard against any unexpected exception so the screen never freezes
+      // on the uploading state.
+      if (mounted) {
+        setState(() => _stage = _Stage.preview);
+        _showSnackbar(
+          'An unexpected error occurred. Please try again.',
+          isError: true,
+        );
+      }
+    }
+  }
+
+  /// Shows a snackbar with a hint that is specific to the error kind so the
+  /// user knows what corrective action to take.
+  void _showUploadError(FingerprintException e) {
+    switch (e.kind) {
+      case FingerprintErrorKind.qualityTooLow:
+        _showSnackbar(
+          'Image too blurry. Move to better lighting and retake.',
+          isError: true,
+          duration: const Duration(seconds: 5),
+        );
+      case FingerprintErrorKind.noFeatures:
+        _showSnackbar(
+          'No fingerprint detected. Ensure your finger fills the frame and retake.',
+          isError: true,
+          duration: const Duration(seconds: 5),
+        );
+      case FingerprintErrorKind.network:
+        _showSnackbar(e.message, isError: true, duration: const Duration(seconds: 5));
+      case FingerprintErrorKind.serviceUnavailable:
+        _showSnackbar(
+          'Processing service is unavailable. Please try again shortly.',
+          isError: true,
+          duration: const Duration(seconds: 5),
+        );
+      case FingerprintErrorKind.unauthorized:
+        _showSnackbar(
+          'Session expired. Please log in again.',
+          isError: true,
+        );
+      default:
+        _showSnackbar(e.message, isError: true);
     }
   }
 
@@ -208,18 +296,33 @@ class _CameraScreenState extends State<CameraScreen>
   String _friendlyCameraError(CameraException e) {
     switch (e.code) {
       case 'CameraAccessDenied':
-        return 'Camera permission denied. Enable it in Settings.';
+      case 'cameraPermission':
+        return 'Camera permission denied. Open Settings and allow camera access.';
+      case 'CameraAccessDeniedWithoutPrompt':
+      case 'CameraAccessRestricted':
+        return 'Camera access is permanently blocked. Enable it in Settings > Privacy.';
+      case 'AudioAccessDenied':
+        return 'Microphone permission denied — required by some camera drivers.';
+      case 'noCamerasAvailable':
+        return 'No cameras found on this device.';
       default:
-        return e.description ?? 'An unexpected camera error occurred.';
+        final desc = e.description;
+        if (desc != null && desc.isNotEmpty) return desc;
+        return 'Camera error (${e.code}). Please restart the app and try again.';
     }
   }
 
-  void _showSnackbar(String message, {bool isError = false}) {
+  void _showSnackbar(
+    String message, {
+    bool isError = false,
+    Duration duration = const Duration(seconds: 3),
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? AppColors.error : AppColors.success,
         behavior: SnackBarBehavior.floating,
+        duration: duration,
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -293,8 +396,43 @@ class _CameraScreenState extends State<CameraScreen>
               child: CameraPreview(_controller!),
             ),
           ),
-          if (widget.showFingerprintOverlay)
-            const Center(child: FingerprintOverlay(isScanning: false)),
+          if (widget.showFingerprintOverlay) ...[
+            Center(child: FingerprintOverlay(isScanning: _isCapturing)),
+            // Instruction label beneath the scanning frame
+            Positioned(
+              bottom: 96,
+              left: 24,
+              right: 24,
+              child: Column(
+                children: [
+                  Text(
+                    _isCapturing ? 'Hold still…' : 'Place finger inside the frame',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      shadows: [
+                        Shadow(color: Colors.black54, blurRadius: 6),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Good lighting · Steady hand · Fill the frame',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.65),
+                      fontSize: 11,
+                      shadows: const [
+                        Shadow(color: Colors.black54, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (_isCapturing)
             Container(color: Colors.white.withValues(alpha: 0.3)),
         ],
@@ -397,15 +535,24 @@ class _CameraScreenState extends State<CameraScreen>
                             strokeWidth: 2.5,
                           ),
                         )
-                      : const Row(
+                      : Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.cloud_upload_outlined, size: 18),
-                            SizedBox(width: 8),
-                            Text('Confirm & Upload',
-                                style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600)),
+                            Icon(
+                              widget.returnImageOnly
+                                  ? Icons.check_rounded
+                                  : Icons.cloud_upload_outlined,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              widget.returnImageOnly
+                                  ? 'Use Photo'
+                                  : 'Confirm & Upload',
+                              style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600),
+                            ),
                           ],
                         ),
                 ),

@@ -45,7 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Patients
-    Route::prefix('patients')->group(function () {
+    Route::prefix('patients')->middleware('hospital.access')->group(function () {
         Route::get('/',    [PatientController::class, 'index']);
         Route::post('/',   [PatientController::class, 'store']);
         Route::get('/{patient}',    [PatientController::class, 'show']);
@@ -64,7 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Fingerprint endpoints
-    Route::prefix('fingerprint')->group(function () {
+    Route::prefix('fingerprint')->middleware('hospital.access')->group(function () {
         // Legacy — base64 pipeline (kept for VerificationController)
         Route::post('upload', [FingerprintController::class, 'upload'])
              ->middleware('throttle:20,1');

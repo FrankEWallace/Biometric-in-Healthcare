@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
@@ -9,12 +10,21 @@ class ResultScreen extends StatefulWidget {
   final String? patientId;
   final bool isRegistration;
 
+  /// Verification score 0–100 returned by the Python matching service.
+  /// When provided it replaces the placeholder "Match: 97%".
+  final double? score;
+
+  /// The finger position that was matched (e.g. "right_index").
+  final String? matchedFinger;
+
   const ResultScreen({
     super.key,
     required this.isSuccess,
     this.patientName,
     this.patientId,
     this.isRegistration = false,
+    this.score,
+    this.matchedFinger,
   });
 
   @override
@@ -123,6 +133,17 @@ class _ResultScreenState extends State<ResultScreen>
                         height: 1.5,
                       ),
                     ),
+                    // Score ring — shown for successful verifications with a score
+                    if (widget.isSuccess &&
+                        !widget.isRegistration &&
+                        widget.score != null) ...[
+                      const SizedBox(height: 24),
+                      _ScoreRing(
+                        score: widget.score!,
+                        animation: _fadeAnim,
+                        color: color,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -221,12 +242,24 @@ class _ResultScreenState extends State<ResultScreen>
                         Row(
                           children: [
                             _InfoChip(
-                                icon: Icons.fingerprint,
-                                label: 'Match: 97%'),
+                              icon: Icons.fingerprint,
+                              label: widget.score != null
+                                  ? 'Score: ${widget.score!.toStringAsFixed(1)}%'
+                                  : 'Fingerprint OK',
+                            ),
                             const SizedBox(width: 10),
-                            _InfoChip(
+                            if (widget.matchedFinger != null &&
+                                widget.matchedFinger!.isNotEmpty)
+                              _InfoChip(
+                                icon: Icons.back_hand_outlined,
+                                label: widget.matchedFinger!
+                                    .replaceAll('_', ' '),
+                              )
+                            else
+                              _InfoChip(
                                 icon: Icons.access_time,
-                                label: _currentTime()),
+                                label: _currentTime(),
+                              ),
                           ],
                         ),
                       ],
@@ -292,4 +325,113 @@ class _InfoChip extends StatelessWidget {
       ],
     );
   }
+}
+
+// ── Animated score ring ────────────────────────────────────────────────────────
+
+class _ScoreRing extends StatelessWidget {
+  final double score;
+  final Animation<double> animation;
+  final Color color;
+
+  const _ScoreRing({
+    required this.score,
+    required this.animation,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        return SizedBox(
+          width: 100,
+          height: 100,
+          child: CustomPaint(
+            painter: _ScoreRingPainter(
+              score: score,
+              progress: animation.value,
+              color: color,
+              trackColor: color.withValues(alpha: 0.12),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${(score * animation.value).toStringAsFixed(0)}%',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+                  ),
+                  Text(
+                    'match',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: color.withValues(alpha: 0.7),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ScoreRingPainter extends CustomPainter {
+  final double score;
+  final double progress;
+  final Color color;
+  final Color trackColor;
+
+  _ScoreRingPainter({
+    required this.score,
+    required this.progress,
+    required this.color,
+    required this.trackColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const strokeWidth = 7.0;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.width - strokeWidth) / 2;
+    const startAngle = -math.pi / 2; // top
+
+    // Track
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = trackColor
+        ..strokeWidth = strokeWidth
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Arc
+    final sweepAngle = 2 * math.pi * (score / 100) * progress;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      sweepAngle,
+      false,
+      Paint()
+        ..color = color
+        ..strokeWidth = strokeWidth
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ScoreRingPainter old) =>
+      old.progress != progress || old.score != score || old.color != color;
 }
