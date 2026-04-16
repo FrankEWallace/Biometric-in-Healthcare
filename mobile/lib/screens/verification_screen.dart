@@ -7,6 +7,7 @@ import '../services/fingerprint_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
 import 'camera_screen.dart';
+import 'ehr_screen.dart';
 import 'result_screen.dart';
 
 class VerificationScreen extends StatefulWidget {
@@ -85,19 +86,35 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
       if (!mounted) return;
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ResultScreen(
-            isSuccess: result.isMatch,
-            isRegistration: false,
-            patientName: result.patientName,
-            patientId: 'ID: ${result.patientId}',
-            score: result.score,
-            matchedFinger: result.matchedFinger,
+      if (result.isMatch) {
+        // Navigate to EHR screen — shows GoT-HoMIS record + insurance
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => EhrScreen(
+              patientName:   result.patientName,
+              score:         result.score,
+              matchedFinger: result.matchedFinger,
+              ehr:           result.ehr,
+              insurance:     result.insurance,
+            ),
           ),
-        ),
-      );
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ResultScreen(
+              isSuccess:     false,
+              isRegistration: false,
+              patientName:   result.patientName,
+              patientId:     'ID: ${result.patientId}',
+              score:         result.score,
+              matchedFinger: result.matchedFinger,
+            ),
+          ),
+        );
+      }
     } on FingerprintException catch (e) {
       if (mounted) {
         setState(() {

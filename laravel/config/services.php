@@ -24,4 +24,19 @@ return [
         'url' => env('PYTHON_SERVICE_URL', 'http://127.0.0.1:5001'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | GoT-HoMIS Integration
+    |--------------------------------------------------------------------------
+    | Set HOMIS_BASE_URL and HOMIS_API_KEY in .env.
+    | Example: HOMIS_BASE_URL=https://homis.moh.go.tz/api/v1
+    */
+
+    'homis' => [
+        'url'     => env('HOMIS_BASE_URL', ''),
+        'key'     => env('HOMIS_API_KEY', ''),
+        'timeout' => (int) env('HOMIS_TIMEOUT', 10),
+        'retries' => (int) env('HOMIS_RETRIES', 3),
+    ],
+
 ];

@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Fingerprint;
 use App\Models\VerificationLog;
 use App\Services\FingerprintService;
 use App\Services\GeofenceService;
+use App\Services\HomisService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +20,7 @@ class VerificationController extends Controller
     public function __construct(
         private FingerprintService $fingerprint,
         private GeofenceService    $geofence,
+        private HomisService       $homis,
     ) {}
 
     /**
@@ -94,7 +97,7 @@ class VerificationController extends Controller
         }
 
         // ------------------------------------------------------------------
-        // 5. Resolve result and write audit log
+        // 5. Resolve result and write verification audit log
         // ------------------------------------------------------------------
         $matched        = $score >= self::MATCH_THRESHOLD && $matchedFp !== null;
         $matchedPatient = $matched ? $matchedFp->patient : null;
@@ -110,11 +113,37 @@ class VerificationController extends Controller
             locationData:  $data,
         );
 
+        AuditLog::record($request, 'fingerprint_match', $matchedPatient?->id, null, $status, [
+            'score'      => round($score, 4),
+            'log_id'     => $log->id,
+        ]);
+
+        // ------------------------------------------------------------------
+        // 6. GoT-HoMIS enrichment (only on successful match)
+        //    Failures are non-fatal — verification result is returned regardless
+        // ------------------------------------------------------------------
+        $ehr       = null;
+        $insurance = null;
+
+        if ($matched && $matchedPatient !== null) {
+            $homisId = (string) $matchedPatient->id;
+
+            $ehr = $this->homis->getPatientRecord($homisId);
+            AuditLog::record($request, 'ehr_access', $matchedPatient->id, 'patient_registration',
+                $ehr ? '200' : 'unavailable');
+
+            $insurance = $this->homis->getInsuranceEligibility($homisId);
+            AuditLog::record($request, 'insurance_check', $matchedPatient->id, 'insurance',
+                $insurance ? '200' : 'unavailable');
+        }
+
         return response()->json([
-            'status'  => $status,
-            'score'   => round($score, 4),
-            'patient' => $matchedPatient,
-            'log_id'  => $log->id,
+            'status'    => $status,
+            'score'     => round($score, 4),
+            'patient'   => $matchedPatient,
+            'log_id'    => $log->id,
+            'ehr'       => $ehr,
+            'insurance' => $insurance,
         ]);
     }
 

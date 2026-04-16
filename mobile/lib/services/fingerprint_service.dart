@@ -92,6 +92,10 @@ class FingerprintVerifyResult {
   final int    patientId;
   final String matchedFinger;
 
+  // GoT-HoMIS enrichment (null when unavailable or no match)
+  final Map<String, dynamic>? ehr;
+  final Map<String, dynamic>? insurance;
+
   const FingerprintVerifyResult({
     required this.verdict,
     required this.score,
@@ -100,6 +104,8 @@ class FingerprintVerifyResult {
     required this.patientName,
     required this.patientId,
     required this.matchedFinger,
+    this.ehr,
+    this.insurance,
   });
 
   bool get isMatch => verdict == 'MATCH';
@@ -114,6 +120,8 @@ class FingerprintVerifyResult {
       patientName:    patient['full_name']    as String? ?? 'Unknown',
       patientId:      patient['id']           as int?    ?? 0,
       matchedFinger:  json['matched_finger']  as String? ?? '',
+      ehr:            json['ehr']       as Map<String, dynamic>?,
+      insurance:      json['insurance'] as Map<String, dynamic>?,
     );
   }
 }
