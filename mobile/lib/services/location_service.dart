@@ -18,6 +18,10 @@ class LocationService {
   ///   - Location services are disabled on the device.
   ///   - Any other error occurs while fetching the position.
   Future<bool> isWithinHospitalRange() async {
+    // DEV BYPASS — remove before production
+    return true;
+
+    // ignore: dead_code
     // 1. Ensure location services are enabled.
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return false;

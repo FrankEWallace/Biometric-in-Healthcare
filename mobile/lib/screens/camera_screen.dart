@@ -25,6 +25,15 @@ class CameraScreen extends StatefulWidget {
   /// [returnImageOnly] is false).
   final String? patientId;
 
+  /// Which finger is being captured, forwarded to the register endpoint.
+  final String fingerPosition;
+
+  /// Human-readable label shown in the overlay (e.g. "Right Index Finger").
+  final String? fingerLabel;
+
+  /// When true, the overlay uses a wide hand frame instead of single-finger frame.
+  final bool isHandCapture;
+
   /// When true, skip upload and just return the captured image to the caller.
   final bool returnImageOnly;
 
@@ -33,6 +42,9 @@ class CameraScreen extends StatefulWidget {
     this.title = 'Capture Image',
     this.showFingerprintOverlay = false,
     this.patientId,
+    this.fingerPosition = 'right_index',
+    this.fingerLabel,
+    this.isHandCapture = false,
     this.returnImageOnly = false,
   });
 
@@ -237,6 +249,7 @@ class _CameraScreenState extends State<CameraScreen>
         File(image.path),
         token: token,
         patientId: patientId,
+        fingerPosition: widget.fingerPosition,
       );
       if (mounted) Navigator.pop(context, image);
     } on FingerprintException catch (e) {
@@ -397,7 +410,10 @@ class _CameraScreenState extends State<CameraScreen>
             ),
           ),
           if (widget.showFingerprintOverlay) ...[
-            Center(child: FingerprintOverlay(isScanning: _isCapturing)),
+            Center(child: FingerprintOverlay(
+              isScanning: _isCapturing,
+              isHandCapture: widget.isHandCapture,
+            )),
             // Instruction label beneath the scanning frame
             Positioned(
               bottom: 96,
@@ -405,8 +421,32 @@ class _CameraScreenState extends State<CameraScreen>
               right: 24,
               child: Column(
                 children: [
+                  if (widget.fingerLabel != null && !_isCapturing) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        widget.fingerLabel!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
                   Text(
-                    _isCapturing ? 'Hold still…' : 'Place finger inside the frame',
+                    _isCapturing
+                        ? 'Hold still…'
+                        : widget.isHandCapture
+                            ? 'Hold hand flat, fingers spread, facing camera'
+                            : 'Place finger inside the frame',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.white,
@@ -419,7 +459,9 @@ class _CameraScreenState extends State<CameraScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Good lighting · Steady hand · Fill the frame',
+                    widget.isHandCapture
+                        ? 'Good lighting · All 4 fingers visible · Fill the frame'
+                        : 'Good lighting · Steady hand · Fill the frame',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.65),

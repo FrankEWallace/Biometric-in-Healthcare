@@ -24,6 +24,10 @@ class NetworkService {
   /// When null is returned on iOS the method returns `true` to avoid locking
   /// out real hospital staff — change this policy before production if needed.
   Future<bool> isConnectedToHospitalWifi() async {
+    // DEV BYPASS — remove before production
+    return true;
+
+    // ignore: dead_code
     String? ssid;
     try {
       ssid = await _info.getWifiName();

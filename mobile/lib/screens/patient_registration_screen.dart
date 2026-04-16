@@ -10,6 +10,35 @@ import '../widgets/primary_button.dart';
 import 'camera_screen.dart';
 import 'result_screen.dart';
 
+// ── Finger scan steps (Selcom-style, sequential) ─────────────────────────────
+
+class _FingerStep {
+  final String position;    // API field value
+  final String label;       // Human-readable label shown in camera UI
+  final bool isHandCapture; // true → wide hand frame, false → single finger
+
+  const _FingerStep({
+    required this.position,
+    required this.label,
+    this.isHandCapture = false,
+  });
+}
+
+const _fingerSteps = [
+  _FingerStep(
+    position: 'right_hand',
+    label: 'Right Hand',
+    isHandCapture: true,
+  ),
+  _FingerStep(
+    position: 'left_hand',
+    label: 'Left Hand',
+    isHandCapture: true,
+  ),
+];
+
+// ── Screen ────────────────────────────────────────────────────────────────────
+
 class PatientRegistrationScreen extends StatefulWidget {
   const PatientRegistrationScreen({super.key});
 
@@ -33,6 +62,10 @@ class _PatientRegistrationScreenState
   // State
   _RegistrationStep _step = _RegistrationStep.form;
   String? _apiError;
+
+  // Multi-finger tracking
+  PatientModel? _createdPatient;
+  int _currentFingerIndex = 0;
 
   @override
   void dispose() {
@@ -70,10 +103,13 @@ class _PatientRegistrationScreenState
         jmbg: _jmbgController.text.trim(),
       );
 
-      setState(() => _step = _RegistrationStep.capturingFingerprint);
+      setState(() {
+        _createdPatient = patient;
+        _currentFingerIndex = 0;
+        _step = _RegistrationStep.capturingFingerprint;
+      });
 
-      // Immediately open camera after patient is created
-      await _openCamera(patient);
+      await _openCameraForCurrentFinger(patient);
     } on PatientException catch (e) {
       setState(() {
         _apiError = e.message;
@@ -82,16 +118,22 @@ class _PatientRegistrationScreenState
     }
   }
 
-  // ── Step 2: open camera — upload handled inside CameraScreen ────────────
+  // ── Step 2: open camera for each finger sequentially ─────────────────────
 
-  Future<void> _openCamera(PatientModel patient) async {
+  Future<void> _openCameraForCurrentFinger(PatientModel patient) async {
+    final finger = _fingerSteps[_currentFingerIndex];
+
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
         builder: (_) => CameraScreen(
-          title: 'Capture Fingerprint',
+          title:
+              'Scan Hand ${_currentFingerIndex + 1} of ${_fingerSteps.length}',
           showFingerprintOverlay: true,
           patientId: patient.id.toString(),
+          fingerPosition: finger.position,
+          fingerLabel: finger.label,
+          isHandCapture: finger.isHandCapture,
         ),
       ),
     );
@@ -99,21 +141,29 @@ class _PatientRegistrationScreenState
     if (!mounted) return;
 
     if (result != null) {
-      // Upload succeeded — go to success screen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ResultScreen(
-            isSuccess: true,
-            patientName: patient.fullName,
-            patientId: patient.id.toString(),
-            isRegistration: true,
+      final nextIndex = _currentFingerIndex + 1;
+
+      if (nextIndex < _fingerSteps.length) {
+        // More fingers remain — advance and open camera again
+        setState(() => _currentFingerIndex = nextIndex);
+        await _openCameraForCurrentFinger(patient);
+      } else {
+        // All fingers captured — go to success screen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ResultScreen(
+              isSuccess: true,
+              patientName: patient.fullName,
+              patientId: patient.id.toString(),
+              isRegistration: true,
+            ),
           ),
-        ),
-      );
+        );
+      }
     } else {
-      // User cancelled camera — stay on screen, allow retry
-      setState(() => _step = _RegistrationStep.form);
+      // User cancelled — allow retry from the finger progress screen
+      setState(() => _step = _RegistrationStep.capturingFingerprint);
     }
   }
 
@@ -162,12 +212,21 @@ class _PatientRegistrationScreenState
       return const _LoadingView(message: 'Creating patient record…');
     }
 
+    if (_step == _RegistrationStep.capturingFingerprint &&
+        _createdPatient != null) {
+      return _FingerProgressView(
+        patient: _createdPatient!,
+        currentIndex: _currentFingerIndex,
+        fingers: _fingerSteps,
+        onRetry: () => _openCameraForCurrentFinger(_createdPatient!),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Step progress bar
           _StepBar(
             steps: const ['Patient Info', 'Fingerprint', 'Complete'],
             current: 0,
@@ -184,26 +243,23 @@ class _PatientRegistrationScreenState
           ),
           const SizedBox(height: 6),
           const Text(
-            'Fill in the patient\'s details, then capture their fingerprint.',
+            'Fill in the patient\'s details, then capture their fingerprints.',
             style: TextStyle(
                 fontSize: 14, color: AppColors.textSecondary, height: 1.5),
           ),
           const SizedBox(height: 24),
 
-          // API error banner
           if (_apiError != null) ...[
-            _ErrorBanner(message: _apiError!, onDismiss: () {
-              setState(() => _apiError = null);
-            }),
+            _ErrorBanner(
+                message: _apiError!,
+                onDismiss: () => setState(() => _apiError = null)),
             const SizedBox(height: 16),
           ],
 
-          // Form
           Form(
             key: _formKey,
             child: Column(
               children: [
-                // Full name
                 CustomTextField(
                   label: 'Full Name *',
                   hint: 'e.g. Amina Kovač',
@@ -218,14 +274,14 @@ class _PatientRegistrationScreenState
                 ),
                 const SizedBox(height: 16),
 
-                // Date of birth — tappable field
                 GestureDetector(
                   onTap: _pickDate,
                   child: AbsorbPointer(
                     child: CustomTextField(
                       label: 'Date of Birth *',
                       hint: 'DD/MM/YYYY',
-                      controller: TextEditingController()..text = _formattedDob,
+                      controller: TextEditingController()
+                        ..text = _formattedDob,
                       prefixIcon: Icons.cake_outlined,
                       validator: (_) => _dateOfBirth == null
                           ? 'Date of birth is required'
@@ -235,7 +291,6 @@ class _PatientRegistrationScreenState
                 ),
                 const SizedBox(height: 16),
 
-                // Phone
                 CustomTextField(
                   label: 'Phone Number',
                   hint: '+387 61 000 000',
@@ -245,7 +300,6 @@ class _PatientRegistrationScreenState
                 ),
                 const SizedBox(height: 16),
 
-                // JMBG
                 CustomTextField(
                   label: 'JMBG (National ID)',
                   hint: '13-digit national ID',
@@ -261,8 +315,7 @@ class _PatientRegistrationScreenState
                 ),
                 const SizedBox(height: 16),
 
-                // Gender dropdown
-                _GenderDropdown(
+                _GenderPicker(
                   value: _gender,
                   onChanged: (v) => setState(() => _gender = v),
                 ),
@@ -271,7 +324,6 @@ class _PatientRegistrationScreenState
           ),
           const SizedBox(height: 28),
 
-          // Info note
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -287,7 +339,7 @@ class _PatientRegistrationScreenState
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'After saving patient details you will be directed to capture the fingerprint.',
+                    'After saving, you will photograph both hands (4 fingers each).',
                     style: TextStyle(
                         color: AppColors.primary, fontSize: 13, height: 1.5),
                   ),
@@ -298,9 +350,183 @@ class _PatientRegistrationScreenState
           const SizedBox(height: 28),
 
           PrimaryButton(
-            label: 'Save & Capture Fingerprint',
+            label: 'Save & Capture Fingerprints',
             icon: Icons.arrow_forward,
             onPressed: _submitForm,
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Finger progress screen (shown between camera sessions) ────────────────────
+
+class _FingerProgressView extends StatelessWidget {
+  final PatientModel patient;
+  final int currentIndex;
+  final List<_FingerStep> fingers;
+  final VoidCallback onRetry;
+
+  const _FingerProgressView({
+    required this.patient,
+    required this.currentIndex,
+    required this.fingers,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final finger = fingers[currentIndex];
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _StepBar(
+            steps: const ['Patient Info', 'Fingerprint', 'Complete'],
+            current: 1,
+          ),
+          const SizedBox(height: 28),
+
+          // Patient banner
+          Container(
+            width: double.infinity,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.secondary,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.person,
+                    color: AppColors.primary, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${patient.fullName}  ·  #${patient.id}',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+
+          const Text(
+            'Fingerprint Capture',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Photograph hand ${currentIndex + 1} of ${fingers.length}',
+            style: const TextStyle(
+                fontSize: 14, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 24),
+
+          // Finger checklist
+          ...List.generate(fingers.length, (i) {
+            final done = i < currentIndex;
+            final active = i == currentIndex;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: active
+                      ? AppColors.primary.withValues(alpha: 0.08)
+                      : done
+                          ? AppColors.success.withValues(alpha: 0.06)
+                          : AppColors.secondary,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: active
+                        ? AppColors.primary.withValues(alpha: 0.5)
+                        : done
+                            ? AppColors.success.withValues(alpha: 0.4)
+                            : AppColors.divider,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: done
+                            ? AppColors.success
+                            : active
+                                ? AppColors.primary
+                                : AppColors.divider,
+                      ),
+                      child: done
+                          ? const Icon(Icons.check,
+                              color: Colors.white, size: 15)
+                          : active
+                              ? const Icon(Icons.back_hand_outlined,
+                                  color: Colors.white, size: 15)
+                              : Center(
+                                  child: Text(
+                                    '${i + 1}',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      fingers[i].label,
+                      style: TextStyle(
+                        color: active
+                            ? AppColors.textPrimary
+                            : done
+                                ? AppColors.success
+                                : AppColors.textHint,
+                        fontSize: 14,
+                        fontWeight: active
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    if (active) ...[
+                      const Spacer(),
+                      const Text(
+                        'Next',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+
+          const Spacer(),
+
+          PrimaryButton(
+            label: 'Photograph ${finger.label}',
+            icon: Icons.camera_alt,
+            onPressed: onRetry,
           ),
           const SizedBox(height: 16),
         ],
@@ -367,29 +593,108 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
-class _GenderDropdown extends StatelessWidget {
+/// Two-option gender picker (Male / Female only).
+class _GenderPicker extends StatelessWidget {
   final String? value;
   final ValueChanged<String?> onChanged;
 
-  const _GenderDropdown({required this.value, required this.onChanged});
+  const _GenderPicker({required this.value, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
-    // ignore: deprecated_member_use
-    return DropdownButtonFormField<String>(
-      value: value,
-      onChanged: onChanged,
-      decoration: const InputDecoration(
-        labelText: 'Gender',
-        prefixIcon: Icon(Icons.wc_outlined,
-            color: AppColors.textSecondary, size: 20),
-      ),
-      items: const [
-        DropdownMenuItem(value: null, child: Text('Prefer not to say')),
-        DropdownMenuItem(value: 'male', child: Text('Male')),
-        DropdownMenuItem(value: 'female', child: Text('Female')),
-        DropdownMenuItem(value: 'other', child: Text('Other')),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'Gender',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Row(
+          children: [
+            _GenderOption(
+              label: 'Male',
+              icon: Icons.male,
+              selected: value == 'male',
+              onTap: () => onChanged('male'),
+            ),
+            const SizedBox(width: 12),
+            _GenderOption(
+              label: 'Female',
+              icon: Icons.female,
+              selected: value == 'female',
+              onTap: () => onChanged('female'),
+            ),
+          ],
+        ),
       ],
+    );
+  }
+}
+
+class _GenderOption extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _GenderOption({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary.withValues(alpha: 0.1)
+                : AppColors.secondary,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.divider,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                color: selected
+                    ? AppColors.primary
+                    : AppColors.textSecondary,
+                size: 24,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: selected
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -404,7 +709,6 @@ class _StepBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: List.generate(steps.length * 2 - 1, (i) {
-        // Even indices → step circles; odd indices → connector lines
         if (i.isOdd) {
           final stepIndex = i ~/ 2;
           final filled = stepIndex < current;
@@ -419,11 +723,7 @@ class _StepBar extends StatelessWidget {
         final stepIndex = i ~/ 2;
         final done   = stepIndex < current;
         final active = stepIndex == current;
-        final bgColor = done
-            ? AppColors.primary
-            : active
-                ? AppColors.primary
-                : AppColors.divider;
+        final bgColor = done || active ? AppColors.primary : AppColors.divider;
         final labelColor = active
             ? AppColors.primary
             : done

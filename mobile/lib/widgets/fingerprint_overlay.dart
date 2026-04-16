@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// Rectangular fingerprint scanning frame with animated corner brackets
-/// and a vertically-travelling scan line.
+/// Rectangular scanning frame with animated corner brackets and scan line.
 ///
-/// [isScanning] — when true, activates the scan line animation and changes
-///                the border to the lighter primary color.
+/// [isScanning]    — activates scan animation and lighter border color.
+/// [isHandCapture] — widens the frame and shows a hand icon instead of
+///                   a single fingerprint, for multi-finger hand captures.
 class FingerprintOverlay extends StatefulWidget {
   final bool isScanning;
+  final bool isHandCapture;
 
-  const FingerprintOverlay({super.key, this.isScanning = false});
+  const FingerprintOverlay({
+    super.key,
+    this.isScanning = false,
+    this.isHandCapture = false,
+  });
 
   @override
   State<FingerprintOverlay> createState() => _FingerprintOverlayState();
@@ -36,8 +41,8 @@ class _FingerprintOverlayState extends State<FingerprintOverlay>
 
   @override
   Widget build(BuildContext context) {
-    const double w = 240;
-    const double h = 240;
+    final double w = widget.isHandCapture ? 300 : 240;
+    final double h = widget.isHandCapture ? 200 : 240;
     const double radius = 16.0;
     const double bracketLen = 28.0;
     const double bracketW = 3.5;
@@ -70,13 +75,33 @@ class _FingerprintOverlayState extends State<FingerprintOverlay>
             ),
           ),
 
-          // ── Fingerprint ghost icon ───────────────────────────────────
+          // ── Ghost icon (hand or single fingerprint) ──────────────────
           Center(
-            child: Icon(
-              Icons.fingerprint,
-              size: 110,
-              color: AppColors.primary.withValues(alpha: 0.12),
-            ),
+            child: widget.isHandCapture
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.back_hand_outlined,
+                        size: 80,
+                        color: AppColors.primary.withValues(alpha: 0.14),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '4 fingers · spread apart',
+                        style: TextStyle(
+                          color: AppColors.primary.withValues(alpha: 0.25),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  )
+                : Icon(
+                    Icons.fingerprint,
+                    size: 110,
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                  ),
           ),
 
           // ── Animated scan line ───────────────────────────────────────
