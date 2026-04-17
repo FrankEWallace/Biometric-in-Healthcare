@@ -25,6 +25,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
   bool _isVerifying = false;
   String? _error;
 
+  static const int _maxAttempts = 3;
+  int _attemptCount = 0;
+
   @override
   void dispose() {
     _patientIdController.dispose();
@@ -75,6 +78,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
     setState(() {
       _isVerifying = true;
       _error = null;
+      _attemptCount++;
     });
 
     try {
@@ -101,19 +105,30 @@ class _VerificationScreenState extends State<VerificationScreen> {
           ),
         );
       } else {
-        Navigator.pushReplacement(
+        // Use push (not pushReplacement) so the VerificationScreen stays on
+        // the stack — "Try Again" can pop() back with _attemptCount intact.
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => ResultScreen(
-              isSuccess:     false,
+              isSuccess:      false,
               isRegistration: false,
-              patientName:   result.patientName,
-              patientId:     'ID: ${result.patientId}',
-              score:         result.score,
-              matchedFinger: result.matchedFinger,
+              patientName:    result.patientName,
+              patientId:      'ID: ${result.patientId}',
+              score:          result.score,
+              matchedFinger:  result.matchedFinger,
+              attemptCount:   _attemptCount,
+              maxAttempts:    _maxAttempts,
             ),
           ),
         );
+        // Reset image + spinner so user captures a fresh scan on retry
+        if (mounted) {
+          setState(() {
+            _isVerifying   = false;
+            _capturedImage = null;
+          });
+        }
       }
     } on FingerprintException catch (e) {
       if (mounted) {
@@ -260,9 +275,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 ),
               ),
               onChanged: (_) {
-                // clear image if ID changes after capture
-                if (_capturedImage != null) {
-                  setState(() => _capturedImage = null);
+                if (_capturedImage != null || _attemptCount > 0) {
+                  setState(() {
+                    _capturedImage = null;
+                    _attemptCount  = 0;
+                  });
                 }
               },
             ),

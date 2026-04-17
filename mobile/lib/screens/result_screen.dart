@@ -17,6 +17,12 @@ class ResultScreen extends StatefulWidget {
   /// The finger position that was matched (e.g. "right_index").
   final String? matchedFinger;
 
+  /// How many verification attempts have been made for this patient.
+  final int attemptCount;
+
+  /// Maximum allowed attempts before escalating to alternative verification.
+  final int maxAttempts;
+
   const ResultScreen({
     super.key,
     required this.isSuccess,
@@ -25,6 +31,8 @@ class ResultScreen extends StatefulWidget {
     this.isRegistration = false,
     this.score,
     this.matchedFinger,
+    this.attemptCount = 0,
+    this.maxAttempts  = 3,
   });
 
   @override
@@ -280,13 +288,17 @@ class _ResultScreenState extends State<ResultScreen>
                   (route) => false,
                 ),
               ),
-              if (!widget.isSuccess) ...[
+              if (!widget.isSuccess && !widget.isRegistration) ...[
                 const SizedBox(height: 12),
-                SecondaryButton(
-                  label: 'Try Again',
-                  icon: Icons.refresh,
-                  onPressed: () => Navigator.pop(context),
-                ),
+                if (widget.attemptCount < widget.maxAttempts)
+                  SecondaryButton(
+                    label: 'Try Again'
+                        ' (${widget.maxAttempts - widget.attemptCount} left)',
+                    icon: Icons.refresh,
+                    onPressed: () => Navigator.pop(context),
+                  )
+                else
+                  _AlternativeVerificationBanner(patientId: widget.patientId),
               ],
               const SizedBox(height: 8),
             ],
@@ -381,6 +393,101 @@ class _ScoreRing extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ── Alternative verification banner (shown after max retries) ─────────────────
+
+class _AlternativeVerificationBanner extends StatelessWidget {
+  final String? patientId;
+
+  const _AlternativeVerificationBanner({this.patientId});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded,
+                  color: Color(0xFFFFB300), size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Maximum Attempts Reached',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF7B5800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Fingerprint could not be verified after 3 attempts.'
+            '${patientId != null ? ' Patient: $patientId.' : ''}'
+            ' Please use an alternative method:',
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF7B5800),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const _AltOption(
+            icon: Icons.badge_outlined,
+            label: 'Check NHIF/CHF card manually',
+          ),
+          const _AltOption(
+            icon: Icons.supervised_user_circle_outlined,
+            label: 'Request supervisor override',
+          ),
+          const _AltOption(
+            icon: Icons.assignment_ind_outlined,
+            label: 'Verify via National ID (NIDA)',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AltOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _AltOption({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFFFFB300)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF7B5800),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

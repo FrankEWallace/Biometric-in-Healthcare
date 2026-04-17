@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Fingerprint;
 use App\Models\Patient;
 use App\Services\FingerprintService;
+use App\Services\HomisService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,7 +15,10 @@ class FingerprintController extends Controller
     /** Minimum Laplacian-variance quality score to accept an enrollment. */
     private const MIN_QUALITY_SCORE = 0.30;
 
-    public function __construct(private FingerprintService $fingerprint) {}
+    public function __construct(
+        private FingerprintService $fingerprint,
+        private HomisService       $homis,
+    ) {}
 
     // -------------------------------------------------------------------------
     // POST /api/fingerprint/upload   (legacy — kept for backward compatibility)
@@ -296,9 +300,19 @@ class FingerprintController extends Controller
             ], 503);
         }
 
+        // ── GoT-HoMIS enrichment (only on match — failures are non-fatal) ────────
+        $ehr       = null;
+        $insurance = null;
+
+        if ($result['verdict'] === 'MATCH') {
+            $homisId   = (string) $patient->id;
+            $ehr       = $this->homis->getPatientRecord($homisId);
+            $insurance = $this->homis->getInsuranceEligibility($homisId);
+        }
+
         return response()->json([
             'verdict'         => $result['verdict'],
-            'score'           => $result['score'],           // 0–100
+            'score'           => $result['score'],
             'probe_keypoints' => $result['probe_keypoints'],
             'feature_status'  => $result['feature_status'],
             'patient'         => [
@@ -306,6 +320,8 @@ class FingerprintController extends Controller
                 'full_name' => $patient->full_name,
             ],
             'matched_finger'  => $storedFingerprint->finger_position,
+            'ehr'             => $ehr,
+            'insurance'       => $insurance,
         ]);
     }
 }
