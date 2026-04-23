@@ -12,8 +12,8 @@ use Illuminate\Http\Request;
 
 class FingerprintController extends Controller
 {
-    /** Minimum Laplacian-variance quality score to accept an enrollment. */
-    private const MIN_QUALITY_SCORE = 0.30;
+    /** Minimum quality score for phone camera hand captures (Laplacian/300). */
+    private const MIN_QUALITY_SCORE = 0.10;
 
     public function __construct(
         private FingerprintService $fingerprint,
@@ -43,7 +43,8 @@ class FingerprintController extends Controller
             'finger_position' => [
                 'nullable',
                 'in:right_thumb,right_index,right_middle,right_ring,right_little,'
-                  . 'left_thumb,left_index,left_middle,left_ring,left_little',
+                  . 'left_thumb,left_index,left_middle,left_ring,left_little,'
+                  . 'right_hand,left_hand',
             ],
             'is_primary' => 'nullable|boolean',
         ]);
@@ -140,7 +141,8 @@ class FingerprintController extends Controller
             'finger_position' => [
                 'nullable',
                 'in:right_thumb,right_index,right_middle,right_ring,right_little,'
-                  . 'left_thumb,left_index,left_middle,left_ring,left_little',
+                  . 'left_thumb,left_index,left_middle,left_ring,left_little,'
+                  . 'right_hand,left_hand',
             ],
             'is_primary' => 'nullable|boolean',
         ]);
@@ -182,7 +184,7 @@ class FingerprintController extends Controller
             ], 422);
         }
 
-        $fingerPosition = $data['finger_position'] ?? 'right_index';
+        $fingerPosition = $data['finger_position'] ?? 'right_hand';
         $isPrimary      = (bool) ($data['is_primary'] ?? false);
 
         // ── Demote existing primary if needed ─────────────────────────────────

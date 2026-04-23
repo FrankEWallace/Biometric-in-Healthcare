@@ -164,12 +164,13 @@ def compute_quality_score(image: np.ndarray) -> float:
     """
     Estimate sharpness using Laplacian variance, normalised to [0.0, 1.0].
 
-    Higher variance → sharper ridges → higher score.
-    Values below 0.30 indicate a poor-quality capture.
-    Ceiling of 2000 is an empirical upper bound for typical fingerprint images.
+    Must be called on the RAW grayscale image (before any blur/equalization)
+    so the variance reflects actual capture sharpness.  Ceiling of 300 is
+    calibrated for phone camera hand photos (not dedicated scanner images).
+    Values below 0.10 indicate a poor-quality capture.
     """
     laplacian_var = float(cv2.Laplacian(image, cv2.CV_64F).var())
-    return round(min(laplacian_var / 2000.0, 1.0), 3)
+    return round(min(laplacian_var / 300.0, 1.0), 3)
 
 
 # ---------------------------------------------------------------------------
@@ -206,12 +207,11 @@ def preprocess_fingerprint(image: np.ndarray) -> dict:
         }
     """
     gray      = to_grayscale(image)
+    quality   = compute_quality_score(gray)   # measure before any blur
     blurred   = apply_gaussian_blur(gray)
     equalized = equalize_histogram(blurred)
     binary    = apply_adaptive_threshold(equalized)
     skeleton  = apply_thinning(binary)
-
-    quality = compute_quality_score(equalized)
 
     _, buffer = cv2.imencode(".png", skeleton)
     b64 = base64.b64encode(buffer).decode("utf-8")

@@ -11,7 +11,7 @@ class PatientException implements Exception {
 }
 
 class PatientService {
-  static const String _baseUrl = 'http://192.168.100.132:8000/api';
+  static const String _baseUrl = 'http://10.189.130.132:8000/api';
 
   Map<String, String> _headers(String token) => {
         'Content-Type': 'application/json',
