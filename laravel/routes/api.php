@@ -104,6 +104,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // Direct patient verification — nurse only
         Route::post('verify', [FingerprintController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
+
+        // Admin/super_admin: unlock a locked fingerprint record
+        Route::post('/{fingerprint}/unlock', [FingerprintController::class, 'unlock'])
+             ->middleware('role:admin,super_admin');
     });
 
     // ── Hospital-wide Verification ────────────────────────────────────────────

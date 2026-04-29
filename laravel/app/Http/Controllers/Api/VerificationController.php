@@ -103,6 +103,16 @@ class VerificationController extends Controller
         $matchedPatient = $matched ? $matchedFp->patient : null;
         $status         = $matched ? 'matched' : 'no_match';
 
+        // ── Failure tracking and lock ─────────────────────────────────────────
+        $justLocked = false;
+
+        if (! $matched && $matchedFp !== null) {
+            $justLocked = $matchedFp->recordFailure();
+        } elseif ($matched) {
+            // Successful match — reset failure counters
+            $matchedFp->unlock();
+        }
+
         $log = $this->writeLog(
             operatorId:    $operator->id,
             hospitalId:    $hospital->id,
@@ -113,10 +123,22 @@ class VerificationController extends Controller
             locationData:  $data,
         );
 
-        AuditLog::record($request, 'fingerprint_match', $matchedPatient?->id, null, $status, [
-            'score'      => round($score, 4),
-            'log_id'     => $log->id,
+        $auditAction = $matched
+            ? AuditLog::ACTION_FINGERPRINT_MATCH
+            : AuditLog::ACTION_FINGERPRINT_NO_MATCH;
+
+        AuditLog::record($request, $auditAction, $matchedPatient?->id, null, $status, [
+            'score'   => round($score, 4),
+            'log_id'  => $log->id,
         ]);
+
+        if ($justLocked && $matchedFp !== null) {
+            AuditLog::record($request, AuditLog::ACTION_FINGERPRINT_LOCK, $matchedFp->patient_id, null, null, [
+                'fingerprint_id'  => $matchedFp->id,
+                'failed_attempts' => $matchedFp->failed_attempts,
+                'window_hours'    => \App\Models\Fingerprint::LOCK_WINDOW_HOURS,
+            ]);
+        }
 
         // ------------------------------------------------------------------
         // 6. GoT-HoMIS enrichment (only on successful match)

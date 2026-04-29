@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Fingerprint;
 use App\Models\Patient;
 use App\Services\FingerprintService;
@@ -281,6 +282,14 @@ class FingerprintController extends Controller
             ], 404);
         }
 
+        // ── Lock check ────────────────────────────────────────────────────────
+        if ($storedFingerprint->isLocked()) {
+            return response()->json([
+                'error'     => 'This fingerprint record is locked due to repeated failed attempts. Contact an administrator to unlock.',
+                'locked_at' => $storedFingerprint->locked_at,
+            ], 423);
+        }
+
         $storedTemplate = $storedFingerprint->getTemplate();
 
         if (empty($storedTemplate)) {
@@ -302,7 +311,34 @@ class FingerprintController extends Controller
             ], 503);
         }
 
-        // ── GoT-HoMIS enrichment (only on match — failures are non-fatal) ────────
+        // ── Track failures and lock if threshold reached ──────────────────────
+        if ($result['verdict'] !== 'MATCH') {
+            $justLocked = $storedFingerprint->recordFailure();
+
+            if ($justLocked) {
+                AuditLog::record($request, AuditLog::ACTION_FINGERPRINT_LOCK, $patient->id, null, null, [
+                    'fingerprint_id'  => $storedFingerprint->id,
+                    'failed_attempts' => $storedFingerprint->failed_attempts,
+                    'window_hours'    => \App\Models\Fingerprint::LOCK_WINDOW_HOURS,
+                ]);
+
+                return response()->json([
+                    'verdict' => 'NO_MATCH',
+                    'error'   => 'Fingerprint locked after ' . \App\Models\Fingerprint::LOCK_THRESHOLD
+                                 . ' failed attempts within 1 hour. Contact an administrator.',
+                ], 423);
+            }
+
+            AuditLog::record($request, AuditLog::ACTION_FINGERPRINT_NO_MATCH, $patient->id, null, null, [
+                'fingerprint_id'  => $storedFingerprint->id,
+                'failed_attempts' => $storedFingerprint->failed_attempts,
+            ]);
+        } else {
+            // Successful match — reset failure counters
+            $storedFingerprint->unlock();
+        }
+
+        // ── GoT-HoMIS enrichment (only on match — failures are non-fatal) ─────
         $ehr       = null;
         $insurance = null;
 
@@ -324,6 +360,40 @@ class FingerprintController extends Controller
             'matched_finger'  => $storedFingerprint->finger_position,
             'ehr'             => $ehr,
             'insurance'       => $insurance,
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/fingerprint/{fingerprint}/unlock   (admin / super_admin only)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Unlock a locked fingerprint record and reset its failure counters.
+     * The fingerprint must belong to the admin's hospital (super_admin is unrestricted).
+     */
+    public function unlock(Request $request, Fingerprint $fingerprint): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user->isSuperAdmin() && $fingerprint->hospital_id !== $user->hospital_id) {
+            return response()->json(['error' => 'Fingerprint not found.'], 404);
+        }
+
+        if (! $fingerprint->isLocked()) {
+            return response()->json(['error' => 'Fingerprint is not locked.'], 409);
+        }
+
+        $fingerprint->unlock();
+
+        AuditLog::record($request, AuditLog::ACTION_FINGERPRINT_UNLOCK, $fingerprint->patient_id, null, null, [
+            'fingerprint_id'  => $fingerprint->id,
+            'finger_position' => $fingerprint->finger_position,
+        ]);
+
+        return response()->json([
+            'message'        => 'Fingerprint unlocked successfully.',
+            'fingerprint_id' => $fingerprint->id,
+            'patient_id'     => $fingerprint->patient_id,
         ]);
     }
 }
