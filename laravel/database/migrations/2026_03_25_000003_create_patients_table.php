@@ -19,8 +19,8 @@ return new class extends Migration
             $table->date('date_of_birth');
             $table->enum('gender', ['male', 'female', 'other'])->nullable();
 
-            // BiH national identifier — Jedinstveni Matični Broj Građana (13 digits)
-            $table->string('jmbg', 13)->nullable()->unique();
+            // National identifier — 20 digits
+            $table->string('jmbg', 20)->nullable()->unique();
 
             $table->string('phone', 20)->nullable();
             $table->text('notes')->nullable();

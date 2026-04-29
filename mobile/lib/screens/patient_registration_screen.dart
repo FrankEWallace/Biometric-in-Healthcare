@@ -302,13 +302,13 @@ class _PatientRegistrationScreenState
 
                 CustomTextField(
                   label: 'JMBG (National ID)',
-                  hint: '13-digit national ID',
+                  hint: '20-digit national ID',
                   controller: _jmbgController,
                   prefixIcon: Icons.badge_outlined,
                   keyboardType: TextInputType.number,
                   validator: (v) {
-                    if (v != null && v.isNotEmpty && v.length != 13) {
-                      return 'JMBG must be exactly 13 digits';
+                    if (v != null && v.isNotEmpty && v.length != 20) {
+                      return 'JMBG must be exactly 20 digits';
                     }
                     return null;
                   },
