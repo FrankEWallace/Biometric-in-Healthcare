@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\CheckHospitalAccess;
 use App\Http\Middleware\EnsureActiveUser;
+use App\Http\Middleware\RequireRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -22,9 +23,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // Sanctum stateful API support (cookie-based for same-domain clients)
         $middleware->statefulApi();
 
-        // Named alias — used in routes/api.php as 'hospital.access'
+        // Named aliases — used in routes/api.php
         $middleware->alias([
             'hospital.access' => CheckHospitalAccess::class,
+            'role'            => RequireRole::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

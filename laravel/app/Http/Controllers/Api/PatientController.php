@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Fingerprint;
 use App\Models\Patient;
 use App\Services\FingerprintService;
@@ -34,6 +35,8 @@ class PatientController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $this->authorize('create', Patient::class);
+
         $data = $request->validate([
             'full_name'     => 'required|string|max:200',
             'date_of_birth' => 'required|date_format:Y-m-d',
@@ -47,6 +50,8 @@ class PatientController extends Controller
             'hospital_id' => $request->user()->hospital_id,
         ]));
 
+        AuditLog::record($request, AuditLog::ACTION_PATIENT_CREATE, $patient->id);
+
         return response()->json(['patient' => $patient], 201);
     }
 
@@ -55,17 +60,25 @@ class PatientController extends Controller
      */
     public function show(Request $request, Patient $patient): JsonResponse
     {
-        $this->authorizeHospital($request, $patient);
+        $this->authorize('view', $patient);
         $patient->load('fingerprints:id,patient_id,finger_position,quality_score,is_primary,is_active,created_at');
         return response()->json(['patient' => $patient]);
     }
 
     /**
      * PUT /api/patients/{patient}
+     * Admin/super_admin only. Nurses must use POST /patients/{patient}/edit-requests.
      */
     public function update(Request $request, Patient $patient): JsonResponse
     {
-        $this->authorizeHospital($request, $patient);
+        if ($request->user()->isNurse()) {
+            return response()->json([
+                'error' => 'Nurses cannot edit patient data directly. Submit an edit request instead.',
+                'hint'  => 'POST /api/patients/' . $patient->id . '/edit-requests',
+            ], 403);
+        }
+
+        $this->authorize('update', $patient);
 
         $data = $request->validate([
             'full_name'     => 'sometimes|string|max:200',
@@ -78,20 +91,23 @@ class PatientController extends Controller
 
         $patient->update($data);
 
+        AuditLog::record($request, AuditLog::ACTION_PATIENT_UPDATE, $patient->id, null, null, [
+            'fields_changed' => array_keys($data),
+        ]);
+
         return response()->json(['patient' => $patient->fresh()]);
     }
 
     /**
-     * DELETE /api/patients/{patient} — admin only (soft-delete)
+     * DELETE /api/patients/{patient} — admin/super_admin only (soft-delete)
      */
     public function destroy(Request $request, Patient $patient): JsonResponse
     {
-        if (! $request->user()->isAdmin()) {
-            return response()->json(['error' => 'Admin role required.'], 403);
-        }
+        $this->authorize('delete', $patient);
 
-        $this->authorizeHospital($request, $patient);
         $patient->update(['is_active' => false]);
+
+        AuditLog::record($request, AuditLog::ACTION_PATIENT_DELETE, $patient->id);
 
         return response()->json(['message' => 'Patient deactivated.']);
     }
@@ -109,7 +125,7 @@ class PatientController extends Controller
      */
     public function enroll(Request $request, Patient $patient): JsonResponse
     {
-        $this->authorizeHospital($request, $patient);
+        $this->authorize('enroll', $patient);
 
         $data = $request->validate([
             'image'           => 'required|string',
@@ -166,6 +182,12 @@ class PatientController extends Controller
         $fp->setTemplate($result['template']);
         $fp->save();
 
+        AuditLog::record($request, AuditLog::ACTION_FINGERPRINT_ENROLL, $patient->id, null, null, [
+            'fingerprint_id'  => $fp->id,
+            'finger_position' => $fp->finger_position,
+            'quality_score'   => $fp->quality_score,
+        ]);
+
         return response()->json([
             'message'         => 'Fingerprint enrolled successfully.',
             'fingerprint_id'  => $fp->id,
@@ -178,25 +200,20 @@ class PatientController extends Controller
 
     /**
      * DELETE /api/patients/{patient}/fingerprints/{fingerprint}
+     * Admin/super_admin only.
      */
     public function removeFingerprint(Request $request, Patient $patient, Fingerprint $fingerprint): JsonResponse
     {
-        $this->authorizeHospital($request, $patient);
+        $this->authorize('removeFingerprint', $patient);
         abort_if($fingerprint->patient_id !== $patient->id, 404);
 
         $fingerprint->update(['is_active' => false]);
 
+        AuditLog::record($request, AuditLog::ACTION_FINGERPRINT_DELETE, $patient->id, null, null, [
+            'fingerprint_id'  => $fingerprint->id,
+            'finger_position' => $fingerprint->finger_position,
+        ]);
+
         return response()->json(['message' => 'Fingerprint deactivated.']);
-    }
-
-    // ------------------------------------------------------------------
-
-    private function authorizeHospital(Request $request, Patient $patient): void
-    {
-        abort_if(
-            $patient->hospital_id !== $request->user()->hospital_id,
-            404,
-            'Patient not found.'
-        );
     }
 }

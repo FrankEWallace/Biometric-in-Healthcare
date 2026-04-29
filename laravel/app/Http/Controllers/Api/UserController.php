@@ -3,46 +3,66 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
     /**
      * GET /api/users
-     * Admin only. Returns all users in the caller's hospital.
+     * super_admin: all users (filterable by hospital_id)
+     * admin: own hospital users only
      */
     public function index(Request $request): JsonResponse
     {
-        Gate::authorize('admin-only');
+        $this->authorize('viewAny', User::class);
 
-        $users = User::where('hospital_id', $request->user()->hospital_id)
-            ->get();
+        $query = $request->user()->isSuperAdmin()
+            ? User::query()
+            : User::where('hospital_id', $request->user()->hospital_id);
 
-        return response()->json(['users' => $users]);
+        if ($hospitalId = $request->integer('hospital_id')) {
+            $query->where('hospital_id', $hospitalId);
+        }
+
+        return response()->json(['users' => $query->get()]);
     }
 
     /**
      * POST /api/users
-     * Admin only.
      */
     public function store(Request $request): JsonResponse
     {
-        Gate::authorize('admin-only');
+        $this->authorize('create', User::class);
+
+        $allowedRoles = ['admin', 'nurse', 'doctor'];
+        if ($request->user()->isSuperAdmin()) {
+            $allowedRoles[] = 'super_admin';
+        }
 
         $data = $request->validate([
             'name'        => 'required|string|max:200',
             'username'    => 'required|string|max:80|unique:users',
             'email'       => 'required|email|unique:users',
             'password'    => 'required|string|min:8',
-            'role'        => ['required', Rule::in(['admin', 'operator', 'doctor'])],
+            'role'        => ['required', Rule::in($allowedRoles)],
             'hospital_id' => 'required|integer|exists:hospitals,id',
         ]);
 
+        // Hospital admin can only create users in their own hospital
+        if (! $request->user()->isSuperAdmin()) {
+            $data['hospital_id'] = $request->user()->hospital_id;
+        }
+
         $user = User::create($data);
+
+        AuditLog::record($request, AuditLog::ACTION_USER_CREATED, null, null, null, [
+            'created_user_id'   => $user->id,
+            'created_user_role' => $user->role,
+        ]);
 
         return response()->json(['user' => $user], 201);
     }
@@ -52,11 +72,7 @@ class UserController extends Controller
      */
     public function show(Request $request, User $user): JsonResponse
     {
-        // Operators can only view themselves; admins see anyone in their hospital
-        if (! $request->user()->isAdmin() && $request->user()->id !== $user->id) {
-            return response()->json(['error' => 'Forbidden.'], 403);
-        }
-
+        $this->authorize('view', $user);
         return response()->json(['user' => $user]);
     }
 
@@ -65,22 +81,28 @@ class UserController extends Controller
      */
     public function update(Request $request, User $user): JsonResponse
     {
-        $isAdmin = $request->user()->isAdmin();
+        $this->authorize('update', $user);
 
-        if (! $isAdmin && $request->user()->id !== $user->id) {
-            return response()->json(['error' => 'Forbidden.'], 403);
-        }
+        $caller  = $request->user();
+        $isAdmin = $caller->isAnyAdmin();
 
         $rules = [
             'name'  => 'sometimes|string|max:200',
             'email' => ['sometimes', 'email', Rule::unique('users')->ignore($user->id)],
         ];
 
-        // Only admins may change role / active status / hospital
         if ($isAdmin) {
-            $rules['role']        = ['sometimes', Rule::in(['admin', 'operator', 'doctor'])];
-            $rules['is_active']   = 'sometimes|boolean';
-            $rules['hospital_id'] = 'sometimes|integer|exists:hospitals,id';
+            $allowedRoles = ['admin', 'nurse', 'doctor'];
+            if ($caller->isSuperAdmin()) {
+                $allowedRoles[] = 'super_admin';
+            }
+
+            $rules['role']      = ['sometimes', Rule::in($allowedRoles)];
+            $rules['is_active'] = 'sometimes|boolean';
+
+            if ($caller->isSuperAdmin()) {
+                $rules['hospital_id'] = 'sometimes|integer|exists:hospitals,id';
+            }
         }
 
         $user->update($request->validate($rules));
@@ -89,14 +111,18 @@ class UserController extends Controller
     }
 
     /**
-     * DELETE /api/users/{user}
-     * Admin only — soft-deactivates the account.
+     * DELETE /api/users/{user} — soft-deactivates the account
      */
     public function destroy(Request $request, User $user): JsonResponse
     {
-        Gate::authorize('admin-only');
+        $this->authorize('delete', $user);
 
         $user->update(['is_active' => false]);
+
+        AuditLog::record($request, AuditLog::ACTION_USER_DEACTIVATED, null, null, null, [
+            'deactivated_user_id'   => $user->id,
+            'deactivated_user_role' => $user->role,
+        ]);
 
         return response()->json(['message' => 'User deactivated.']);
     }

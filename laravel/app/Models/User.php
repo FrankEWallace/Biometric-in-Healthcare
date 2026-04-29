@@ -38,19 +38,29 @@ class User extends Authenticatable
     // Role helpers
     // ------------------------------------------------------------------
 
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === 'super_admin';
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === 'admin';
     }
 
-    public function isOperator(): bool
+    public function isAnyAdmin(): bool
     {
-        return $this->role === 'operator';
+        return in_array($this->role, ['super_admin', 'admin']);
     }
 
     public function isDoctor(): bool
     {
         return $this->role === 'doctor';
+    }
+
+    public function isNurse(): bool
+    {
+        return $this->role === 'nurse';
     }
 
     // ------------------------------------------------------------------

@@ -9,6 +9,30 @@ class AuditLog extends Model
 {
     public const UPDATED_AT = null; // audit rows are immutable
 
+    // Action constants — match the DB enum exactly
+    public const ACTION_EHR_ACCESS              = 'ehr_access';
+    public const ACTION_INSURANCE_CHECK         = 'insurance_check';
+    public const ACTION_FINGERPRINT_MATCH       = 'fingerprint_match';
+    public const ACTION_FINGERPRINT_NO_MATCH    = 'fingerprint_no_match';
+    public const ACTION_PATIENT_CREATE          = 'patient_create';
+    public const ACTION_PATIENT_UPDATE          = 'patient_update';
+    public const ACTION_PATIENT_DELETE          = 'patient_delete';
+    public const ACTION_FINGERPRINT_ENROLL      = 'fingerprint_enroll';
+    public const ACTION_FINGERPRINT_DELETE      = 'fingerprint_delete';
+    public const ACTION_MANUAL_OVERRIDE         = 'manual_override';
+    public const ACTION_FINGERPRINT_LOCK        = 'fingerprint_lock';
+    public const ACTION_FINGERPRINT_UNLOCK      = 'fingerprint_unlock';
+    public const ACTION_EDIT_REQUEST_SUBMITTED  = 'edit_request_submitted';
+    public const ACTION_EDIT_REQUEST_APPROVED   = 'edit_request_approved';
+    public const ACTION_EDIT_REQUEST_REJECTED   = 'edit_request_rejected';
+    public const ACTION_EDIT_REQUEST_CANCELLED  = 'edit_request_cancelled';
+    public const ACTION_LOGIN_SUCCESS           = 'login_success';
+    public const ACTION_LOGIN_FAILED            = 'login_failed';
+    public const ACTION_USER_CREATED            = 'user_created';
+    public const ACTION_USER_DEACTIVATED        = 'user_deactivated';
+    public const ACTION_HOSPITAL_CREATED        = 'hospital_created';
+    public const ACTION_HOSPITAL_DEACTIVATED    = 'hospital_deactivated';
+
     protected $fillable = [
         'staff_id',
         'patient_id',

@@ -15,6 +15,17 @@ class UserSeeder extends Seeder
         $mostar   = Hospital::where('city', 'Mostar')->first();
 
         $users = [
+            // ── Super Admin (no hospital scope) ───────────────────────
+            [
+                'hospital_id' => $sarajevo->id, // placeholder — super admin ignores hospital scope
+                'name'        => 'System Administrator',
+                'username'    => 'superadmin',
+                'email'       => 'superadmin@bih.system',
+                'password'    => Hash::make('SuperAdmin@1234'),
+                'role'        => 'super_admin',
+                'is_active'   => true,
+            ],
+
             // ── Sarajevo ──────────────────────────────────────────────
             [
                 'hospital_id' => $sarajevo->id,

@@ -149,20 +149,42 @@ class VerificationController extends Controller
 
     /**
      * GET /api/verify/logs
+     *
+     * super_admin/admin: all hospital logs with operator name
+     * doctor:            patient-centric — sees nurse name, no score
+     * nurse:             own logs only
      */
     public function logs(Request $request): JsonResponse
     {
-        $query = VerificationLog::where('hospital_id', $request->user()->hospital_id)
-            ->with(['patient:id,full_name', 'operator:id,name', 'fingerprint:id,finger_position']);
+        $user  = $request->user();
+        $query = VerificationLog::with(['patient:id,full_name', 'operator:id,name', 'fingerprint:id,finger_position']);
 
-        if ($v = $request->query('patient_id'))  { $query->where('patient_id',  $v); }
-        if ($v = $request->query('operator_id')) { $query->where('operator_id', $v); }
-        if ($v = $request->query('status'))      { $query->where('status',      $v); }
+        if ($user->isSuperAdmin()) {
+            if ($h = $request->integer('hospital_id')) {
+                $query->where('hospital_id', $h);
+            }
+        } elseif ($user->isAnyAdmin()) {
+            $query->where('hospital_id', $user->hospital_id);
+        } elseif ($user->isDoctor()) {
+            $query->where('hospital_id', $user->hospital_id);
+        } else {
+            // Nurse: own logs only
+            $query->where('operator_id', $user->id);
+        }
 
-        return response()->json(
-            $query->orderByDesc('created_at')
-                  ->paginate($request->integer('per_page', 20))
-        );
+        if ($v = $request->query('patient_id'))                   { $query->where('patient_id',  $v); }
+        if ($v = $request->query('operator_id') and $user->isAnyAdmin()) { $query->where('operator_id', $v); }
+        if ($v = $request->query('status'))                        { $query->where('status',      $v); }
+
+        $logs = $query->orderByDesc('created_at')
+                      ->paginate($request->integer('per_page', 20));
+
+        // Doctors don't see match score
+        if ($user->isDoctor()) {
+            $logs->getCollection()->transform(fn ($log) => tap($log, fn ($l) => $l->makeHidden('score')));
+        }
+
+        return response()->json($logs);
     }
 
     /**
@@ -170,12 +192,27 @@ class VerificationController extends Controller
      */
     public function showLog(Request $request, VerificationLog $log): JsonResponse
     {
-        abort_if($log->hospital_id !== $request->user()->hospital_id, 404);
+        $user = $request->user();
+
+        if ($user->isSuperAdmin()) {
+            // full access
+        } elseif ($user->isAnyAdmin() || $user->isDoctor()) {
+            abort_if($log->hospital_id !== $user->hospital_id, 404);
+        } else {
+            // Nurse: own logs only
+            abort_if($log->operator_id !== $user->id, 404);
+        }
+
         $log->load([
             'patient:id,full_name,date_of_birth,jmbg',
             'operator:id,name',
             'fingerprint:id,finger_position,quality_score',
         ]);
+
+        if ($user->isDoctor()) {
+            $log->makeHidden('score');
+        }
+
         return response()->json(['log' => $log]);
     }
 
