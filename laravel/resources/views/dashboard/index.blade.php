@@ -47,9 +47,20 @@
         ];
     @endphp
 
-    @foreach($cards as $card)
+    @php
+        $cardLinks = [
+            route('dashboard.patients'),
+            route('dashboard.patients'),
+            route('dashboard.logs'),
+            route('dashboard.logs'),
+        ];
+    @endphp
+
+    @foreach($cards as $i => $card)
     @php $c = $colorMap[$card['color']]; @endphp
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <a href="{{ $cardLinks[$i] }}"
+       class="group block rounded-xl border border-slate-200 bg-white p-5 shadow-sm
+              transition-all duration-150 hover:shadow-md hover:border-slate-300 hover:-translate-y-0.5 cursor-pointer">
         <div class="flex items-start justify-between">
             <div class="flex-1 min-w-0">
                 <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">{{ $card['label'] }}</p>
@@ -62,7 +73,8 @@
                 </svg>
             </div>
         </div>
-    </div>
+        <p class="mt-3 text-xs font-medium text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity duration-150">View details →</p>
+    </a>
     @endforeach
 
 </div>

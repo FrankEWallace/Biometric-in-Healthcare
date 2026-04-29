@@ -397,87 +397,91 @@ class _CameraScreenState extends State<CameraScreen>
 
     // Live viewfinder
     return ClipRect(
-      child: Stack(
-        alignment: Alignment.center,
-        fit: StackFit.expand,
-        children: [
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: _controller!.value.previewSize?.height ?? 1,
-              height: _controller!.value.previewSize?.width ?? 1,
-              child: CameraPreview(_controller!),
-            ),
-          ),
-          if (widget.showFingerprintOverlay) ...[
-            Center(child: FingerprintOverlay(
-              isScanning: _isCapturing,
-              isHandCapture: widget.isHandCapture,
-            )),
-            // Instruction label beneath the scanning frame
-            Positioned(
-              bottom: 96,
-              left: 24,
-              right: 24,
-              child: Column(
-                children: [
-                  if (widget.fingerLabel != null && !_isCapturing) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        widget.fingerLabel!,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                  ],
-                  Text(
-                    _isCapturing
-                        ? 'Hold still…'
-                        : widget.isHandCapture
-                            ? 'Hold hand flat, fingers spread, facing camera'
-                            : 'Place finger inside the frame',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      shadows: [
-                        Shadow(color: Colors.black54, blurRadius: 6),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.isHandCapture
-                        ? 'Good lighting · All 4 fingers visible · Fill the frame'
-                        : 'Good lighting · Steady hand · Fill the frame',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.65),
-                      fontSize: 11,
-                      shadows: const [
-                        Shadow(color: Colors.black54, blurRadius: 4),
-                      ],
-                    ),
-                  ),
-                ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final double overlayW = constraints.maxWidth * 0.75;
+          final double overlayH = constraints.maxHeight * 0.75;
+
+          return Stack(
+            alignment: Alignment.center,
+            fit: StackFit.expand,
+            children: [
+              FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _controller!.value.previewSize?.height ?? 1,
+                  height: _controller!.value.previewSize?.width ?? 1,
+                  child: CameraPreview(_controller!),
+                ),
               ),
-            ),
-          ],
-          if (_isCapturing)
-            Container(color: Colors.white.withValues(alpha: 0.3)),
-        ],
+              if (widget.showFingerprintOverlay) ...[
+                Center(
+                  child: FingerprintOverlay(
+                    width: overlayW,
+                    height: overlayH,
+                    isScanning: _isCapturing,
+                    isHandCapture: widget.isHandCapture,
+                  ),
+                ),
+                // Instruction strip pinned to the bottom of the viewfinder
+                Positioned(
+                  bottom: 12,
+                  left: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.fingerLabel != null && !_isCapturing) ...[
+                          Text(
+                            widget.fingerLabel!,
+                            style: TextStyle(
+                              color: AppColors.primaryLight,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
+                        Text(
+                          _isCapturing
+                              ? 'Hold still…'
+                              : widget.isHandCapture
+                                  ? 'Hold hand flat · Fingers spread · Fill the frame'
+                                  : 'Place finger inside the frame',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Good lighting · Steady hand',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (_isCapturing)
+                Container(color: Colors.white.withValues(alpha: 0.3)),
+            ],
+          );
+        },
       ),
     );
   }

@@ -3,15 +3,20 @@ import '../theme/app_theme.dart';
 
 /// Rectangular scanning frame with animated corner brackets and scan line.
 ///
-/// [isScanning]    — activates scan animation and lighter border color.
-/// [isHandCapture] — widens the frame and shows a hand icon instead of
-///                   a single fingerprint, for multi-finger hand captures.
+/// [width] / [height] — frame dimensions; pass values derived from LayoutBuilder
+///                      so the frame scales to the actual viewport.
+/// [isScanning]       — activates scan animation and lighter border color.
+/// [isHandCapture]    — shows a hand icon instead of a single fingerprint.
 class FingerprintOverlay extends StatefulWidget {
+  final double width;
+  final double height;
   final bool isScanning;
   final bool isHandCapture;
 
   const FingerprintOverlay({
     super.key,
+    required this.width,
+    required this.height,
     this.isScanning = false,
     this.isHandCapture = false,
   });
@@ -41,8 +46,8 @@ class _FingerprintOverlayState extends State<FingerprintOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final double w = widget.isHandCapture ? 300 : 240;
-    final double h = widget.isHandCapture ? 200 : 240;
+    final double w = widget.width;
+    final double h = widget.height;
     const double radius = 16.0;
     const double bracketLen = 28.0;
     const double bracketW = 3.5;

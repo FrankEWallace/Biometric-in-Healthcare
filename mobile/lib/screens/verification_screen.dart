@@ -49,9 +49,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => const CameraScreen(
-          title: 'Capture Fingerprint',
+          title: 'Scan Hand',
           showFingerprintOverlay: true,
-          returnImageOnly: true,   // caller handles API call
+          returnImageOnly: true,
+          isHandCapture: true,
         ),
       ),
     );
