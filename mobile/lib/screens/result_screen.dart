@@ -23,6 +23,9 @@ class ResultScreen extends StatefulWidget {
   /// Maximum allowed attempts before escalating to alternative verification.
   final int maxAttempts;
 
+  /// True when the server returned 423 — fingerprint locked after too many failures.
+  final bool isLocked;
+
   const ResultScreen({
     super.key,
     required this.isSuccess,
@@ -33,6 +36,7 @@ class ResultScreen extends StatefulWidget {
     this.matchedFinger,
     this.attemptCount = 0,
     this.maxAttempts  = 3,
+    this.isLocked     = false,
   });
 
   @override
@@ -70,6 +74,8 @@ class _ResultScreenState extends State<ResultScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isLocked) return _LockedBody(patientId: widget.patientId);
+
     final color =
         widget.isSuccess ? AppColors.success : AppColors.error;
     final bgColor = widget.isSuccess
@@ -491,6 +497,110 @@ class _AltOption extends StatelessWidget {
     );
   }
 }
+
+// ── Fingerprint locked body ───────────────────────────────────────────────────
+
+class _LockedBody extends StatelessWidget {
+  final String? patientId;
+  const _LockedBody({this.patientId});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const SizedBox(height: 40),
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: AppColors.warning.withValues(alpha: 0.35),
+                      width: 3),
+                ),
+                child: const Icon(Icons.lock_rounded,
+                    size: 60, color: AppColors.warning),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Fingerprint Locked',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.warning,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'This fingerprint record has been locked after too many failed attempts.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                    height: 1.5),
+              ),
+              if (patientId != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Patient: $patientId',
+                  style: const TextStyle(
+                      fontSize: 13, color: AppColors.textHint),
+                ),
+              ],
+              const SizedBox(height: 28),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.warningLight,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Next steps',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF92400E)),
+                    ),
+                    SizedBox(height: 8),
+                    _AltOption(
+                        icon: Icons.admin_panel_settings_outlined,
+                        label: 'Contact an administrator to unlock the record'),
+                    _AltOption(
+                        icon: Icons.badge_outlined,
+                        label: 'Use an alternative ID verification method'),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              PrimaryButton(
+                label: 'Back to Dashboard',
+                icon: Icons.home,
+                onPressed: () => Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HomeDashboard()),
+                  (route) => false,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Score ring painter ─────────────────────────────────────────────────────────
 
 class _ScoreRingPainter extends CustomPainter {
   final double score;

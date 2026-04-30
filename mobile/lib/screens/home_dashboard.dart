@@ -6,6 +6,7 @@ import '../services/network_service.dart';
 import '../theme/app_theme.dart';
 import 'patient_registration_screen.dart';
 import 'verification_screen.dart';
+import 'edit_request_screen.dart';
 import 'login_screen.dart';
 
 class HomeDashboard extends StatefulWidget {
@@ -253,32 +254,8 @@ class _DashboardBody extends StatelessWidget {
               ),
               const SizedBox(height: 12),
 
-              // ── Action cards ─────────────────────────────────────────────
-              _ActionCard(
-                icon: Icons.person_add_alt_1_rounded,
-                title: 'Register Patient',
-                subtitle: 'Enroll a new patient with fingerprint',
-                color: AppColors.primary,
-                enabled: actionsEnabled,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const PatientRegistrationScreen()),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _ActionCard(
-                icon: Icons.fingerprint,
-                title: 'Verify Patient',
-                subtitle: 'Identify patient by fingerprint scan',
-                color: const Color(0xFF0D7C66),
-                enabled: actionsEnabled,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const VerificationScreen()),
-                ),
-              ),
+              // ── Role-aware action cards ───────────────────────────────────
+              ..._buildActionCards(context, user?.role ?? 'nurse', actionsEnabled),
               const SizedBox(height: 24),
 
               const Text(
@@ -326,6 +303,77 @@ class _DashboardBody extends StatelessWidget {
   }
 }
 
+List<Widget> _buildActionCards(
+    BuildContext context, String role, bool actionsEnabled) {
+  final isNurse      = role == 'nurse';
+  final isAnyAdmin   = role == 'admin' || role == 'super_admin';
+  final isDoctor     = role == 'doctor';
+
+  if (isDoctor) {
+    return [
+      _InfoCard(
+        icon: Icons.info_outline_rounded,
+        message: 'You have read-only access. Clinical data is available via the EHR screen after a successful verification.',
+      ),
+    ];
+  }
+
+  return [
+    if (isNurse) ...[
+      _ActionCard(
+        icon: Icons.person_add_alt_1_rounded,
+        title: 'Register Patient',
+        subtitle: 'Enroll a new patient with fingerprint',
+        color: AppColors.primary,
+        enabled: actionsEnabled,
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const PatientRegistrationScreen())),
+      ),
+      const SizedBox(height: 12),
+      _ActionCard(
+        icon: Icons.fingerprint,
+        title: 'Verify Patient',
+        subtitle: 'Identify patient by fingerprint scan',
+        color: const Color(0xFF0D7C66),
+        enabled: actionsEnabled,
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const VerificationScreen())),
+      ),
+      const SizedBox(height: 12),
+      _ActionCard(
+        icon: Icons.edit_note_rounded,
+        title: 'Submit Edit Request',
+        subtitle: 'Request a demographic change for a patient',
+        color: AppColors.warning,
+        enabled: actionsEnabled,
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const EditRequestScreen())),
+      ),
+    ],
+    if (isAnyAdmin) ...[
+      _ActionCard(
+        icon: Icons.fingerprint,
+        title: 'Verify Patient',
+        subtitle: 'Identify patient by fingerprint scan',
+        color: const Color(0xFF0D7C66),
+        enabled: actionsEnabled,
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const VerificationScreen())),
+      ),
+      const SizedBox(height: 12),
+      _ActionCard(
+        icon: Icons.rate_review_rounded,
+        title: 'Review Edit Requests',
+        subtitle: 'Approve or reject pending demographic changes',
+        color: AppColors.primary,
+        enabled: actionsEnabled,
+        onTap: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const EditRequestScreen(reviewMode: true))),
+      ),
+    ],
+  ];
+}
+
 // ── Welcome card ──────────────────────────────────────────────────────────────
 
 class _WelcomeCard extends StatelessWidget {
@@ -341,9 +389,10 @@ class _WelcomeCard extends StatelessWidget {
 
   String get _roleLabel {
     switch (userRole.toLowerCase()) {
-      case 'admin': return 'Administrator';
-      case 'doctor': return 'Doctor';
-      default: return 'Nurse';
+      case 'super_admin': return 'Super Admin';
+      case 'admin':       return 'Administrator';
+      case 'doctor':      return 'Doctor';
+      default:            return 'Nurse';
     }
   }
 
@@ -604,6 +653,44 @@ class _ActionCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Info card (read-only roles) ───────────────────────────────────────────────
+
+class _InfoCard extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  const _InfoCard({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+        boxShadow: AppShadows.card,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: AppColors.primary, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

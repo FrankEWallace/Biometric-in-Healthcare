@@ -373,11 +373,7 @@ class FingerprintController extends Controller
      */
     public function unlock(Request $request, Fingerprint $fingerprint): JsonResponse
     {
-        $user = $request->user();
-
-        if (! $user->isSuperAdmin() && $fingerprint->hospital_id !== $user->hospital_id) {
-            return response()->json(['error' => 'Fingerprint not found.'], 404);
-        }
+        $this->authorize('unlock', $fingerprint);
 
         if (! $fingerprint->isLocked()) {
             return response()->json(['error' => 'Fingerprint is not locked.'], 409);

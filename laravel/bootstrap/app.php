@@ -3,6 +3,7 @@
 use App\Http\Middleware\CheckHospitalAccess;
 use App\Http\Middleware\EnsureActiveUser;
 use App\Http\Middleware\RequireRole;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Security headers on every response
+        $middleware->append(SecurityHeaders::class);
+
         // Reject requests from deactivated accounts even with a valid token
         $middleware->appendToGroup('api', EnsureActiveUser::class);
 

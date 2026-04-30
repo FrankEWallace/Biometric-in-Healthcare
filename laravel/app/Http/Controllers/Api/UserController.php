@@ -53,11 +53,20 @@ class UserController extends Controller
         ]);
 
         // Hospital admin can only create users in their own hospital
-        if (! $request->user()->isSuperAdmin()) {
-            $data['hospital_id'] = $request->user()->hospital_id;
-        }
+        $hospitalId = $request->user()->isSuperAdmin()
+            ? $data['hospital_id']
+            : $request->user()->hospital_id;
 
-        $user = User::create($data);
+        $user = User::create([
+            'name'        => $data['name'],
+            'username'    => $data['username'],
+            'email'       => $data['email'],
+            'password'    => $data['password'],
+            'hospital_id' => $hospitalId,
+        ]);
+        $user->role = $data['role'];
+        $user->is_active = true;
+        $user->save();
 
         AuditLog::record($request, AuditLog::ACTION_USER_CREATED, null, null, null, [
             'created_user_id'   => $user->id,
@@ -105,7 +114,14 @@ class UserController extends Controller
             }
         }
 
-        $user->update($request->validate($rules));
+        $validated = $request->validate($rules);
+
+        // Safe fields go through fill(); privileged fields set explicitly
+        $user->fill(array_intersect_key($validated, array_flip(['name', 'email'])));
+        if (array_key_exists('role', $validated))        $user->role        = $validated['role'];
+        if (array_key_exists('is_active', $validated))   $user->is_active   = $validated['is_active'];
+        if (array_key_exists('hospital_id', $validated)) $user->hospital_id = $validated['hospital_id'];
+        $user->save();
 
         return response()->json(['user' => $user->fresh()]);
     }
@@ -117,7 +133,8 @@ class UserController extends Controller
     {
         $this->authorize('delete', $user);
 
-        $user->update(['is_active' => false]);
+        $user->is_active = false;
+        $user->save();
 
         AuditLog::record($request, AuditLog::ACTION_USER_DEACTIVATED, null, null, null, [
             'deactivated_user_id'   => $user->id,
