@@ -96,6 +96,19 @@
             <div class="pt-4 mt-2 border-t border-slate-100">
                 <p class="px-3 mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">Management</p>
 
+                {{-- Hospitals (super_admin only) --}}
+                @if(Auth::user()->isSuperAdmin())
+                <a href="{{ route('dashboard.hospitals.index') }}"
+                   class="flex items-center gap-3 rounded-lg pr-3 py-2.5 text-sm font-medium transition-colors
+                          {{ request()->routeIs('dashboard.hospitals*') ? $activeClass : $inactiveClass }}">
+                    <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+                    </svg>
+                    Hospitals
+                </a>
+                @endif
+
                 {{-- Edit Requests --}}
                 <a href="{{ route('dashboard.edit-requests') }}"
                    class="flex items-center gap-3 rounded-lg pr-3 py-2.5 text-sm font-medium transition-colors
@@ -157,11 +170,16 @@
         {{-- ── User footer ───────────────────────────────────────────────── --}}
         <div class="shrink-0 border-t border-slate-200 p-4">
             <div class="flex items-center gap-3">
-                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-                    {{ strtoupper(substr(Auth::user()->name, 0, 1)) }}
-                </div>
+                <a href="{{ route('dashboard.profile') }}" class="shrink-0">
+                    <img src="{{ Auth::user()->avatarUrl() }}"
+                         alt="{{ Auth::user()->name }}"
+                         class="h-8 w-8 rounded-full object-cover border border-slate-200 hover:opacity-80 transition-opacity">
+                </a>
                 <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-slate-900 truncate">{{ Auth::user()->name }}</p>
+                    <a href="{{ route('dashboard.profile') }}"
+                       class="text-sm font-medium text-slate-900 truncate hover:text-blue-600 transition-colors block">
+                        {{ Auth::user()->name }}
+                    </a>
                     @php
                         $roleBadge = match(Auth::user()->role) {
                             'super_admin' => ['label' => 'Super Admin', 'class' => 'bg-rose-100 text-rose-700'],

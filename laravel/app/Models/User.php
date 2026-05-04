@@ -21,6 +21,7 @@ class User extends Authenticatable
         'role',
         'hospital_id',
         'is_active',
+        'avatar',
     ];
 
     protected $hidden = [
@@ -75,5 +76,12 @@ class User extends Authenticatable
     public function verificationLogs(): HasMany
     {
         return $this->hasMany(VerificationLog::class, 'operator_id');
+    }
+
+    public function avatarUrl(): string
+    {
+        return $this->avatar
+            ? asset('storage/' . $this->avatar)
+            : 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&background=2563eb&color=fff&size=128';
     }
 }
