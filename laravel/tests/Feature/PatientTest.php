@@ -141,7 +141,7 @@ class PatientTest extends TestCase
         $this->actingAs($this->nurse)
              ->deleteJson("/api/patients/{$patient->id}")
              ->assertStatus(403)
-             ->assertJson(['error' => 'Admin role required.']);
+             ->assertJson(['error' => 'Forbidden. Insufficient role.']);
     }
 
     #[\PHPUnit\Framework\Attributes\Test]

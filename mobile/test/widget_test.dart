@@ -5,5 +5,7 @@ void main() {
   testWidgets('App launches smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const BiometricApp());
     expect(find.byType(BiometricApp), findsOneWidget);
+    // Drain the SplashScreen 3-second navigation timer before disposal.
+    await tester.pump(const Duration(seconds: 4));
   });
 }

@@ -12,8 +12,9 @@ class ExampleTest extends TestCase
      */
     public function test_the_application_returns_a_successful_response(): void
     {
+        // Root redirects unauthenticated visitors to login — 302 is correct.
         $response = $this->get('/');
 
-        $response->assertStatus(200);
+        $response->assertRedirect();
     }
 }

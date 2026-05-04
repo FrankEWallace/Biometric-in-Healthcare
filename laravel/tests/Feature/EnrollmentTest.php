@@ -28,6 +28,7 @@ class EnrollmentTest extends TestCase
 
     private Hospital $hospital;
     private User $nurse;
+    private User $admin;
     private Patient $patient;
 
     protected function setUp(): void
@@ -35,6 +36,7 @@ class EnrollmentTest extends TestCase
         parent::setUp();
         $this->hospital = Hospital::factory()->create();
         $this->nurse    = User::factory()->nurse()->create(['hospital_id' => $this->hospital->id]);
+        $this->admin    = User::factory()->admin()->create(['hospital_id' => $this->hospital->id]);
         $this->patient  = Patient::factory()->create(['hospital_id' => $this->hospital->id]);
     }
 
@@ -207,7 +209,7 @@ class EnrollmentTest extends TestCase
             'enrolled_by' => $this->nurse->id,
         ]);
 
-        $this->actingAs($this->nurse)
+        $this->actingAs($this->admin)
              ->deleteJson("/api/patients/{$this->patient->id}/fingerprints/{$fp->id}")
              ->assertStatus(200);
 
@@ -225,7 +227,7 @@ class EnrollmentTest extends TestCase
         ]);
 
         // Mismatched patient/fingerprint combination
-        $this->actingAs($this->nurse)
+        $this->actingAs($this->admin)
              ->deleteJson("/api/patients/{$this->patient->id}/fingerprints/{$fp->id}")
              ->assertStatus(404);
     }
