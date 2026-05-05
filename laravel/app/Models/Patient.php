@@ -15,7 +15,7 @@ class Patient extends Model
         'full_name',
         'date_of_birth',
         'gender',
-        'jmbg',
+        'nida',
         'phone',
         'notes',
         'is_active',

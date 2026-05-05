@@ -166,7 +166,7 @@ class DashboardController extends Controller
         if ($search = $request->get('search')) {
             $query->where(fn ($q) => $q
                 ->where('full_name', 'like', "%{$search}%")
-                ->orWhere('jmbg', 'like', "%{$search}%")
+                ->orWhere('nida', 'like', "%{$search}%")
                 ->orWhere('phone', 'like', "%{$search}%")
             );
         }
@@ -342,6 +342,47 @@ class DashboardController extends Controller
             : collect();
 
         return view('dashboard.users.index', compact('users', 'hospitals'));
+    }
+
+    public function storeUser(Request $request): RedirectResponse
+    {
+        abort_unless(Auth::user()->isAnyAdmin(), 403);
+
+        $caller       = Auth::user();
+        $allowedRoles = ['admin', 'nurse', 'doctor'];
+        if ($caller->isSuperAdmin()) {
+            $allowedRoles[] = 'super_admin';
+        }
+
+        $data = $request->validate([
+            'name'        => 'required|string|max:200',
+            'username'    => 'required|string|max:80|unique:users',
+            'email'       => 'required|email|unique:users',
+            'password'    => 'required|string|min:8|confirmed',
+            'role'        => ['required', \Illuminate\Validation\Rule::in($allowedRoles)],
+            'hospital_id' => $caller->isSuperAdmin() ? 'required|integer|exists:hospitals,id' : 'nullable',
+        ]);
+
+        $hospitalId = $caller->isSuperAdmin()
+            ? $data['hospital_id']
+            : $caller->hospital_id;
+
+        $user = User::create([
+            'hospital_id' => $hospitalId,
+            'name'        => $data['name'],
+            'username'    => $data['username'],
+            'email'       => $data['email'],
+            'password'    => $data['password'],
+            'role'        => $data['role'],
+            'is_active'   => true,
+        ]);
+
+        AuditLog::record($request, AuditLog::ACTION_USER_CREATED, null, null, null, [
+            'created_user_id'   => $user->id,
+            'created_user_role' => $user->role,
+        ]);
+
+        return redirect()->route('dashboard.users')->with('success', "{$user->name} has been added.");
     }
 
     public function deactivateUser(Request $request, User $targetUser): RedirectResponse

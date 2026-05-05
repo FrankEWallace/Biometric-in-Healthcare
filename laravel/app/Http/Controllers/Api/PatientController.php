@@ -41,7 +41,7 @@ class PatientController extends Controller
             'full_name'     => 'required|string|max:200',
             'date_of_birth' => 'required|date_format:Y-m-d',
             'gender'        => 'nullable|in:male,female,other',
-            'jmbg'          => 'nullable|string|size:20|unique:patients,jmbg',
+            'nida'          => 'nullable|string|size:20|unique:patients,nida',
             'phone'         => 'nullable|string|max:20',
             'notes'         => 'nullable|string|max:1000',
         ]);
@@ -84,7 +84,7 @@ class PatientController extends Controller
             'full_name'     => 'sometimes|string|max:200',
             'date_of_birth' => 'sometimes|date_format:Y-m-d',
             'gender'        => 'sometimes|nullable|in:male,female,other',
-            'jmbg'          => 'sometimes|nullable|string|size:20|unique:patients,jmbg,' . $patient->id,
+            'nida'          => 'sometimes|nullable|string|size:20|unique:patients,nida,' . $patient->id,
             'phone'         => 'sometimes|nullable|string|max:20',
             'notes'         => 'sometimes|nullable|string|max:1000',
         ]);

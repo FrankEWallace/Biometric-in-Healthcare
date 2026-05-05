@@ -226,7 +226,7 @@ class VerificationController extends Controller
         }
 
         $log->load([
-            'patient:id,full_name,date_of_birth,jmbg',
+            'patient:id,full_name,date_of_birth,nida',
             'operator:id,name',
             'fingerprint:id,finger_position,quality_score',
         ]);
@@ -251,7 +251,7 @@ class VerificationController extends Controller
         return Fingerprint::where('hospital_id', $hospitalId)
             ->where('is_active', true)
             ->when($primaryOnly, fn ($q) => $q->where('is_primary', true))
-            ->with('patient:id,full_name,date_of_birth,jmbg,gender,phone')
+            ->with('patient:id,full_name,date_of_birth,nida,gender,phone')
             ->get();
     }
 

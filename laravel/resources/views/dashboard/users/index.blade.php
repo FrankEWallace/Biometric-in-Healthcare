@@ -5,6 +5,35 @@
 
 @section('content')
 
+{{-- ── Flash ────────────────────────────────────────────────────────────────── --}}
+@if(session('success'))
+<div class="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-medium text-emerald-800">
+    {{ session('success') }}
+</div>
+@endif
+
+@if($errors->any())
+<div class="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
+    <ul class="list-disc list-inside space-y-1">
+        @foreach($errors->all() as $error)
+        <li>{{ $error }}</li>
+        @endforeach
+    </ul>
+</div>
+@endif
+
+{{-- ── Header row ──────────────────────────────────────────────────────────── --}}
+<div class="mb-4 flex items-center justify-between">
+    <div></div>
+    <button onclick="document.getElementById('createStaffModal').classList.remove('hidden')"
+            class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-sm">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Staff
+    </button>
+</div>
+
 {{-- ── Filter bar ───────────────────────────────────────────────────────────── --}}
 <form method="GET" class="mb-6 flex flex-wrap gap-3">
     <div class="relative flex-1 min-w-[200px]">
@@ -156,10 +185,105 @@
     @endif
 </div>
 
-{{-- Note: Staff creation is done via mobile app or CLI (php artisan make:super-admin). --}}
-<p class="mt-4 text-xs text-slate-400 text-center">
-    To create new staff accounts, use the mobile admin panel or contact your system administrator.
-    Super admin accounts require the CLI command <code class="font-mono bg-slate-100 px-1.5 py-0.5 rounded">php artisan make:super-admin</code>.
-</p>
+{{-- ── Create Staff Modal ───────────────────────────────────────────────────── --}}
+<div id="createStaffModal"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="w-full max-w-md rounded-2xl bg-white shadow-xl">
+        <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <h2 class="text-base font-semibold text-slate-800">Add Staff Account</h2>
+            <button onclick="document.getElementById('createStaffModal').classList.add('hidden')"
+                    class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <form method="POST" action="{{ route('dashboard.users.store') }}" class="px-6 py-5 space-y-4">
+            @csrf
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Full Name</label>
+                <input type="text" name="name" value="{{ old('name') }}" required
+                       placeholder="e.g. Dr. Jane Doe"
+                       class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Username</label>
+                    <input type="text" name="username" value="{{ old('username') }}" required
+                           placeholder="jane.doe"
+                           class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Role</label>
+                    <select name="role" required
+                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option value="nurse"  @selected(old('role') === 'nurse')>Nurse</option>
+                        <option value="doctor" @selected(old('role') === 'doctor')>Doctor</option>
+                        <option value="admin"  @selected(old('role') === 'admin')>Admin</option>
+                        @if(Auth::user()->isSuperAdmin())
+                        <option value="super_admin" @selected(old('role') === 'super_admin')>Super Admin</option>
+                        @endif
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Email</label>
+                <input type="email" name="email" value="{{ old('email') }}" required
+                       placeholder="jane.doe@hospital.ba"
+                       class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+            </div>
+
+            @if(Auth::user()->isSuperAdmin() && $hospitals->isNotEmpty())
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Hospital</label>
+                <select name="hospital_id" required
+                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <option value="">— Select Hospital —</option>
+                    @foreach($hospitals as $h)
+                    <option value="{{ $h->id }}" @selected(old('hospital_id') == $h->id)>{{ $h->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            @endif
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Password</label>
+                    <input type="password" name="password" required minlength="8"
+                           placeholder="Min 8 characters"
+                           class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Confirm Password</label>
+                    <input type="password" name="password_confirmation" required
+                           placeholder="Repeat password"
+                           class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button"
+                        onclick="document.getElementById('createStaffModal').classList.add('hidden')"
+                        class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-sm">
+                    Create Account
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- Re-open modal on validation error --}}
+@if($errors->any())
+<script>document.addEventListener('DOMContentLoaded',()=>document.getElementById('createStaffModal').classList.remove('hidden'));</script>
+@endif
 
 @endsection

@@ -11,7 +11,7 @@ class PatientException implements Exception {
 }
 
 class PatientService {
-  static const String _baseUrl = 'http://172.20.10.14:8000/api';
+  static const String _baseUrl = 'http://192.168.100.127:8000/api';
 
   Map<String, String> _headers(String token) => {
         'Content-Type': 'application/json',
@@ -29,7 +29,7 @@ class PatientService {
     required String dateOfBirth, // format: yyyy-MM-dd
     String? phone,
     String? gender,
-    String? jmbg,
+    String? nida,
     String? notes,
   }) async {
     late http.Response response;
@@ -45,7 +45,7 @@ class PatientService {
               'date_of_birth': dateOfBirth,
               if (phone != null && phone.isNotEmpty) 'phone': phone,
               if (gender != null) 'gender': gender,
-              if (jmbg != null && jmbg.isNotEmpty) 'jmbg': jmbg,
+              if (nida != null && nida.isNotEmpty) 'nida': nida,
               if (notes != null && notes.isNotEmpty) 'notes': notes,
             }),
           )

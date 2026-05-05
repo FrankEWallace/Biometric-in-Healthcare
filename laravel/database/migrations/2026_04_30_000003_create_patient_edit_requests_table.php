@@ -28,7 +28,7 @@ return new class extends Migration
                   ->constrained('hospitals')
                   ->cascadeOnDelete();
 
-            // e.g. 'full_name', 'phone', 'date_of_birth', 'gender', 'jmbg'
+            // e.g. 'full_name', 'phone', 'date_of_birth', 'gender', 'nida'
             $table->string('field_name', 60);
 
             $table->text('old_value');

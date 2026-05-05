@@ -5,7 +5,9 @@ import '../providers/auth_provider.dart';
 import '../services/location_service.dart';
 import '../services/network_service.dart';
 import '../theme/app_theme.dart';
+import 'edit_request_screen.dart';
 import 'patient_registration_screen.dart';
+import 'staff_management_screen.dart';
 import 'verification_screen.dart';
 import 'login_screen.dart';
 
@@ -360,11 +362,11 @@ class _AdminDashboard extends StatelessWidget {
           color: AppColors.primary,
           enabled: actionsEnabled,
           badge: '3',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Use the web dashboard to review edit requests')),
-            );
-          },
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => const EditRequestScreen(reviewMode: true)),
+          ),
         ),
         const SizedBox(height: 10),
         _ActionCard(
@@ -373,16 +375,11 @@ class _AdminDashboard extends StatelessWidget {
           subtitle: 'View and manage hospital staff accounts',
           color: AppColors.textSecondary,
           enabled: actionsEnabled,
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Use the web dashboard for staff management')),
-            );
-          },
-        ),
-        const SizedBox(height: 24),
-        _InfoCard(
-          icon: Icons.web_rounded,
-          message: 'Full admin controls (edit requests, staff management, audit logs) are available on the web dashboard.',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => const StaffManagementScreen()),
+          ),
         ),
       ],
     );
@@ -429,7 +426,7 @@ class _DoctorDashboard extends StatelessWidget {
               children: [
                 TextField(
                   decoration: const InputDecoration(
-                    hintText: 'Search by name or JMBG…',
+                    hintText: 'Search by name or NIDA…',
                     prefixIcon: Icon(Icons.search_rounded),
                     border: OutlineInputBorder(),
                   ),

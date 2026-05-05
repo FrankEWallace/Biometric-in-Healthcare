@@ -4,7 +4,7 @@ class PatientModel {
   final String? phone;
   final String? dateOfBirth;
   final String? gender;
-  final String? jmbg;
+  final String? nida;
   final bool isActive;
   final bool isEnrolled;
 
@@ -14,7 +14,7 @@ class PatientModel {
     this.phone,
     this.dateOfBirth,
     this.gender,
-    this.jmbg,
+    this.nida,
     this.isActive = true,
     this.isEnrolled = false,
   });
@@ -26,7 +26,7 @@ class PatientModel {
       phone: json['phone'] as String?,
       dateOfBirth: json['date_of_birth'] as String?,
       gender: json['gender'] as String?,
-      jmbg: json['jmbg'] as String?,
+      nida: json['nida'] as String?,
       isActive: json['is_active'] as bool? ?? true,
       isEnrolled: json['is_enrolled'] as bool? ?? false,
     );

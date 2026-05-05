@@ -18,16 +18,16 @@ class PatientFactory extends Factory
             'full_name'     => fake()->name(),
             'date_of_birth' => fake()->date('Y-m-d', '-18 years'),
             'gender'        => fake()->randomElement(['male', 'female', 'other']),
-            'jmbg'          => null,
+            'nida'          => null,
             'phone'         => null,
             'notes'         => null,
             'is_active'     => true,
         ];
     }
 
-    public function withJmbg(string $jmbg = '12345678901234567890'): static
+    public function withJmbg(string $nida = '12345678901234567890'): static
     {
-        return $this->state(['jmbg' => $jmbg]);
+        return $this->state(['nida' => $nida]);
     }
 
     public function inactive(): static

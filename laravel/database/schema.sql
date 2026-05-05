@@ -91,7 +91,7 @@ CREATE TABLE personal_access_tokens (
 -- -----------------------------------------------------------------------------
 -- 03. patients
 --     Core demographic record. Fingerprint templates live in a separate table.
---     jmbg = Jedinstveni Matični Broj Građana (BiH 13-digit national ID).
+--     nida = Jedinstveni Matični Broj Građana (BiH 13-digit national ID).
 --
 --     Relationship: hospitals (1) ──< patients (many)
 -- -----------------------------------------------------------------------------
@@ -102,7 +102,7 @@ CREATE TABLE patients (
     full_name       VARCHAR(200)     NOT NULL,
     date_of_birth   DATE             NOT NULL,
     gender          ENUM('male', 'female', 'other') NULL,
-    jmbg            VARCHAR(13)      NULL     COMMENT 'BiH national ID (optional)',
+    nida            VARCHAR(13)      NULL     COMMENT 'Tanzania national ID (optional)',
     phone           VARCHAR(20)      NULL,
     notes           TEXT             NULL,
 
@@ -111,7 +111,7 @@ CREATE TABLE patients (
     updated_at      TIMESTAMP        NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     PRIMARY KEY (id),
-    UNIQUE  KEY uq_patients_jmbg        (jmbg),
+    UNIQUE  KEY uq_patients_nida        (nida),
     INDEX   ix_patients_hospital_id     (hospital_id),
 
     CONSTRAINT fk_patients_hospital

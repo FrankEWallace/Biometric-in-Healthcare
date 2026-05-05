@@ -31,6 +31,7 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
 
     // ── Staff Management (admin / super_admin) ────────────────────────────────
     Route::get('/users',                                [DashboardController::class, 'users'])->name('users');
+    Route::post('/users',                               [DashboardController::class, 'storeUser'])->name('users.store');
     Route::post('/users/{user}/deactivate',             [DashboardController::class, 'deactivateUser'])->name('users.deactivate');
     Route::post('/users/{user}/activate',               [DashboardController::class, 'activateUser'])->name('users.activate');
 

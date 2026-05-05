@@ -55,7 +55,7 @@ class _PatientRegistrationScreenState
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _jmbgController = TextEditingController();
+  final _nidaController = TextEditingController();
   DateTime? _dateOfBirth;
   String? _gender;
 
@@ -71,7 +71,7 @@ class _PatientRegistrationScreenState
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
-    _jmbgController.dispose();
+    _nidaController.dispose();
     super.dispose();
   }
 
@@ -100,7 +100,7 @@ class _PatientRegistrationScreenState
         dateOfBirth: dob,
         phone: _phoneController.text.trim(),
         gender: _gender,
-        jmbg: _jmbgController.text.trim(),
+        nida: _nidaController.text.trim(),
       );
 
       setState(() {
@@ -301,14 +301,14 @@ class _PatientRegistrationScreenState
                 const SizedBox(height: 16),
 
                 CustomTextField(
-                  label: 'JMBG (National ID)',
+                  label: 'NIDA (National ID)',
                   hint: '20-digit national ID',
-                  controller: _jmbgController,
+                  controller: _nidaController,
                   prefixIcon: Icons.badge_outlined,
                   keyboardType: TextInputType.number,
                   validator: (v) {
                     if (v != null && v.isNotEmpty && v.length != 20) {
-                      return 'JMBG must be exactly 20 digits';
+                      return 'NIDA must be exactly 20 digits';
                     }
                     return null;
                   },

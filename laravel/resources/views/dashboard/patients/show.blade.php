@@ -81,7 +81,7 @@
                 ['label' => 'Full Name',      'value' => $patient->full_name],
                 ['label' => 'Date of Birth',  'value' => $patient->date_of_birth->format('d M Y') . ' (age ' . $patient->date_of_birth->age . ')'],
                 ['label' => 'Gender',         'value' => ucfirst($patient->gender ?? '—')],
-                ['label' => 'JMBG',           'value' => $patient->jmbg ?? '—', 'mono' => true],
+                ['label' => 'NIDA',           'value' => $patient->nida ?? '—', 'mono' => true],
                 ['label' => 'Phone',          'value' => $patient->phone ?? '—'],
             ] as $row)
             <div class="flex items-start gap-4 px-5 py-3.5">

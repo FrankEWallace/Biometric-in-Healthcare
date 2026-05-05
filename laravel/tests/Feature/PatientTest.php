@@ -14,8 +14,8 @@ use Tests\TestCase;
  * Failure modes exercised:
  *   - Missing required fields on create
  *   - Invalid date format
- *   - JMBG must be exactly 20 chars
- *   - JMBG uniqueness enforcement
+ *   - NIDA must be exactly 20 chars
+ *   - NIDA uniqueness enforcement
  *   - Non-admin attempting soft-delete
  *   - Cross-hospital access (user from hospital A accessing hospital B patient)
  *   - Listing only shows own-hospital patients
@@ -82,51 +82,51 @@ class PatientTest extends TestCase
              ->assertJsonValidationErrors(['gender']);
     }
 
-    // ── JMBG validation ───────────────────────────────────────────────────────
+    // ── NIDA validation ───────────────────────────────────────────────────────
 
     #[\PHPUnit\Framework\Attributes\Test]
-    public function store_fails_when_jmbg_is_not_exactly_20_chars(): void
+    public function store_fails_when_nida_is_not_exactly_20_chars(): void
     {
         $this->actingAs($this->nurse)
              ->postJson('/api/patients', [
                  'full_name'     => 'Test Patient',
                  'date_of_birth' => '1990-01-01',
-                 'jmbg'          => '1234567',   // too short
+                 'nida'          => '1234567',   // too short
              ])
              ->assertStatus(422)
-             ->assertJsonValidationErrors(['jmbg']);
+             ->assertJsonValidationErrors(['nida']);
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
-    public function store_fails_when_jmbg_is_already_taken(): void
+    public function store_fails_when_nida_is_already_taken(): void
     {
         Patient::factory()->create([
             'hospital_id' => $this->hospital->id,
-            'jmbg'        => '12345678901234567890',
+            'nida'        => '12345678901234567890',
         ]);
 
         $this->actingAs($this->nurse)
              ->postJson('/api/patients', [
                  'full_name'     => 'Another Patient',
                  'date_of_birth' => '1985-06-20',
-                 'jmbg'          => '12345678901234567890',
+                 'nida'          => '12345678901234567890',
              ])
              ->assertStatus(422)
-             ->assertJsonValidationErrors(['jmbg']);
+             ->assertJsonValidationErrors(['nida']);
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
-    public function update_allows_same_patient_to_keep_their_own_jmbg(): void
+    public function update_allows_same_patient_to_keep_their_own_nida(): void
     {
         $patient = Patient::factory()->create([
             'hospital_id' => $this->hospital->id,
-            'jmbg'        => '12345678901234567890',
+            'nida'        => '12345678901234567890',
         ]);
 
-        // Updating with the same JMBG should NOT produce a uniqueness error
+        // Updating with the same NIDA should NOT produce a uniqueness error
         $this->actingAs($this->admin)
              ->putJson("/api/patients/{$patient->id}", [
-                 'jmbg' => '12345678901234567890',
+                 'nida' => '12345678901234567890',
              ])
              ->assertStatus(200);
     }
