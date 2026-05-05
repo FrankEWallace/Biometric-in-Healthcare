@@ -1,0 +1,113 @@
+---
+title: Backend Setup
+description: Install, configure, and run the Laravel API
+---
+
+# Backend Setup
+
+## 1. Install dependencies
+
+```bash
+cd laravel
+composer install
+```
+
+## 2. Configure environment
+
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+Edit `.env` with your values:
+
+```dotenv
+APP_NAME="BiH Fingerprint System"
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=bih_fingerprint
+DB_USERNAME=root
+DB_PASSWORD=
+
+# URL of the running Python fingerprint service
+FINGERPRINT_SERVICE_URL=http://127.0.0.1:5001
+
+# Sanctum token expiry (hours)
+SANCTUM_TOKEN_EXPIRY_HOURS=8
+```
+
+## 3. Create the database
+
+```sql
+CREATE DATABASE bih_fingerprint CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+## 4. Run migrations
+
+```bash
+php artisan migrate
+```
+
+## 5. Create a super admin
+
+```bash
+php artisan admin:create-super
+```
+
+Follow the interactive prompts to set username, email, and password.
+
+## 6. Serve the API
+
+```bash
+php artisan serve
+# Listening on http://127.0.0.1:8000
+```
+
+## Verifying the setup
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"your_username","password":"your_password"}'
+```
+
+A successful response looks like:
+
+```json
+{
+  "token": "1|abc123...",
+  "user": {
+    "id": 1,
+    "name": "Admin",
+    "username": "admin",
+    "role": "super_admin",
+    "hospital_id": null
+  }
+}
+```
+
+## Key directories
+
+```
+laravel/
+├── app/
+│   ├── Http/
+│   │   ├── Controllers/Api/     ← REST API controllers
+│   │   ├── Controllers/Web/     ← Admin web dashboard controllers
+│   │   └── Middleware/          ← Role, hospital scope, security headers
+│   ├── Models/                  ← Eloquent models
+│   ├── Policies/                ← Object-level authorization
+│   └── Services/
+│       ├── FingerprintService.php   ← calls Python service
+│       ├── GeofenceService.php      ← GPS boundary checks
+│       └── HomisService.php         ← GoT-HoMIS EHR integration
+├── database/migrations/
+└── routes/
+    ├── api.php                  ← All API routes
+    └── web.php                  ← Admin dashboard routes
+```

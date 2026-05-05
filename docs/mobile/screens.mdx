@@ -1,0 +1,111 @@
+---
+title: Screens Reference
+description: What each screen does and which API calls it makes
+---
+
+# Screens Reference
+
+## SplashScreen
+
+On launch, reads the stored Sanctum token from `SharedPreferences`. If valid, navigates to `HomeDashboard`; otherwise navigates to `LoginScreen`.
+
+---
+
+## LoginScreen
+
+**File:** `lib/screens/login_screen.dart`
+
+Accepts username + password and calls `POST /api/auth/login`. On success, stores the token and navigates to `HomeDashboard`.
+
+---
+
+## HomeDashboard
+
+**File:** `lib/screens/home_dashboard.dart`
+
+Entry point after login. Shows role-appropriate action cards. Displays the logged-in user's name and hospital.
+
+---
+
+## VerificationScreen
+
+**File:** `lib/screens/verification_screen.dart`
+
+Allows a nurse to verify a patient by:
+1. Entering or scanning a patient ID
+2. Triggering `FingerprintCaptureScreen`
+3. Submitting to `POST /api/verify`
+4. Navigating to `ResultScreen`
+
+---
+
+## FingerprintCaptureScreen
+
+**File:** `lib/screens/fingerprint_capture_screen.dart`
+
+Opens the device camera in a guided overlay. Instructs the user to position their finger and captures on tap. Passes the image path to `FingerprintPreviewScreen`.
+
+---
+
+## FingerprintPreviewScreen
+
+**File:** `lib/screens/fingerprint_preview_screen.dart`
+
+Displays the captured image. Allows the user to:
+- **Retake** — go back to `FingerprintCaptureScreen`
+- **Confirm** — upload the image to the appropriate API endpoint
+
+---
+
+## ResultScreen
+
+**File:** `lib/screens/result_screen.dart`
+
+Displays the verification verdict:
+
+| Verdict | Display |
+|---|---|
+| MATCH | Green card with patient name, EHR summary, insurance status |
+| NO MATCH | Red card with failure message |
+| LOCKED | Orange card with lock message and admin contact info |
+
+---
+
+## PatientRegistrationScreen
+
+**File:** `lib/screens/patient_registration_screen.dart`
+
+Form for registering a new patient. Fields:
+
+- Full name (required)
+- Date of birth (required)
+- Gender
+- JMBG (national ID, 20 chars)
+- Phone
+- Notes
+
+Submits to `POST /api/patients`. On success, optionally proceeds to fingerprint enrollment.
+
+---
+
+## CameraScreen
+
+**File:** `lib/screens/camera_screen.dart`
+
+General-purpose camera screen used during patient registration to capture the fingerprint image for initial enrollment.
+
+---
+
+## EHRScreen
+
+**File:** `lib/screens/ehr_screen.dart`
+
+Displays the patient's Electronic Health Record (EHR) data fetched from the GoT-HoMIS integration. Read-only. Accessible to nurses and doctors.
+
+---
+
+## EditRequestScreen
+
+**File:** `lib/screens/edit_request_screen.dart`
+
+Allows nurses to submit demographic edit requests for existing patients. Admin reviews and approves/rejects via the web dashboard.

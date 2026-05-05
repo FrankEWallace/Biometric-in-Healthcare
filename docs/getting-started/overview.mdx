@@ -1,0 +1,47 @@
+---
+title: Setup Overview
+description: What you need to run the full system locally
+---
+
+# Getting Started
+
+The system has three independently deployable components. You can run them all on one machine during development.
+
+## Prerequisites
+
+| Tool | Version | Used by |
+|---|---|---|
+| PHP | 8.2+ | Laravel backend |
+| Composer | 2.x | Laravel dependencies |
+| MySQL | 8.0+ | Database |
+| Node.js | 18+ | Asset compilation (optional) |
+| Python | 3.10+ | Fingerprint service |
+| pip | 23+ | Python dependencies |
+| Flutter SDK | 3.x | Mobile app |
+| Android Studio / Xcode | Latest | Mobile emulator or device |
+
+## Quick-start order
+
+<Steps>
+  <Step title="Start the Python service">
+    The Laravel backend calls the Python service synchronously, so start it first.
+    See [Python Service Setup](/getting-started/python-service).
+  </Step>
+  <Step title="Start the Laravel backend">
+    Configure `.env`, run migrations, and serve the API.
+    See [Backend Setup](/getting-started/backend).
+  </Step>
+  <Step title="Run the Flutter app">
+    Point the app at your local Laravel URL and launch on an emulator or device.
+    See [Mobile Setup](/getting-started/mobile).
+  </Step>
+</Steps>
+
+## Ports (default)
+
+| Service | Port |
+|---|---|
+| Laravel (php artisan serve) | `8000` |
+| Python fingerprint service | `5001` |
+| MySQL | `3306` |
+| MAMP (if used) | `8888` |

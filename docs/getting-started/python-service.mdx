@@ -1,0 +1,95 @@
+---
+title: Python Service Setup
+description: Install and run the OpenCV fingerprint processing microservice
+---
+
+# Python Service Setup
+
+The fingerprint microservice is a FastAPI app that handles all image processing. It is called internally by Laravel and is **not** exposed to the public internet.
+
+## 1. Create a virtual environment
+
+```bash
+cd python-service
+python3 -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+```
+
+## 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Core dependencies:
+
+| Package | Purpose |
+|---|---|
+| `fastapi` | HTTP framework |
+| `uvicorn` | ASGI server |
+| `opencv-python` | Image preprocessing (CLAHE, Gabor, morphology) |
+| `numpy` | Array operations |
+| `pydantic` | Request/response validation |
+
+## 3. Run the service
+
+```bash
+python run.py
+# or
+uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
+```
+
+The service starts on `http://localhost:5001`.
+
+## 4. Verify it is running
+
+```bash
+curl http://localhost:5001/health
+# {"status": "ok"}
+```
+
+## Interactive API docs
+
+Swagger UI and ReDoc are available during development:
+
+- Swagger UI: `http://localhost:5001/docs`
+- ReDoc: `http://localhost:5001/redoc`
+
+## Service structure
+
+```
+python-service/
+├── run.py                          ← entry point (uvicorn launcher)
+└── app/
+    ├── main.py                     ← FastAPI app, router registration
+    ├── routes/
+    │   ├── health.py               ← GET /health
+    │   └── fingerprint.py          ← POST /process, /match, /process-fingerprint, /match-fingerprint
+    └── services/
+        ├── processor.py            ← build_template(), match_templates()
+        ├── image_processor.py      ← preprocess_fingerprint() pipeline
+        └── feature_extractor.py   ← extract_features(), match_features()
+```
+
+## Processing pipeline
+
+Each fingerprint image passes through these steps before feature extraction:
+
+```
+Raw image (JPEG/PNG)
+      │
+      ▼ Grayscale conversion
+      ▼ Gaussian blur (noise reduction)
+      ▼ Histogram equalization (contrast normalisation)
+      ▼ Adaptive thresholding (binarisation)
+      ▼ Morphological thinning (skeleton extraction)
+      │
+      ▼ ORB keypoint detection
+      ▼ BRIEF descriptor computation
+      │
+      └─► feature template  (keypoints + descriptors as JSON)
+```
+
+<Note>
+  The service is intentionally simple. There is no authentication on the Python endpoints because they are only reachable from the Laravel container / host — never from the internet.
+</Note>

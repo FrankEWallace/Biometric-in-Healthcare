@@ -1,0 +1,100 @@
+---
+title: Mobile App Setup
+description: Build and run the Flutter app
+---
+
+# Mobile App Setup
+
+## 1. Install Flutter dependencies
+
+```bash
+cd mobile
+flutter pub get
+```
+
+## 2. Configure the API base URL
+
+Open `lib/services/network_service.dart` and set your local Laravel URL:
+
+```dart
+static const String baseUrl = 'http://10.0.2.2:8000/api';
+// Use 10.0.2.2 for Android emulator (maps to host machine's localhost)
+// Use your machine's LAN IP for physical devices, e.g. 192.168.1.x
+```
+
+## 3. Android permissions
+
+The following permissions are already declared in `AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.CAMERA"/>
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+<uses-permission android:name="android.permission.INTERNET"/>
+```
+
+## 4. Run on emulator or device
+
+```bash
+flutter run
+```
+
+For a specific device:
+
+```bash
+flutter devices
+flutter run -d <device_id>
+```
+
+## 5. Build a release APK
+
+```bash
+flutter build apk --release
+# Output: build/app/outputs/flutter-apk/app-release.apk
+```
+
+## App structure
+
+```
+mobile/lib/
+├── main.dart                         ← app entry point, routes
+├── providers/
+│   └── auth_provider.dart            ← login state, current user
+├── models/
+│   ├── user.dart
+│   └── patient.dart
+├── services/
+│   ├── auth_service.dart             ← login / logout API calls
+│   ├── fingerprint_service.dart      ← enroll / verify API calls
+│   ├── location_service.dart         ← GPS + WiFi geofence check
+│   └── network_service.dart          ← base HTTP client
+├── screens/
+│   ├── splash_screen.dart
+│   ├── login_screen.dart
+│   ├── home_dashboard.dart
+│   ├── patient_registration_screen.dart
+│   ├── camera_screen.dart
+│   ├── fingerprint_capture_screen.dart
+│   ├── fingerprint_preview_screen.dart
+│   ├── verification_screen.dart
+│   ├── result_screen.dart
+│   ├── ehr_screen.dart
+│   └── edit_request_screen.dart
+└── theme/
+    └── app_theme.dart
+```
+
+## Geofence behaviour
+
+`LocationService` is called before any fingerprint capture screen loads:
+
+1. Requests location permission at runtime
+2. Reads current GPS coordinates
+3. Reads connected WiFi SSID
+4. Compares both against the hospital record returned by `/api/auth/me`
+5. If either check fails, displays a blocking alert and prevents capture
+
+<Warning>
+  On Android emulators the WiFi SSID check always returns `null`. Disable the SSID check in development by setting `SKIP_WIFI_CHECK=true` in your build config.
+</Warning>

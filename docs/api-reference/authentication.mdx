@@ -1,0 +1,95 @@
+---
+title: Authentication
+description: Login, logout, and current user endpoints
+---
+
+# Authentication
+
+## POST /api/auth/login
+
+Authenticate a staff member and receive a Sanctum token.
+
+**Rate limit:** 10 requests / minute per IP
+
+**Request body**
+
+```json
+{
+  "username": "nurse_amira",
+  "password": "secret"
+}
+```
+
+**Response 200**
+
+```json
+{
+  "token": "1|abc123...",
+  "user": {
+    "id": 5,
+    "name": "Amira Hadžić",
+    "username": "nurse_amira",
+    "email": "amira@hospital.ba",
+    "role": "nurse",
+    "hospital_id": 2
+  }
+}
+```
+
+**Response 422** — invalid credentials
+
+```json
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "username": ["Invalid credentials."]
+  }
+}
+```
+
+**Response 403** — account disabled
+
+```json
+{
+  "error": "Account is disabled."
+}
+```
+
+<Note>
+  Each login revokes all previous tokens for the user. Only one active session is allowed per staff member.
+</Note>
+
+---
+
+## POST /api/auth/logout
+
+Revoke the current token. Requires authentication.
+
+**Response 200**
+
+```json
+{
+  "message": "Logged out."
+}
+```
+
+---
+
+## GET /api/auth/me
+
+Return the currently authenticated user's profile.
+
+**Response 200**
+
+```json
+{
+  "user": {
+    "id": 5,
+    "name": "Amira Hadžić",
+    "username": "nurse_amira",
+    "email": "amira@hospital.ba",
+    "role": "nurse",
+    "hospital_id": 2
+  }
+}
+```

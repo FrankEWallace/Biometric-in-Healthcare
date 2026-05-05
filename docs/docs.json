@@ -1,0 +1,86 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "BiH Fingerprint Patient ID System",
+  "colors": {
+    "primary": "#0284C7",
+    "light": "#38BDF8",
+    "dark": "#0369A1"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "architecture",
+              "security"
+            ]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/overview",
+              "getting-started/backend",
+              "getting-started/mobile",
+              "getting-started/python-service"
+            ]
+          },
+          {
+            "group": "Mobile App",
+            "pages": [
+              "mobile/overview",
+              "mobile/screens"
+            ]
+          },
+          {
+            "group": "Python Service",
+            "pages": [
+              "python-service/overview",
+              "python-service/endpoints"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "api-reference/overview",
+              "api-reference/authentication",
+              "api-reference/patients",
+              "api-reference/fingerprint",
+              "api-reference/verification",
+              "api-reference/edit-requests",
+              "api-reference/users",
+              "api-reference/audit-logs"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/FrankEWallace"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/FrankEWallace"
+    }
+  }
+}

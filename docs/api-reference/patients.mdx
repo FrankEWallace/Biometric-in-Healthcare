@@ -1,0 +1,190 @@
+---
+title: Patients
+description: Patient registration, lookup, and management endpoints
+---
+
+# Patients
+
+All patient endpoints require authentication and are scoped to the caller's hospital.
+
+## GET /api/patients
+
+List active patients in the caller's hospital.
+
+**Roles:** all
+
+**Query params**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `page` | int | 1 | Page number |
+| `per_page` | int | 20 | Results per page |
+
+**Response 200**
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "hospital_id": 2,
+      "full_name": "Mira Kovačević",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "jmbg": null,
+      "phone": "+387 61 123 456",
+      "is_active": true,
+      "created_at": "2025-01-15T10:30:00Z"
+    }
+  ],
+  "current_page": 1,
+  "per_page": 20,
+  "total": 42
+}
+```
+
+---
+
+## POST /api/patients
+
+Register a new patient.
+
+**Roles:** nurse
+
+**Request body**
+
+```json
+{
+  "full_name": "Mira Kovačević",
+  "date_of_birth": "1985-03-12",
+  "gender": "female",
+  "jmbg": "1203985176543",
+  "phone": "+387 61 123 456",
+  "notes": "Allergic to penicillin"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `full_name` | string | Yes | Max 200 chars |
+| `date_of_birth` | date `Y-m-d` | Yes | |
+| `gender` | enum | No | `male`, `female`, `other` |
+| `jmbg` | string | No | Unique, max 20 chars |
+| `phone` | string | No | Max 20 chars |
+| `notes` | string | No | Max 1000 chars |
+
+**Response 201**
+
+```json
+{
+  "patient": {
+    "id": 42,
+    "hospital_id": 2,
+    "full_name": "Mira Kovačević",
+    "date_of_birth": "1985-03-12",
+    "gender": "female",
+    "jmbg": "1203985176543",
+    "phone": "+387 61 123 456",
+    "notes": "Allergic to penicillin",
+    "is_active": true,
+    "created_at": "2025-05-01T09:00:00Z"
+  }
+}
+```
+
+---
+
+## GET /api/patients/{patient}
+
+Retrieve a single patient with their enrolled fingerprints.
+
+**Roles:** all
+
+**Response 200**
+
+```json
+{
+  "patient": {
+    "id": 42,
+    "full_name": "Mira Kovačević",
+    "fingerprints": [
+      {
+        "id": 7,
+        "patient_id": 42,
+        "finger_position": "right_index",
+        "quality_score": 0.62,
+        "is_primary": true,
+        "is_active": true,
+        "created_at": "2025-05-01T09:15:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## PUT /api/patients/{patient}
+
+Update patient demographics directly.
+
+**Roles:** admin, super_admin
+
+<Note>
+  Nurses cannot call this endpoint directly. They must submit a `POST /api/patients/{patient}/edit-requests` instead.
+</Note>
+
+**Request body** (all fields optional)
+
+```json
+{
+  "full_name": "Mira Kovačević-Begić",
+  "phone": "+387 61 999 000"
+}
+```
+
+**Response 200** — returns the updated patient object.
+
+---
+
+## DELETE /api/patients/{patient}
+
+Deactivate a patient (soft delete — sets `is_active = false`).
+
+**Roles:** admin, super_admin
+
+**Response 200**
+
+```json
+{
+  "message": "Patient deactivated."
+}
+```
+
+---
+
+## POST /api/patients/{patient}/enroll
+
+Enroll a fingerprint directly from a patient record.
+
+**Roles:** nurse, admin
+
+**Rate limit:** 20 req / min per token
+
+See [Fingerprint — POST /register](/api-reference/fingerprint#post-apifingerprintregister) for the full field reference — this endpoint delegates to the same pipeline.
+
+---
+
+## DELETE /api/patients/{patient}/fingerprints/{fingerprint}
+
+Remove a specific fingerprint record.
+
+**Roles:** admin, super_admin
+
+**Response 200**
+
+```json
+{
+  "message": "Fingerprint removed."
+}
+```

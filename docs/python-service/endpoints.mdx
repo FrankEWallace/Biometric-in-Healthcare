@@ -1,0 +1,178 @@
+---
+title: Python Service Endpoints
+description: Internal FastAPI endpoints for fingerprint processing
+---
+
+# Python Service Endpoints
+
+Base URL: `http://localhost:5001` (internal only)
+
+Interactive docs: `http://localhost:5001/docs`
+
+---
+
+## GET /health
+
+Liveness probe. Returns immediately.
+
+**Response**
+
+```json
+{ "status": "ok" }
+```
+
+---
+
+## POST /process
+
+Extract an ORB template from a base64-encoded fingerprint image.
+
+**Request body**
+
+```json
+{
+  "image": "<base64-encoded JPEG or PNG>"
+}
+```
+
+**Response**
+
+```json
+{
+  "template": {
+    "keypoints": [...],
+    "descriptors": [...]
+  },
+  "quality_score": 0.42
+}
+```
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | `image` is empty or invalid base64 |
+| 400 | Image bytes could not be decoded as JPEG/PNG |
+
+---
+
+## POST /match
+
+Match a probe template against a list of candidate templates. Returns the best-matching `patient_id`.
+
+**Request body**
+
+```json
+{
+  "probe": {
+    "keypoints": [...],
+    "descriptors": [...]
+  },
+  "candidates": [
+    {
+      "patient_id": 1,
+      "template": { "keypoints": [...], "descriptors": [...] }
+    }
+  ]
+}
+```
+
+**Response**
+
+```json
+{
+  "patient_id": 1,
+  "score": 0.3250
+}
+```
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | `candidates` list is empty |
+| 400 | No valid candidates could be processed |
+
+---
+
+## POST /process-fingerprint
+
+Full preprocessing pipeline for a multipart-uploaded fingerprint image.
+
+**Request** — `multipart/form-data`
+
+| Field | Type | Required |
+|---|---|---|
+| `file` | JPEG or PNG upload | Yes |
+
+**Response**
+
+```json
+{
+  "success": true,
+  "message": "Image processed successfully.",
+  "filename": "finger.jpg",
+  "quality_score": 0.55,
+  "steps_applied": ["grayscale", "blur", "equalization", "threshold", "thinning"],
+  "processed_image": "<base64 PNG of skeleton>",
+  "features": {
+    "keypoint_count": 128,
+    "status": "ok",
+    "keypoints": [...],
+    "descriptors": [...]
+  }
+}
+```
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | Unsupported file type (not JPEG/PNG) |
+| 400 | Uploaded file is empty |
+| 400 | Image could not be decoded |
+
+---
+
+## POST /match-fingerprint
+
+Compare two uploaded fingerprint images end-to-end and return a MATCH / NO MATCH verdict.
+
+**Request** — `multipart/form-data`
+
+| Field | Type | Required |
+|---|---|---|
+| `image1` | JPEG or PNG upload | Yes |
+| `image2` | JPEG or PNG upload | Yes |
+
+**Response**
+
+```json
+{
+  "verdict": "MATCH",
+  "score": 34.5,
+  "good_matches": 44,
+  "total_matches": 128,
+  "image1": {
+    "filename": "probe.jpg",
+    "keypoint_count": 128,
+    "feature_status": "ok"
+  },
+  "image2": {
+    "filename": "stored.jpg",
+    "keypoint_count": 112,
+    "feature_status": "ok"
+  }
+}
+```
+
+**Verdict thresholds**
+
+| Score | Verdict |
+|---|---|
+| ≥ 20 | MATCH |
+| < 20 | NO MATCH |
+
+<Note>
+  This endpoint is primarily used for standalone testing. In production, Laravel calls `/process-fingerprint` and `/match` separately so it can store/retrieve templates between calls.
+</Note>

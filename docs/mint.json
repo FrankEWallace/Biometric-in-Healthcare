@@ -1,0 +1,75 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "BiH Fingerprint Patient ID System",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0284C7",
+    "light": "#38BDF8",
+    "dark": "#0369A1"
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/FrankEWallace"
+    }
+  ],
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Overview",
+      "pages": [
+        "introduction",
+        "architecture",
+        "security"
+      ]
+    },
+    {
+      "group": "Getting Started",
+      "pages": [
+        "getting-started/overview",
+        "getting-started/backend",
+        "getting-started/mobile",
+        "getting-started/python-service"
+      ]
+    },
+    {
+      "group": "Mobile App",
+      "pages": [
+        "mobile/overview",
+        "mobile/screens"
+      ]
+    },
+    {
+      "group": "Python Service",
+      "pages": [
+        "python-service/overview",
+        "python-service/endpoints"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api-reference/overview",
+        "api-reference/authentication",
+        "api-reference/patients",
+        "api-reference/fingerprint",
+        "api-reference/verification",
+        "api-reference/edit-requests",
+        "api-reference/users",
+        "api-reference/audit-logs"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/FrankEWallace"
+  }
+}

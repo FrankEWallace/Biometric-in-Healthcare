@@ -1,0 +1,79 @@
+---
+title: API Overview
+description: Laravel REST API conventions, authentication, and error format
+---
+
+# API Overview
+
+**Base URL:** `http://localhost:8000/api`
+
+All endpoints consume and produce `application/json` unless the request involves a file upload, in which case `multipart/form-data` is used.
+
+## Authentication
+
+All routes except `POST /auth/login` require a Sanctum bearer token:
+
+```http
+Authorization: Bearer 1|abc123...
+```
+
+Tokens are issued by `POST /auth/login`, expire after 8 hours, and are revoked on logout.
+
+## Standard error format
+
+```json
+{
+  "error": "Human-readable message.",
+  "hint": "Optional: what to do instead."
+}
+```
+
+Validation errors follow Laravel's default format:
+
+```json
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "field_name": ["Validation error message."]
+  }
+}
+```
+
+## Common HTTP status codes
+
+| Code | Meaning |
+|---|---|
+| 200 | Success |
+| 201 | Resource created |
+| 400 | Bad request |
+| 401 | Unauthenticated (missing or expired token) |
+| 403 | Forbidden (wrong role) |
+| 404 | Not found (or cross-hospital access blocked) |
+| 409 | Conflict (e.g. unlocking a record that is not locked) |
+| 422 | Validation failed or fingerprint quality too low |
+| 423 | Fingerprint record is locked |
+| 503 | Python fingerprint service unavailable |
+
+## Rate limits
+
+| Route | Limit |
+|---|---|
+| `POST /auth/login` | 10 req / min per IP |
+| Fingerprint enroll routes | 20 req / min per token |
+| Fingerprint verify routes | 30 req / min per token |
+
+## Pagination
+
+List endpoints return paginated results:
+
+```json
+{
+  "data": [...],
+  "current_page": 1,
+  "per_page": 20,
+  "total": 150,
+  "last_page": 8
+}
+```
+
+Pass `?per_page=50` to change page size.

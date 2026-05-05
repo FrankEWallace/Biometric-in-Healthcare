@@ -1,0 +1,71 @@
+---
+title: Audit Logs
+description: Immutable system activity log
+---
+
+# Audit Logs
+
+The audit log records every sensitive action in the system. Entries are append-only — they cannot be edited or deleted via the API.
+
+---
+
+## GET /api/audit-logs
+
+List audit log entries for the caller's hospital.
+
+**Roles:** super_admin, admin, doctor
+
+**Query params**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `page` | int | 1 | Page number |
+| `per_page` | int | 20 | Results per page |
+| `action` | string | — | Filter by action type |
+| `patient_id` | int | — | Filter by patient |
+| `staff_id` | int | — | Filter by staff member |
+
+**Response 200**
+
+```json
+{
+  "data": [
+    {
+      "id": 500,
+      "staff_id": 5,
+      "hospital_id": 2,
+      "action": "fingerprint_lock",
+      "patient_id": 42,
+      "ip_address": "192.168.1.50",
+      "user_agent": "Dart/3.0 (dart:io)",
+      "meta": {
+        "fingerprint_id": 7,
+        "failed_attempts": 5,
+        "window_hours": 1
+      },
+      "created_at": "2025-05-01T15:05:00Z"
+    }
+  ],
+  "current_page": 1,
+  "total": 1240
+}
+```
+
+## Action types
+
+| Action | Trigger |
+|---|---|
+| `login_success` | Staff logged in |
+| `login_failed` | Failed login attempt |
+| `patient_create` | New patient registered |
+| `patient_update` | Patient demographics edited |
+| `patient_deactivate` | Patient soft-deleted |
+| `fingerprint_enroll` | Fingerprint template stored |
+| `fingerprint_no_match` | Verification returned NO MATCH |
+| `fingerprint_lock` | Record locked after repeated failures |
+| `fingerprint_unlock` | Admin unlocked a record |
+| `edit_request_submit` | Nurse submitted a demographic edit request |
+| `edit_request_approve` | Admin approved an edit request |
+| `edit_request_reject` | Admin rejected an edit request |
+| `user_create` | New staff account created |
+| `user_deactivate` | Staff account deactivated |

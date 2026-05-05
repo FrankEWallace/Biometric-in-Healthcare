@@ -1,0 +1,122 @@
+---
+title: Architecture
+description: How the three system components communicate
+---
+
+# System Architecture
+
+## Component diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Hospital Premises                          │
+│                                                                 │
+│   ┌──────────────┐   HTTPS/JSON   ┌──────────────────────────┐ │
+│   │              │ ─────────────► │                          │ │
+│   │  Flutter App │                │   Laravel Backend API    │ │
+│   │  (mobile)    │ ◄───────────── │   (PHP 8.2 / MySQL 8)   │ │
+│   │              │                │                          │ │
+│   └──────────────┘                └──────────┬───────────────┘ │
+│         │                                    │                 │
+│    GPS + WiFi                      Internal HTTP (port 5001)   │
+│    geofence                                  │                 │
+│                                   ┌──────────▼───────────────┐ │
+│                                   │  Python Fingerprint      │ │
+│                                   │  Service (FastAPI)       │ │
+│                                   │  OpenCV · ORB · BRIEF   │ │
+│                                   └──────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Request flow — patient verification
+
+```
+Nurse opens verification screen
+        │
+        ▼
+Flutter captures fingerprint image
+        │
+        ▼
+POST /api/verify (multipart image + patient_id)
+  Authorization: Bearer <sanctum-token>
+        │
+        ▼
+Laravel validates token, role (nurse), hospital scope
+        │
+        ├── load stored ORB template from DB
+        │
+        ▼
+POST http://python-service:5001/process-fingerprint (image file)
+        │   returns quality_score + ORB features
+        ▼
+POST http://python-service:5001/match (probe features + stored template)
+        │   returns score (0–100) + verdict
+        ▼
+Laravel checks verdict threshold (score ≥ 20 → MATCH)
+        │
+        ├── on MATCH  → fetch EHR + insurance from GoT-HoMIS
+        ├── on NO MATCH → increment failure counter, lock after 5 fails
+        │
+        ▼
+JSON response → Flutter displays result screen
+```
+
+## Database schema (key tables)
+
+```
+hospitals
+  id, name, address, wifi_ssid, lat, lng, radius_meters
+
+users (staff)
+  id, hospital_id, name, username, email, role, is_active
+
+patients
+  id, hospital_id, full_name, date_of_birth, gender, jmbg, phone, is_active
+
+fingerprints
+  id, patient_id, hospital_id, enrolled_by (user_id),
+  template (JSON — ORB keypoints + descriptors, AES-256 at rest),
+  finger_position, quality_score, is_primary, is_active,
+  failed_attempts, locked_at
+
+verification_logs
+  id, patient_id, hospital_id, staff_id, verdict, score, ip_address
+
+audit_logs
+  id, staff_id, hospital_id, action, patient_id, ip_address, user_agent, meta (JSON)
+```
+
+## Role matrix
+
+| Endpoint category | super_admin | admin | doctor | nurse |
+|---|:---:|:---:|:---:|:---:|
+| Login / logout / me | ✓ | ✓ | ✓ | ✓ |
+| List / view patients | ✓ | ✓ | ✓ | ✓ |
+| Register patient | | | | ✓ |
+| Edit patient directly | ✓ | ✓ | | |
+| Submit edit request | | | | ✓ |
+| Approve / reject edit request | ✓ | ✓ | | |
+| Enroll fingerprint | ✓ | ✓ | | ✓ |
+| Verify fingerprint | | | | ✓ |
+| Unlock fingerprint | ✓ | ✓ | | |
+| Manage users | ✓ | ✓ | | |
+| View audit logs | ✓ | ✓ | ✓ | |
+| Manage hospitals | ✓ | | | |
+
+## Rate limits
+
+| Route group | Limit |
+|---|---|
+| `POST /api/auth/login` | 10 req / min per IP |
+| Fingerprint enroll endpoints | 20 req / min per token |
+| Fingerprint verify endpoints | 30 req / min per token |
+
+## Security layers
+
+1. **Sanctum token** — 8-hour expiry, revoked on logout, single active token per user
+2. **Role middleware** — `role:nurse,admin` checked before every sensitive route
+3. **Hospital scope** — `hospital.access` middleware blocks cross-hospital data access
+4. **Geofence** — Flutter checks GPS + WiFi SSID before allowing capture
+5. **Fingerprint locking** — 5 failed attempts within 1 hour locks the record
+6. **Template encryption** — ORB feature JSON encrypted at rest (AES-256)
+7. **No raw image storage** — only processed feature templates are persisted

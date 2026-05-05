@@ -1,0 +1,44 @@
+---
+title: Introduction
+description: Mobile-Based Fingerprint Verification System for Patient Identification in Healthcare
+---
+
+# BiH Fingerprint Patient Identification System
+
+A hospital-grade, multi-tenant system that registers and verifies patients using fingerprint biometrics captured via smartphone camera.
+
+## What it does
+
+<CardGroup cols={2}>
+  <Card title="Patient Registration" icon="user-plus">
+    Nurses capture a fingerprint image with the mobile app. The image is processed by the Python service, and the ORB feature template is stored securely in the database.
+  </Card>
+  <Card title="Patient Verification" icon="fingerprint">
+    A live fingerprint capture is matched against stored templates in real time. A MATCH or NO MATCH verdict is returned within seconds.
+  </Card>
+  <Card title="Access Control" icon="location-dot">
+    GPS geofencing and WiFi SSID restrictions prevent the app from operating outside hospital premises.
+  </Card>
+  <Card title="Role-Based Access" icon="shield-halved">
+    Four roles — super_admin, admin, doctor, nurse — each with narrowly scoped permissions enforced at the API layer.
+  </Card>
+</CardGroup>
+
+## System components
+
+| Component | Technology | Purpose |
+|---|---|---|
+| **Laravel Backend** | Laravel 11, MySQL, Sanctum | REST API, RBAC, audit logs |
+| **Flutter Mobile** | Flutter, Provider | Fingerprint capture UI, geofencing |
+| **Python Service** | FastAPI, OpenCV, ORB | Image preprocessing, feature extraction, matching |
+
+## Key design principles
+
+- **Functionality first** — MVP features before optimisation or polish
+- **Simplicity** — no unnecessary dependencies or layers
+- **Security** — raw fingerprint images are never persisted; only ORB feature templates are stored
+- **Demonstrability** — every component runs locally and is independently testable
+
+<Note>
+  This system was built as a Final Year Project (FYP) demonstrating biometric patient identification in a hospital environment.
+</Note>

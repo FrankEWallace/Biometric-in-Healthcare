@@ -1,0 +1,184 @@
+---
+title: Fingerprint
+description: Fingerprint enrollment and direct patient verification endpoints
+---
+
+# Fingerprint
+
+All fingerprint endpoints require authentication and the `hospital.access` scope.
+
+---
+
+## POST /api/fingerprint/upload
+
+**Legacy endpoint** — kept for backward compatibility. Accepts a base64-converted image and uses the basic ORB pipeline.
+
+For new integrations use `POST /api/fingerprint/register` instead.
+
+**Roles:** nurse, admin — **Rate limit:** 20 req / min
+
+**Request** — `multipart/form-data`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `fingerprint` | file | Yes | JPEG or PNG, max 5 MB |
+| `patient_id` | integer | Yes | Must belong to caller's hospital |
+| `finger_position` | string | No | Default: `right_index` |
+| `is_primary` | boolean | No | Default: `false` |
+
+**Finger position values**
+
+`right_thumb`, `right_index`, `right_middle`, `right_ring`, `right_little`, `left_thumb`, `left_index`, `left_middle`, `left_ring`, `left_little`, `right_hand`, `left_hand`
+
+**Response 201**
+
+```json
+{
+  "message": "Fingerprint uploaded successfully.",
+  "fingerprint_id": 7,
+  "patient_id": 42,
+  "finger_position": "right_index",
+  "quality_score": 0.52,
+  "is_primary": true
+}
+```
+
+**Response 422** — quality too low
+
+```json
+{
+  "error": "Fingerprint quality is too low. Please recapture.",
+  "quality_score": 0.08,
+  "minimum": 0.10
+}
+```
+
+---
+
+## POST /api/fingerprint/register
+
+Enhanced enrollment using the full preprocessing pipeline (grayscale → blur → histogram equalisation → adaptive threshold → morphological thinning → ORB).
+
+**Roles:** nurse, admin — **Rate limit:** 20 req / min
+
+**Request** — `multipart/form-data`
+
+Same fields as `/upload`. Minimum quality score is **0.10**; a `no_features` status also causes a 422.
+
+**Response 201**
+
+```json
+{
+  "message": "Fingerprint registered successfully.",
+  "fingerprint_id": 8,
+  "patient_id": 42,
+  "finger_position": "right_hand",
+  "quality_score": 0.67,
+  "keypoint_count": 142,
+  "feature_status": "ok",
+  "steps_applied": ["grayscale", "blur", "equalization", "threshold", "thinning"],
+  "is_primary": false
+}
+```
+
+**Response 422** — no features extracted
+
+```json
+{
+  "error": "No fingerprint features could be extracted. Please recapture.",
+  "feature_status": "no_features"
+}
+```
+
+**Response 503** — Python service unavailable
+
+```json
+{
+  "error": "Fingerprint processing failed: Connection refused."
+}
+```
+
+---
+
+## POST /api/fingerprint/verify
+
+Verify a fingerprint against a **specific known patient's** stored template.
+
+Use this when the patient presents an ID card and you know who to verify against. For hospital-wide identification (unknown patient), use `POST /api/verify` instead.
+
+**Roles:** nurse — **Rate limit:** 30 req / min
+
+**Request** — `multipart/form-data`
+
+| Field | Type | Required |
+|---|---|---|
+| `fingerprint` | file | Yes |
+| `patient_id` | integer | Yes |
+
+**Response 200 — MATCH**
+
+```json
+{
+  "verdict": "MATCH",
+  "score": 34.5,
+  "probe_keypoints": 128,
+  "feature_status": "ok",
+  "patient": {
+    "id": 42,
+    "full_name": "Mira Kovačević"
+  },
+  "matched_finger": "right_index",
+  "ehr": { ... },
+  "insurance": { ... }
+}
+```
+
+**Response 200 — NO MATCH**
+
+```json
+{
+  "verdict": "NO_MATCH",
+  "score": 8.2,
+  "probe_keypoints": 97,
+  "feature_status": "ok",
+  "patient": { "id": 42, "full_name": "Mira Kovačević" },
+  "matched_finger": "right_index",
+  "ehr": null,
+  "insurance": null
+}
+```
+
+**Response 423** — fingerprint locked
+
+```json
+{
+  "verdict": "NO_MATCH",
+  "error": "Fingerprint locked after 5 failed attempts within 1 hour. Contact an administrator."
+}
+```
+
+---
+
+## POST /api/fingerprint/{fingerprint}/unlock
+
+Unlock a locked fingerprint record and reset its failure counter.
+
+**Roles:** admin, super_admin
+
+**Response 200**
+
+```json
+{
+  "message": "Fingerprint unlocked successfully.",
+  "fingerprint_id": 7,
+  "patient_id": 42
+}
+```
+
+**Response 409** — record is not locked
+
+```json
+{
+  "error": "Fingerprint is not locked."
+}
+```

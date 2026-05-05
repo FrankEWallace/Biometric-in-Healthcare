@@ -1,0 +1,108 @@
+---
+title: Verification
+description: Hospital-wide fingerprint identification and verification logs
+---
+
+# Verification
+
+The verification endpoints support **hospital-wide identification** — scanning a finger without knowing the patient in advance.
+
+---
+
+## POST /api/verify
+
+Identify a patient from a fingerprint image alone. The system matches the probe against all active fingerprints in the caller's hospital.
+
+**Roles:** nurse — **Rate limit:** 30 req / min
+
+**Request** — `multipart/form-data`
+
+| Field | Type | Required |
+|---|---|---|
+| `fingerprint` | file (JPEG/PNG, max 5 MB) | Yes |
+
+**Response 200 — identified**
+
+```json
+{
+  "verdict": "MATCH",
+  "score": 42.1,
+  "patient": {
+    "id": 42,
+    "full_name": "Mira Kovačević"
+  },
+  "matched_finger": "right_index",
+  "ehr": {
+    "patient_id": "42",
+    "name": "Mira Kovačević",
+    "blood_type": "A+",
+    "allergies": ["penicillin"],
+    "diagnoses": [...]
+  },
+  "insurance": {
+    "provider": "Zavod zdravstvenog osiguranja FBiH",
+    "status": "active",
+    "valid_until": "2025-12-31"
+  }
+}
+```
+
+**Response 200 — not identified**
+
+```json
+{
+  "verdict": "NO_MATCH",
+  "score": 0.0,
+  "patient": null,
+  "ehr": null,
+  "insurance": null
+}
+```
+
+**Response 503** — Python service unavailable
+
+---
+
+## GET /api/verify/logs
+
+List verification log entries.
+
+**Roles:** all (nurses see their own logs only; doctors see patient-centric logs)
+
+**Query params**
+
+| Param | Type | Default |
+|---|---|---|
+| `page` | int | 1 |
+| `per_page` | int | 20 |
+
+**Response 200**
+
+```json
+{
+  "data": [
+    {
+      "id": 101,
+      "patient_id": 42,
+      "hospital_id": 2,
+      "staff_id": 5,
+      "verdict": "MATCH",
+      "score": 42.1,
+      "ip_address": "192.168.1.50",
+      "created_at": "2025-05-01T14:22:00Z"
+    }
+  ],
+  "current_page": 1,
+  "total": 88
+}
+```
+
+---
+
+## GET /api/verify/logs/{log}
+
+Retrieve a single verification log entry.
+
+**Roles:** all (same scope rules as GET /logs)
+
+**Response 200** — returns a single log entry object matching the shape above.

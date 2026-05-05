@@ -1,0 +1,94 @@
+---
+title: Security
+description: Security model, threat mitigations, and operational guidelines
+---
+
+# Security
+
+## Biometric data protection
+
+<Warning>
+  Raw fingerprint images are **never** stored on the server. Only the ORB feature template (keypoints + BRIEF descriptors as JSON) is persisted, and it is encrypted at rest.
+</Warning>
+
+| Data | Storage | Encryption |
+|---|---|---|
+| Fingerprint image | Never stored | N/A |
+| ORB feature template | `fingerprints.template` (MySQL JSON column) | AES-256 at rest |
+| Sanctum API token | `personal_access_tokens` (hashed) | SHA-256 hash |
+| Staff passwords | `users.password` | bcrypt |
+
+## Authentication
+
+- **Sanctum personal access tokens** — issued on login, expire after 8 hours
+- Each login revokes all previous tokens for that user (single active session)
+- Failed login attempts are recorded in `audit_logs` with IP address
+
+## Authorization
+
+Every API route is protected by at least one of:
+
+- `auth:sanctum` — valid, non-expired token required
+- `role:x,y` — caller's `users.role` must match one of the allowed values
+- `hospital.access` — caller can only access patients from their own hospital
+- Laravel Policies — fine-grained object-level checks (e.g. a nurse can only cancel their own edit requests)
+
+## Fingerprint locking
+
+To prevent brute-force matching attacks:
+
+- A `fingerprints` record tracks `failed_attempts` and `locked_at`
+- **5 consecutive failures within 1 hour** → record is locked (HTTP 423)
+- Only `admin` or `super_admin` can unlock a record via `POST /api/fingerprint/{id}/unlock`
+- A successful MATCH resets the counter
+
+## Geofencing (mobile)
+
+The Flutter app enforces location restrictions before any capture screen is accessible:
+
+1. **GPS check** — device coordinates must be within `hospital.radius_meters` of the hospital's `lat/lng`
+2. **WiFi SSID check** — device must be connected to the hospital's registered SSID
+3. Both checks are re-validated at the backend via IP allowlisting (configurable)
+
+## Security headers
+
+The `SecurityHeaders` middleware adds to every response:
+
+```
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Content-Security-Policy: default-src 'self'
+```
+
+## Audit logging
+
+Every sensitive action is recorded in `audit_logs`:
+
+| Action constant | Trigger |
+|---|---|
+| `login_success` | Successful staff login |
+| `login_failed` | Failed login attempt |
+| `patient_create` | New patient registered |
+| `patient_update` | Patient demographics changed |
+| `fingerprint_enroll` | Fingerprint template stored |
+| `fingerprint_no_match` | Verification returned NO MATCH |
+| `fingerprint_lock` | Record locked after 5 failures |
+| `fingerprint_unlock` | Admin unlocked a record |
+
+## Input validation
+
+- All API inputs are validated by Laravel's `$request->validate()` before any processing
+- File uploads are restricted to `jpeg`, `jpg`, `png`, max 5 MB
+- The Python service validates `content_type` and decodes bytes defensively, returning HTTP 400 on any malformed input
+- SQL injection is prevented by Eloquent ORM (no raw queries in production paths)
+
+## Deployment checklist
+
+- [ ] `APP_ENV=production`, `APP_DEBUG=false` in `.env`
+- [ ] `FINGERPRINT_SERVICE_URL` points to internal-only URL (not public)
+- [ ] HTTPS enforced on the Laravel host (nginx / Caddy with valid TLS cert)
+- [ ] MySQL user has only `SELECT`, `INSERT`, `UPDATE`, `DELETE` (no `DROP`, `CREATE`)
+- [ ] Python service is NOT exposed to the public internet (firewall or Docker network isolation)
+- [ ] Sanctum `SANCTUM_STATEFUL_DOMAINS` lists only the admin web dashboard domain

@@ -1,0 +1,53 @@
+---
+title: Python Service Overview
+description: FastAPI fingerprint processing microservice
+---
+
+# Python Service Overview
+
+The Python service is an internal microservice responsible for all biometric computation. Laravel calls it over HTTP — it is never reachable directly from the mobile app or the internet.
+
+## Responsibilities
+
+1. **Image preprocessing** — convert raw camera captures into a clean ridge skeleton
+2. **Feature extraction** — run ORB to produce keypoints + BRIEF descriptors
+3. **Template matching** — BFMatcher with Lowe ratio test to score two templates
+
+## Technology choices
+
+| Library | Why |
+|---|---|
+| **FastAPI** | Async, schema-validated endpoints, auto Swagger docs |
+| **OpenCV** | Industry-standard image processing (CLAHE, Gabor, morphology) |
+| **ORB** | Patent-free, fast binary feature descriptor suitable for embedded use |
+| **BRIEF** | Compact binary descriptor, efficient Hamming distance matching |
+
+## Quality scoring
+
+The `quality_score` returned by `/process` and `/process-fingerprint` is a **Laplacian variance** value normalised to [0, 1]:
+
+- `< 0.10` — rejected by the fingerprint endpoints (blurry / unusable)
+- `0.10 – 0.30` — accepted by the basic `/upload` endpoint, but borderline
+- `> 0.30` — required by the `/register` (enhanced) endpoint
+- `> 0.50` — optimal for reliable matching
+
+## Feature status codes
+
+| `status` | Meaning |
+|---|---|
+| `ok` | 10+ keypoints found — reliable match possible |
+| `low_quality` | 1–9 keypoints — match result unreliable |
+| `no_features` | 0 keypoints — reject the capture |
+
+## Matching threshold
+
+A normalised match score is computed as:
+
+```
+score = (good_matches / total_keypoints) × 100
+```
+
+- Score **≥ 20** → `MATCH`
+- Score **< 20** → `NO MATCH`
+
+This threshold was tuned empirically for smartphone camera captures of fingers (not dedicated optical fingerprint scanners).

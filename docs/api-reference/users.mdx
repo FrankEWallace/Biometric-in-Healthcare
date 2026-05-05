@@ -1,0 +1,110 @@
+---
+title: Users
+description: Staff user management endpoints
+---
+
+# Users
+
+All user management endpoints are restricted to admin and super_admin.
+
+---
+
+## GET /api/users
+
+List staff users in the caller's hospital.
+
+**Roles:** admin, super_admin
+
+**Response 200** — paginated list of user objects.
+
+---
+
+## POST /api/users
+
+Create a new staff account.
+
+**Roles:** admin, super_admin
+
+**Request body**
+
+```json
+{
+  "name": "Amira Hadžić",
+  "username": "nurse_amira",
+  "email": "amira@hospital.ba",
+  "password": "SecurePass123!",
+  "role": "nurse",
+  "hospital_id": 2
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | Yes | Display name |
+| `username` | string | Yes | Unique across the system |
+| `email` | string | Yes | Valid email, unique |
+| `password` | string | Yes | Min 8 chars |
+| `role` | enum | Yes | `nurse`, `doctor`, `admin`, `super_admin` |
+| `hospital_id` | integer | Yes | Must be a valid hospital |
+
+**Response 201**
+
+```json
+{
+  "user": {
+    "id": 10,
+    "name": "Amira Hadžić",
+    "username": "nurse_amira",
+    "email": "amira@hospital.ba",
+    "role": "nurse",
+    "hospital_id": 2,
+    "is_active": true,
+    "created_at": "2025-05-01T08:00:00Z"
+  }
+}
+```
+
+---
+
+## GET /api/users/{user}
+
+Retrieve a single staff user.
+
+**Roles:** admin, super_admin
+
+**Response 200** — single user object.
+
+---
+
+## PUT /api/users/{user}
+
+Update a staff user's details.
+
+**Roles:** admin, super_admin
+
+**Request body** — all fields optional
+
+```json
+{
+  "name": "Amira Hadžić-Pašić",
+  "is_active": false
+}
+```
+
+**Response 200** — updated user object.
+
+---
+
+## DELETE /api/users/{user}
+
+Deactivate a staff user account (soft delete — sets `is_active = false` and revokes all tokens).
+
+**Roles:** admin, super_admin
+
+**Response 200**
+
+```json
+{
+  "message": "User deactivated."
+}
+```

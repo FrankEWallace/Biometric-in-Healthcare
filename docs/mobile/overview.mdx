@@ -1,0 +1,68 @@
+---
+title: Mobile App Overview
+description: Flutter app architecture and navigation flow
+---
+
+# Mobile App Overview
+
+The Flutter app is the only interface that hospital staff interact with. It is designed for use on Android devices within hospital premises.
+
+## Navigation flow
+
+```
+SplashScreen
+    │
+    ▼ token check
+    ├── no token ──► LoginScreen
+    │                    │ success
+    │                    ▼
+    └── token found ──► HomeDashboard
+                            │
+                ┌───────────┼───────────────┐
+                │           │               │
+                ▼           ▼               ▼
+        Verification   Registration    EHR / Patient
+        Screen         Screen          Details
+                │           │
+                ▼           ▼
+        FingerprintCapture  CameraScreen
+                │               │
+                ▼               ▼
+        FingerprintPreview  FingerprintPreview
+                │
+                ▼
+         ResultScreen
+```
+
+## State management
+
+The app uses **Provider** for state management. There is a single `AuthProvider` that holds:
+
+- Current `User` object (id, name, role, hospital_id)
+- Sanctum token (stored in `SharedPreferences`)
+- Login / logout methods
+
+All screens read from `AuthProvider` via `context.read<AuthProvider>()`.
+
+## Theming
+
+`AppTheme` defines a consistent palette used across all screens:
+
+| Token | Value |
+|---|---|
+| Primary | Sky Blue `#0284C7` |
+| Background | White `#FFFFFF` |
+| Surface | Light Gray `#F8FAFC` |
+| Error | Red `#EF4444` |
+| Text primary | Gray-900 `#111827` |
+
+## Role-aware UI
+
+The `HomeDashboard` conditionally renders cards based on the logged-in user's role:
+
+| Role | Available actions |
+|---|---|
+| nurse | Verify patient, Register patient, Submit edit request |
+| doctor | View patients, View EHR |
+| admin | All nurse actions + user management |
+| super_admin | All admin actions + hospital management |

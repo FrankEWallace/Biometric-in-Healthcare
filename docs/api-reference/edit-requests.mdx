@@ -1,0 +1,114 @@
+---
+title: Edit Requests
+description: Nurse-submitted patient demographic change requests and admin review queue
+---
+
+# Edit Requests
+
+Nurses cannot edit patient demographics directly. Instead they submit an edit request that an admin reviews and approves or rejects.
+
+---
+
+## POST /api/patients/{patient}/edit-requests
+
+Submit a demographic edit request for a patient.
+
+**Roles:** nurse
+
+**Request body**
+
+```json
+{
+  "full_name": "Mira Kovačević-Begić",
+  "phone": "+387 61 999 000",
+  "reason": "Patient reported name change after marriage."
+}
+```
+
+Only include the fields you want changed. At least one demographic field is required.
+
+**Response 201**
+
+```json
+{
+  "edit_request": {
+    "id": 12,
+    "patient_id": 42,
+    "submitted_by": 5,
+    "status": "pending",
+    "proposed_changes": {
+      "full_name": "Mira Kovačević-Begić",
+      "phone": "+387 61 999 000"
+    },
+    "reason": "Patient reported name change after marriage.",
+    "created_at": "2025-05-01T10:00:00Z"
+  }
+}
+```
+
+---
+
+## GET /api/edit-requests
+
+List all pending (and recent) edit requests for the caller's hospital.
+
+**Roles:** admin, super_admin
+
+**Response 200** — paginated list of edit request objects.
+
+---
+
+## PUT /api/edit-requests/{editRequest}/approve
+
+Approve an edit request. The patient record is updated immediately.
+
+**Roles:** admin, super_admin
+
+**Response 200**
+
+```json
+{
+  "message": "Edit request approved.",
+  "patient": { ... }
+}
+```
+
+---
+
+## PUT /api/edit-requests/{editRequest}/reject
+
+Reject an edit request with an optional reason.
+
+**Roles:** admin, super_admin
+
+**Request body**
+
+```json
+{
+  "rejection_reason": "Insufficient documentation provided."
+}
+```
+
+**Response 200**
+
+```json
+{
+  "message": "Edit request rejected."
+}
+```
+
+---
+
+## PUT /api/edit-requests/{editRequest}/cancel
+
+Cancel a pending edit request. Only the nurse who submitted it can cancel it, and only while it is still `pending`.
+
+**Roles:** nurse
+
+**Response 200**
+
+```json
+{
+  "message": "Edit request cancelled."
+}
+```
