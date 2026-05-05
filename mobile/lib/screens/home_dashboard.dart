@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/user.dart';
 import '../providers/auth_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/location_service.dart';
 import '../services/network_service.dart';
 import '../theme/app_theme.dart';
@@ -105,18 +106,18 @@ class _CheckingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: AppColors.background,
+    return Scaffold(
+      backgroundColor: Ct(context).background,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: AppColors.primary),
-            SizedBox(height: 20),
+            const CircularProgressIndicator(color: AppColors.primary),
+            const SizedBox(height: 20),
             Text(
               'Verifying access…',
               style: TextStyle(
-                color: AppColors.textSecondary,
+                color: Ct(context).textSecondary,
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
               ),
@@ -139,7 +140,7 @@ class _GeofenceBlockedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Ct(context).background,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -156,19 +157,19 @@ class _GeofenceBlockedScreen extends StatelessWidget {
                 child: const Icon(Icons.location_off_rounded, size: 46, color: AppColors.error),
               ),
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'Access Restricted',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
+                  color: Ct(context).textPrimary,
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Access is restricted to hospital premises.\nPlease move within 200 m of the hospital and ensure location services are enabled.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.6),
+                style: TextStyle(fontSize: 14, color: Ct(context).textSecondary, height: 1.6),
               ),
               const SizedBox(height: 36),
               DecoratedBox(
@@ -338,7 +339,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
     final items = _navItems(user);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Ct(context).background,
       appBar: AppBar(
         title: Text(_appBarTitle(user)),
         actions: [
@@ -353,7 +354,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (i) => _onTabSelected(user, i),
-        backgroundColor: AppColors.surface,
+        backgroundColor: Ct(context).surface,
         indicatorColor: AppColors.primary.withValues(alpha: 0.12),
         destinations: items
             .map((item) => NavigationDestination(
@@ -373,7 +374,7 @@ class _NavItem {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Profile tab
+// Profile + Settings tab
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ProfileTab extends StatelessWidget {
@@ -381,62 +382,219 @@ class _ProfileTab extends StatelessWidget {
   final VoidCallback onLogout;
   const _ProfileTab({required this.user, required this.onLogout});
 
-  String get _roleLabel => switch (user.role) {
-    'super_admin' => 'Super Admin',
-    'admin'       => 'Administrator',
-    'doctor'      => 'Doctor',
-    _             => 'Nurse',
+  static const _roleLabels = {
+    'super_admin': 'Super Admin',
+    'admin':       'Administrator',
+    'doctor':      'Doctor',
+    'nurse':       'Nurse',
   };
+
+  static const _roleColors = {
+    'super_admin': Color(0xFFDC2626),
+    'admin':       Color(0xFFD97706),
+    'doctor':      Color(0xFF0284C7),
+    'nurse':       Color(0xFF059669),
+  };
+
+  String get _roleLabel  => _roleLabels[user.role]  ?? 'Staff';
+  Color  get _roleColor  => _roleColors[user.role]  ?? AppColors.primary;
+  String get _initial    => user.name.isNotEmpty ? user.name[0].toUpperCase() : '?';
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 16),
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.person_rounded, size: 40, color: AppColors.primary),
-          ),
-          const SizedBox(height: 16),
-          Text(user.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-          const SizedBox(height: 4),
-          Text(_roleLabel, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
-          const SizedBox(height: 4),
-          Text(user.email, style: const TextStyle(fontSize: 13, color: AppColors.textHint)),
-          const SizedBox(height: 32),
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: AppShadows.card,
-            ),
+          // ── Avatar header ───────────────────────────────────────────────
+          Center(
             child: Column(
               children: [
-                _ProfileRow(icon: Icons.badge_outlined,    label: 'Role',     value: _roleLabel),
-                const Divider(height: 1, indent: 56),
-                _ProfileRow(icon: Icons.alternate_email_rounded, label: 'Username', value: user.username),
-                const Divider(height: 1, indent: 56),
-                _ProfileRow(icon: Icons.local_hospital_outlined, label: 'Hospital ID', value: user.hospitalId?.toString() ?? '—'),
+                Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    color: _roleColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _roleColor.withValues(alpha: 0.25),
+                      width: 2,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      _initial,
+                      style: TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w700,
+                        color: _roleColor,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  user.name,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Ct(context).textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _roleColor.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _roleLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _roleColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  user.email,
+                  style: TextStyle(fontSize: 13, color: Ct(context).textHint),
+                ),
               ],
             ),
           ),
+
+          const SizedBox(height: 28),
+
+          // ── My Account ──────────────────────────────────────────────────
+          const _SettingsSectionHeader('My Account'),
+          const SizedBox(height: 10),
+          _SettingsCard(children: [
+            _SettingsRow(
+              icon: Icons.alternate_email_rounded,
+              label: 'Username',
+              trailing: Text(
+                '@${user.username}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Ct(context).textPrimary,
+                ),
+              ),
+            ),
+            const Divider(height: 1, indent: 52),
+            _SettingsRow(
+              icon: Icons.email_outlined,
+              label: 'Email',
+              trailing: Text(
+                user.email,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Ct(context).textPrimary,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Divider(height: 1, indent: 52),
+            _SettingsRow(
+              icon: Icons.local_hospital_outlined,
+              label: 'Hospital ID',
+              trailing: Text(
+                user.hospitalId?.toString() ?? '—',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Ct(context).textPrimary,
+                ),
+              ),
+            ),
+            const Divider(height: 1, indent: 52),
+            _SettingsRow(
+              icon: Icons.badge_outlined,
+              label: 'Role',
+              trailing: Text(
+                _roleLabel,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _roleColor,
+                ),
+              ),
+            ),
+          ]),
+
           const SizedBox(height: 24),
+
+          // ── Preferences ─────────────────────────────────────────────────
+          const _SettingsSectionHeader('Preferences'),
+          const SizedBox(height: 10),
+          _SettingsCard(children: [
+            _SettingsRow(
+              icon: Icons.dark_mode_outlined,
+              label: 'Dark Mode',
+              trailing: Switch(
+                value: themeProvider.isDark,
+                onChanged: (_) => themeProvider.toggle(),
+                activeColor: AppColors.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ]),
+
+          const SizedBox(height: 24),
+
+          // ── About ───────────────────────────────────────────────────────
+          const _SettingsSectionHeader('About'),
+          const SizedBox(height: 10),
+          _SettingsCard(children: [
+            _SettingsRow(
+              icon: Icons.info_outline_rounded,
+              label: 'App Version',
+              trailing: Text(
+                'v1.0.0',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Ct(context).textHint,
+                ),
+              ),
+            ),
+            const Divider(height: 1, indent: 52),
+            _SettingsRow(
+              icon: Icons.shield_outlined,
+              label: 'System',
+              trailing: Text(
+                'Fingerprint Patient ID',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Ct(context).textHint,
+                ),
+              ),
+            ),
+          ]),
+
+          const SizedBox(height: 32),
+
+          // ── Sign out ────────────────────────────────────────────────────
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              icon: const Icon(Icons.logout_rounded, color: AppColors.error),
-              label: const Text('Sign Out', style: TextStyle(color: AppColors.error)),
+              icon: const Icon(Icons.logout_rounded, color: AppColors.error, size: 18),
+              label: const Text(
+                'Sign Out',
+                style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600),
+              ),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: AppColors.error),
                 minimumSize: const Size(double.infinity, 52),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
               onPressed: onLogout,
             ),
@@ -447,23 +605,70 @@ class _ProfileTab extends StatelessWidget {
   }
 }
 
-class _ProfileRow extends StatelessWidget {
+class _SettingsSectionHeader extends StatelessWidget {
+  final String text;
+  const _SettingsSectionHeader(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: Ct(context).textHint,
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+}
+
+class _SettingsCard extends StatelessWidget {
+  final List<Widget> children;
+  const _SettingsCard({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Ct(context).surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: AppShadows.card,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
+    );
+  }
+}
+
+class _SettingsRow extends StatelessWidget {
   final IconData icon;
   final String label;
-  final String value;
-  const _ProfileRow({required this.icon, required this.label, required this.value});
+  final Widget trailing;
+
+  const _SettingsRow({
+    required this.icon,
+    required this.label,
+    required this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: AppColors.textSecondary),
-          const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+          Icon(icon, size: 20, color: Ct(context).textSecondary),
+          const SizedBox(width: 16),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              color: Ct(context).textPrimary,
+            ),
+          ),
           const Spacer(),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+          trailing,
         ],
       ),
     );
@@ -489,7 +694,7 @@ class _PatientsTab extends StatelessWidget {
           const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
-              color: AppColors.surface,
+              color: Ct(context).surface,
               borderRadius: BorderRadius.circular(16),
               boxShadow: AppShadows.card,
             ),
@@ -672,7 +877,7 @@ class _AdminDashboard extends StatelessWidget {
           icon: Icons.people_rounded,
           title: 'Staff Management',
           subtitle: 'View and manage hospital staff accounts',
-          color: AppColors.textSecondary,
+          color: Ct(context).textSecondary,
           enabled: actionsEnabled,
           onTap: () => Navigator.push(
             context,
@@ -714,7 +919,7 @@ class _DoctorDashboard extends StatelessWidget {
         const SizedBox(height: 12),
         Container(
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            color: Ct(context).surface,
             borderRadius: BorderRadius.circular(16),
             boxShadow: AppShadows.card,
           ),
@@ -794,7 +999,7 @@ class _SuperAdminDashboard extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            color: Ct(context).surface,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.2)),
             boxShadow: AppShadows.card,
@@ -813,13 +1018,13 @@ class _SuperAdminDashboard extends StatelessWidget {
                     child: const Icon(Icons.admin_panel_settings_rounded, color: Color(0xFF7C3AED), size: 22),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Full Management Access', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                        SizedBox(height: 2),
-                        Text('Use the web dashboard for cross-hospital management', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                        Text('Full Management Access', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Ct(context).textPrimary)),
+                        const SizedBox(height: 2),
+                        Text('Use the web dashboard for cross-hospital management', style: TextStyle(fontSize: 12, color: Ct(context).textSecondary)),
                       ],
                     ),
                   ),
@@ -851,11 +1056,11 @@ class _SuperAdminLink extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: AppColors.textSecondary),
+          Icon(icon, size: 16, color: Ct(context).textSecondary),
           const SizedBox(width: 10),
-          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          Text(label, style: TextStyle(fontSize: 13, color: Ct(context).textSecondary)),
           const Spacer(),
-          const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.textHint),
+          Icon(Icons.open_in_new_rounded, size: 14, color: Ct(context).textHint),
         ],
       ),
     );
@@ -991,10 +1196,10 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w700,
-        color: AppColors.textSecondary,
+        color: Ct(context).textSecondary,
         letterSpacing: 0.3,
       ),
     );
@@ -1055,14 +1260,14 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = enabled ? color : AppColors.textHint;
+    final c = enabled ? color : Ct(context).textHint;
 
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 200),
       opacity: enabled ? 1.0 : 0.5,
       child: Container(
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: Ct(context).surface,
           borderRadius: BorderRadius.circular(16),
           boxShadow: enabled ? AppShadows.card : [],
         ),
@@ -1091,9 +1296,9 @@ class _ActionCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                        Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Ct(context).textPrimary)),
                         const SizedBox(height: 3),
-                        Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                        Text(subtitle, style: TextStyle(fontSize: 13, color: Ct(context).textSecondary)),
                       ],
                     ),
                   ),
@@ -1128,7 +1333,7 @@ class _InfoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: Ct(context).surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
         boxShadow: AppShadows.card,
@@ -1141,7 +1346,7 @@ class _InfoCard extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
+              style: TextStyle(fontSize: 13, color: Ct(context).textSecondary, height: 1.5),
             ),
           ),
         ],
@@ -1169,7 +1374,7 @@ class _StatCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: Ct(context).surface,
           borderRadius: BorderRadius.circular(16),
           boxShadow: AppShadows.card,
         ),
@@ -1198,9 +1403,9 @@ class _StatCard extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
-                color: AppColors.textSecondary,
+                color: Ct(context).textSecondary,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -1221,17 +1426,17 @@ class _EmptyActivityCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: Ct(context).surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(color: Ct(context).divider),
       ),
       child: Column(
         children: [
-          const Icon(Icons.inbox_rounded, size: 32, color: AppColors.textHint),
+          Icon(Icons.inbox_rounded, size: 32, color: Ct(context).textHint),
           const SizedBox(height: 8),
           Text(
             message,
-            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 13, color: Ct(context).textSecondary),
             textAlign: TextAlign.center,
           ),
         ],

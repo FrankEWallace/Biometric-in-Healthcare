@@ -132,10 +132,25 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     );
   }
 
+  void _showProfile(Map<String, dynamic> member) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _StaffProfileSheet(
+        member: member,
+        onToggle: () {
+          Navigator.pop(context);
+          _toggle(member);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Ct(context).background,
       appBar: AppBar(
         title: const Text('Staff Management'),
         actions: [
@@ -162,7 +177,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
             const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 48),
             const SizedBox(height: 16),
             Text(_error!, textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary)),
+                style: TextStyle(color: Ct(context).textSecondary)),
             const SizedBox(height: 20),
             ElevatedButton(onPressed: _load, child: const Text('Retry')),
           ]),
@@ -211,13 +226,14 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                         onSelected: (_) => setState(() => _roleFilter = f.$1),
                         showCheckmark: false,
                         selectedColor: AppColors.primary.withValues(alpha: 0.15),
+                        backgroundColor: Ct(context).surfaceAlt,
                         side: BorderSide(
-                          color: selected ? AppColors.primary : AppColors.divider,
+                          color: selected ? AppColors.primary : Ct(context).divider,
                         ),
                         labelStyle: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: selected ? AppColors.primary : AppColors.textSecondary,
+                          color: selected ? AppColors.primary : Ct(context).textSecondary,
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                       ),
@@ -237,7 +253,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                     _searchQuery.isNotEmpty || _roleFilter != 'all'
                         ? 'No staff match your filter.'
                         : 'No staff found.',
-                    style: const TextStyle(color: AppColors.textSecondary),
+                    style: TextStyle(color: Ct(context).textSecondary),
                   ),
                 )
               : RefreshIndicator(
@@ -249,7 +265,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Container(
                         decoration: BoxDecoration(
-                          color: AppColors.surface,
+                          color: Ct(context).surface,
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: AppShadows.card,
                         ),
@@ -258,27 +274,27 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                           children: [
                             // Header row
                             Container(
-                              color: AppColors.background,
+                              color: Ct(context).background,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 10),
-                              child: const Row(
+                              child: Row(
                                 children: [
                                   Expanded(
                                     flex: 4,
                                     child: Text('Staff Member',
-                                        style: _headerStyle),
+                                        style: _headerStyle(context)),
                                   ),
                                   Expanded(
                                     flex: 2,
                                     child: Text('Role',
-                                        style: _headerStyle),
+                                        style: _headerStyle(context)),
                                   ),
                                   Expanded(
                                     flex: 2,
                                     child: Text('Status',
-                                        style: _headerStyle),
+                                        style: _headerStyle(context)),
                                   ),
-                                  SizedBox(width: 40),
+                                  const SizedBox(width: 40),
                                 ],
                               ),
                             ),
@@ -290,11 +306,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                               return Column(
                                 children: [
                                   if (i > 0)
-                                    const Divider(
-                                        height: 1, indent: 16, endIndent: 16),
+                                    Divider(
+                                        height: 1, indent: 16, endIndent: 16,
+                                        color: Ct(context).divider),
                                   _StaffRow(
                                     member: member,
                                     onToggle: () => _toggle(member),
+                                    onTap: () => _showProfile(member),
                                   ),
                                 ],
                               );
@@ -302,13 +320,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                             // Footer count
                             Container(
                               width: double.infinity,
-                              color: AppColors.background,
+                              color: Ct(context).background,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 8),
                               child: Text(
                                 '${rows.length} of ${_staff.length} staff',
-                                style: const TextStyle(
-                                    fontSize: 11, color: AppColors.textHint),
+                                style: TextStyle(
+                                    fontSize: 11, color: Ct(context).textHint),
                               ),
                             ),
                           ],
@@ -322,10 +340,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     );
   }
 
-  static const _headerStyle = TextStyle(
+  static TextStyle _headerStyle(BuildContext context) => TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w700,
-    color: AppColors.textHint,
+    color: Ct(context).textHint,
     letterSpacing: 0.5,
   );
 }
@@ -335,8 +353,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 class _StaffRow extends StatelessWidget {
   final Map<String, dynamic> member;
   final VoidCallback onToggle;
+  final VoidCallback onTap;
 
-  const _StaffRow({required this.member, required this.onToggle});
+  const _StaffRow({required this.member, required this.onToggle, required this.onTap});
 
   static const _roleColors = {
     'super_admin': Color(0xFFDC2626),
@@ -361,7 +380,9 @@ class _StaffRow extends StatelessWidget {
     final name     = member['name']     as String? ?? '—';
     final username = member['username'] as String? ?? '';
 
-    return Padding(
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
@@ -394,16 +415,16 @@ class _StaffRow extends StatelessWidget {
                     children: [
                       Text(
                         name,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary),
+                            color: Ct(context).textPrimary),
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
                         '@$username',
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.textHint),
+                        style: TextStyle(
+                            fontSize: 11, color: Ct(context).textHint),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
@@ -455,7 +476,7 @@ class _StaffRow extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                     color: isActive
                         ? AppColors.success
-                        : AppColors.textSecondary,
+                        : Ct(context).textSecondary,
                   ),
                 ),
               ],
@@ -479,6 +500,227 @@ class _StaffRow extends StatelessWidget {
                     tooltip: isActive ? 'Deactivate' : 'Reactivate',
                     onPressed: onToggle,
                   ),
+          ),
+        ],
+      ),
+    ),
+    );
+  }
+}
+
+// ── Staff profile bottom sheet ────────────────────────────────────────────────
+
+class _StaffProfileSheet extends StatelessWidget {
+  final Map<String, dynamic> member;
+  final VoidCallback onToggle;
+
+  const _StaffProfileSheet({required this.member, required this.onToggle});
+
+  static const _roleColors = {
+    'super_admin': Color(0xFFDC2626),
+    'admin':       Color(0xFFD97706),
+    'doctor':      Color(0xFF0284C7),
+    'nurse':       Color(0xFF059669),
+  };
+
+  static const _roleLabels = {
+    'super_admin': 'Super Admin',
+    'admin':       'Admin',
+    'doctor':      'Doctor',
+    'nurse':       'Nurse',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final role     = member['role'] as String? ?? 'nurse';
+    final isActive = member['is_active'] as bool? ?? false;
+    final color    = _roleColors[role] ?? AppColors.textSecondary;
+    final name     = member['name']     as String? ?? '—';
+    final username = member['username'] as String? ?? '';
+    final email    = member['email']    as String? ?? '';
+    final phone    = member['phone']    as String?;
+    final joinedAt = member['created_at'] as String?;
+    final isSelf   = member['id'] == context.read<AuthProvider>().user?.id;
+
+    String? formattedDate;
+    if (joinedAt != null) {
+      try {
+        final dt = DateTime.parse(joinedAt).toLocal();
+        formattedDate =
+            '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+      } catch (_) {}
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Ct(context).surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          const SizedBox(height: 12),
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+              color: Ct(context).divider,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 24),
+          // Avatar
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                name[0].toUpperCase(),
+                style: TextStyle(
+                    fontSize: 28, fontWeight: FontWeight.w700, color: color),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Name
+          Text(
+            name,
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Ct(context).textPrimary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '@$username',
+            style: TextStyle(fontSize: 13, color: Ct(context).textHint),
+          ),
+          const SizedBox(height: 12),
+          // Role badge + status dot
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _roleLabels[role] ?? role,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: color),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                width: 8, height: 8,
+                decoration: BoxDecoration(
+                  color: isActive ? AppColors.success : Ct(context).textHint,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                isActive ? 'Active' : 'Inactive',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color:
+                        isActive ? AppColors.success : Ct(context).textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Divider(indent: 24, endIndent: 24, color: Ct(context).divider),
+          const SizedBox(height: 8),
+          // Info rows
+          if (email.isNotEmpty)
+            _InfoTile(
+                icon: Icons.email_outlined, label: 'Email', value: email),
+          if (phone != null && phone.isNotEmpty)
+            _InfoTile(
+                icon: Icons.phone_outlined, label: 'Phone', value: phone),
+          if (formattedDate != null)
+            _InfoTile(
+                icon: Icons.calendar_today_outlined,
+                label: 'Joined',
+                value: formattedDate),
+          const SizedBox(height: 16),
+          // Toggle button (not for self)
+          if (!isSelf)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: Icon(
+                    isActive
+                        ? Icons.person_off_rounded
+                        : Icons.person_rounded,
+                    size: 16,
+                  ),
+                  label: Text(isActive ? 'Deactivate Staff' : 'Reactivate Staff'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor:
+                        isActive ? AppColors.error : AppColors.success,
+                    side: BorderSide(
+                        color: isActive ? AppColors.error : AppColors.success),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: onToggle,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoTile(
+      {required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Ct(context).textHint),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Ct(context).textSecondary),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(fontSize: 13, color: Ct(context).textPrimary),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -555,26 +797,26 @@ class _CreateStaffSheetState extends State<_CreateStaffSheet> {
       minChildSize: 0.5,
       maxChildSize: 0.95,
       builder: (context, controller) => Container(
-        decoration: const BoxDecoration(
-          color: AppColors.background,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: Ct(context).surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(children: [
           const SizedBox(height: 12),
           Container(
             width: 40, height: 4,
             decoration: BoxDecoration(
-              color: AppColors.divider,
+              color: Ct(context).divider,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'Add Staff Account',
             style: TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary),
+                color: Ct(context).textPrimary),
           ),
           const Divider(height: 24),
           Expanded(
@@ -637,22 +879,22 @@ class _CreateStaffSheetState extends State<_CreateStaffSheet> {
                   ),
                   const SizedBox(height: 14),
                   // Role selector
-                  const Align(
+                  Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
                       'Role',
                       style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary),
+                          color: Ct(context).textPrimary),
                     ),
                   ),
                   const SizedBox(height: 8),
                   Container(
                     decoration: BoxDecoration(
-                      color: AppColors.surface,
+                      color: Ct(context).surfaceAlt,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.divider),
+                      border: Border.all(color: Ct(context).divider),
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(

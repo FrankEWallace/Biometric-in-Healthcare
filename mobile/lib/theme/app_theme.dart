@@ -327,6 +327,26 @@ class AppTheme {
   static ThemeData get theme => lightTheme;
 }
 
+// ── Context-aware color resolver ─────────────────────────────────────────────
+//
+// Usage: final c = Ct(context);  then  c.background, c.surface, etc.
+// Reads the current brightness so all screens adapt to dark mode automatically.
+
+class Ct {
+  final BuildContext _ctx;
+  const Ct(this._ctx);
+
+  bool get _dark => Theme.of(_ctx).brightness == Brightness.dark;
+
+  Color get background    => _dark ? AppColorsDark.background    : AppColors.background;
+  Color get surface       => _dark ? AppColorsDark.surface       : AppColors.surface;
+  Color get surfaceAlt    => _dark ? AppColorsDark.surfaceAlt    : AppColors.surfaceAlt;
+  Color get textPrimary   => _dark ? AppColorsDark.textPrimary   : AppColors.textPrimary;
+  Color get textSecondary => _dark ? AppColorsDark.textSecondary : AppColors.textSecondary;
+  Color get textHint      => _dark ? AppColorsDark.textHint      : AppColors.textHint;
+  Color get divider       => _dark ? AppColorsDark.divider       : AppColors.divider;
+}
+
 // ── Shared shadow tokens ───────────────────────────────────────────────────────
 
 class AppShadows {
