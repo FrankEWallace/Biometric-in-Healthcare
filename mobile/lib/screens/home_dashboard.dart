@@ -192,10 +192,10 @@ class _GeofenceBlockedScreen extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard body — routes to role-specific dashboard
+// Dashboard body — role-based shell with bottom navigation
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _DashboardBody extends StatelessWidget {
+class _DashboardBody extends StatefulWidget {
   final bool actionsEnabled;
   final VoidCallback onRetryWifi;
   final VoidCallback onLogout;
@@ -207,47 +207,346 @@ class _DashboardBody extends StatelessWidget {
   });
 
   @override
+  State<_DashboardBody> createState() => _DashboardBodyState();
+}
+
+class _DashboardBodyState extends State<_DashboardBody> {
+  int _selectedIndex = 0;
+
+  List<_NavItem> _navItems(User user) {
+    if (user.isNurse) {
+      return const [
+        _NavItem(icon: Icons.home_rounded,              label: 'Home'),
+        _NavItem(icon: Icons.person_add_alt_1_rounded,  label: 'Register'),
+        _NavItem(icon: Icons.fingerprint,               label: 'Verify'),
+        _NavItem(icon: Icons.account_circle_rounded,    label: 'Profile'),
+      ];
+    }
+    if (user.isDoctor) {
+      return const [
+        _NavItem(icon: Icons.home_rounded,              label: 'Home'),
+        _NavItem(icon: Icons.people_rounded,            label: 'Patients'),
+        _NavItem(icon: Icons.account_circle_rounded,    label: 'Profile'),
+      ];
+    }
+    if (user.isSuperAdmin) {
+      return const [
+        _NavItem(icon: Icons.home_rounded,              label: 'Home'),
+        _NavItem(icon: Icons.local_hospital_rounded,    label: 'Hospitals'),
+        _NavItem(icon: Icons.account_circle_rounded,    label: 'Profile'),
+      ];
+    }
+    // admin
+    return const [
+      _NavItem(icon: Icons.home_rounded,              label: 'Home'),
+      _NavItem(icon: Icons.rate_review_rounded,       label: 'Requests'),
+      _NavItem(icon: Icons.people_rounded,            label: 'Staff'),
+      _NavItem(icon: Icons.account_circle_rounded,    label: 'Profile'),
+    ];
+  }
+
+  Future<void> _onTabSelected(User user, int index) async {
+    if (index == 0) {
+      setState(() => _selectedIndex = 0);
+      return;
+    }
+
+    // Profile tab is last in all roles — handled inline
+    final items = _navItems(user);
+    if (index == items.length - 1) {
+      setState(() => _selectedIndex = index);
+      return;
+    }
+
+    // Secondary action tabs → push full screen, keep index on 0 when back
+    setState(() => _selectedIndex = index);
+    Widget? screen;
+
+    if (user.isNurse) {
+      if (index == 1) screen = const PatientRegistrationScreen();
+      if (index == 2) screen = const VerificationScreen();
+    } else if (user.isDoctor) {
+      // patients tab is inline, no push needed
+    } else if (user.isSuperAdmin) {
+      // hospitals tab is inline, no push needed
+    } else {
+      // admin
+      if (index == 1) screen = const EditRequestScreen(reviewMode: true);
+      if (index == 2) screen = const StaffManagementScreen();
+    }
+
+    if (screen != null) {
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => screen!));
+      if (mounted) setState(() => _selectedIndex = 0);
+    }
+  }
+
+  Widget _homeBody(User user) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _WelcomeCard(user: user, onHospitalWifi: widget.actionsEnabled),
+          const SizedBox(height: 12),
+          if (!widget.actionsEnabled) ...[
+            _WifiBanner(onRetry: widget.onRetryWifi),
+            const SizedBox(height: 12),
+          ],
+          const SizedBox(height: 4),
+          if (user.isNurse)
+            _NurseDashboard(actionsEnabled: widget.actionsEnabled)
+          else if (user.isDoctor)
+            _DoctorDashboard(actionsEnabled: widget.actionsEnabled)
+          else if (user.isSuperAdmin)
+            _SuperAdminDashboard(actionsEnabled: widget.actionsEnabled)
+          else
+            _AdminDashboard(actionsEnabled: widget.actionsEnabled),
+        ],
+      ),
+    );
+  }
+
+  Widget _currentBody(User user) {
+    final items = _navItems(user);
+    final isProfile = _selectedIndex == items.length - 1;
+    if (isProfile) return _ProfileTab(user: user, onLogout: widget.onLogout);
+
+    // Doctor patients tab (inline)
+    if (user.isDoctor && _selectedIndex == 1) {
+      return _PatientsTab(actionsEnabled: widget.actionsEnabled);
+    }
+    // Super admin hospitals tab (inline)
+    if (user.isSuperAdmin && _selectedIndex == 1) {
+      return _HospitalsTab(actionsEnabled: widget.actionsEnabled);
+    }
+
+    return _homeBody(user);
+  }
+
+  String _appBarTitle(User user) {
+    final items = _navItems(user);
+    if (_selectedIndex >= items.length) return 'Dashboard';
+    return items[_selectedIndex].label;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
     if (user == null) return const SizedBox.shrink();
 
+    final items = _navItems(user);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Dashboard'),
+        title: Text(_appBarTitle(user)),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             tooltip: 'Sign Out',
-            onPressed: onLogout,
+            onPressed: widget.onLogout,
           ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _WelcomeCard(user: user, onHospitalWifi: actionsEnabled),
-              const SizedBox(height: 12),
-              if (!actionsEnabled) ...[
-                _WifiBanner(onRetry: onRetryWifi),
-                const SizedBox(height: 12),
-              ],
-              const SizedBox(height: 4),
-              // Role-specific dashboard content
-              if (user.isNurse)
-                _NurseDashboard(actionsEnabled: actionsEnabled)
-              else if (user.isDoctor)
-                _DoctorDashboard(actionsEnabled: actionsEnabled)
-              else if (user.isSuperAdmin)
-                _SuperAdminDashboard(actionsEnabled: actionsEnabled)
-              else
-                _AdminDashboard(actionsEnabled: actionsEnabled),
-            ],
+      body: SafeArea(child: _currentBody(user)),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (i) => _onTabSelected(user, i),
+        backgroundColor: AppColors.surface,
+        indicatorColor: AppColors.primary.withValues(alpha: 0.12),
+        destinations: items
+            .map((item) => NavigationDestination(
+                  icon: Icon(item.icon),
+                  label: item.label,
+                ))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _NavItem {
+  final IconData icon;
+  final String label;
+  const _NavItem({required this.icon, required this.label});
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Profile tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ProfileTab extends StatelessWidget {
+  final User user;
+  final VoidCallback onLogout;
+  const _ProfileTab({required this.user, required this.onLogout});
+
+  String get _roleLabel => switch (user.role) {
+    'super_admin' => 'Super Admin',
+    'admin'       => 'Administrator',
+    'doctor'      => 'Doctor',
+    _             => 'Nurse',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          const SizedBox(height: 16),
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.person_rounded, size: 40, color: AppColors.primary),
           ),
-        ),
+          const SizedBox(height: 16),
+          Text(user.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+          const SizedBox(height: 4),
+          Text(_roleLabel, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+          const SizedBox(height: 4),
+          Text(user.email, style: const TextStyle(fontSize: 13, color: AppColors.textHint)),
+          const SizedBox(height: 32),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: AppShadows.card,
+            ),
+            child: Column(
+              children: [
+                _ProfileRow(icon: Icons.badge_outlined,    label: 'Role',     value: _roleLabel),
+                const Divider(height: 1, indent: 56),
+                _ProfileRow(icon: Icons.alternate_email_rounded, label: 'Username', value: user.username),
+                const Divider(height: 1, indent: 56),
+                _ProfileRow(icon: Icons.local_hospital_outlined, label: 'Hospital ID', value: user.hospitalId?.toString() ?? '—'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.logout_rounded, color: AppColors.error),
+              label: const Text('Sign Out', style: TextStyle(color: AppColors.error)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.error),
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              onPressed: onLogout,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _ProfileRow({required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: AppColors.textSecondary),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+          const Spacer(),
+          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Patients tab (Doctor)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PatientsTab extends StatelessWidget {
+  final bool actionsEnabled;
+  const _PatientsTab({required this.actionsEnabled});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionHeader('Patient Search'),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: AppShadows.card,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  const TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or NIDA…',
+                      prefixIcon: Icon(Icons.search_rounded),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.search_rounded, size: 18),
+                      label: const Text('Search Patients'),
+                      style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
+                      onPressed: actionsEnabled ? () {} : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const _SectionHeader('Recent Verifications'),
+          const SizedBox(height: 12),
+          const _EmptyActivityCard(message: 'No recent verifications in your hospital'),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hospitals tab (Super Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _HospitalsTab extends StatelessWidget {
+  final bool actionsEnabled;
+  const _HospitalsTab({required this.actionsEnabled});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SingleChildScrollView(
+      padding: EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader('All Hospitals'),
+          SizedBox(height: 12),
+          _EmptyActivityCard(message: 'Hospital list coming soon'),
+        ],
       ),
     );
   }

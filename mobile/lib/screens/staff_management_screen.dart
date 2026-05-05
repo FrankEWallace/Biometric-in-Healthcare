@@ -14,19 +14,49 @@ class StaffManagementScreen extends StatefulWidget {
 }
 
 class _StaffManagementScreenState extends State<StaffManagementScreen> {
-  final _service = StaffService();
+  final _service       = StaffService();
+  final _searchCtrl    = TextEditingController();
 
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _staff = [];
+  String _roleFilter   = 'all';
+  String _searchQuery  = '';
+
+  static const _filters = [
+    ('all',    'All'),
+    ('admin',  'Admin'),
+    ('doctor', 'Doctor'),
+    ('nurse',  'Nurse'),
+  ];
 
   @override
   void initState() {
     super.initState();
     _load();
+    _searchCtrl.addListener(() {
+      setState(() => _searchQuery = _searchCtrl.text.toLowerCase());
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   String get _token => context.read<AuthProvider>().user!.token;
+
+  List<Map<String, dynamic>> get _filtered {
+    return _staff.where((m) {
+      final matchRole = _roleFilter == 'all' || m['role'] == _roleFilter;
+      if (!matchRole) return false;
+      if (_searchQuery.isEmpty) return true;
+      final name     = (m['name']     as String? ?? '').toLowerCase();
+      final username = (m['username'] as String? ?? '').toLowerCase();
+      return name.contains(_searchQuery) || username.contains(_searchQuery);
+    }).toList();
+  }
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
@@ -139,35 +169,174 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         ),
       );
     }
-    if (_staff.isEmpty) {
-      return const Center(
-        child: Text('No staff found.', style: TextStyle(color: AppColors.textSecondary)),
-      );
-    }
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      color: AppColors.primary,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: _staff.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 10),
-        itemBuilder: (context, i) => _StaffCard(
-          member: _staff[i],
-          onToggle: () => _toggle(_staff[i]),
+    final rows = _filtered;
+
+    return Column(
+      children: [
+        // ── Search + filters ──────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Column(
+            children: [
+              // Search bar
+              TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Search by name or username…',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () => _searchCtrl.clear(),
+                        )
+                      : null,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Role filter chips
+              SizedBox(
+                height: 34,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: _filters.map((f) {
+                    final selected = _roleFilter == f.$1;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        label: Text(f.$2),
+                        selected: selected,
+                        onSelected: (_) => setState(() => _roleFilter = f.$1),
+                        showCheckmark: false,
+                        selectedColor: AppColors.primary.withValues(alpha: 0.15),
+                        side: BorderSide(
+                          color: selected ? AppColors.primary : AppColors.divider,
+                        ),
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: selected ? AppColors.primary : AppColors.textSecondary,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 12),
+        // ── Table ─────────────────────────────────────────────────────────
+        Expanded(
+          child: rows.isEmpty
+              ? Center(
+                  child: Text(
+                    _searchQuery.isNotEmpty || _roleFilter != 'all'
+                        ? 'No staff match your filter.'
+                        : 'No staff found.',
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  color: AppColors.primary,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: AppShadows.card,
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          children: [
+                            // Header row
+                            Container(
+                              color: AppColors.background,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                              child: const Row(
+                                children: [
+                                  Expanded(
+                                    flex: 4,
+                                    child: Text('Staff Member',
+                                        style: _headerStyle),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: Text('Role',
+                                        style: _headerStyle),
+                                  ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: Text('Status',
+                                        style: _headerStyle),
+                                  ),
+                                  SizedBox(width: 40),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            // Data rows
+                            ...rows.asMap().entries.map((entry) {
+                              final i      = entry.key;
+                              final member = entry.value;
+                              return Column(
+                                children: [
+                                  if (i > 0)
+                                    const Divider(
+                                        height: 1, indent: 16, endIndent: 16),
+                                  _StaffRow(
+                                    member: member,
+                                    onToggle: () => _toggle(member),
+                                  ),
+                                ],
+                              );
+                            }),
+                            // Footer count
+                            Container(
+                              width: double.infinity,
+                              color: AppColors.background,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 8),
+                              child: Text(
+                                '${rows.length} of ${_staff.length} staff',
+                                style: const TextStyle(
+                                    fontSize: 11, color: AppColors.textHint),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+      ],
     );
   }
+
+  static const _headerStyle = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    color: AppColors.textHint,
+    letterSpacing: 0.5,
+  );
 }
 
-// ── Staff card ────────────────────────────────────────────────────────────────
+// ── Staff table row ───────────────────────────────────────────────────────────
 
-class _StaffCard extends StatelessWidget {
+class _StaffRow extends StatelessWidget {
   final Map<String, dynamic> member;
   final VoidCallback onToggle;
 
-  const _StaffCard({required this.member, required this.onToggle});
+  const _StaffRow({required this.member, required this.onToggle});
 
   static const _roleColors = {
     'super_admin': Color(0xFFDC2626),
@@ -189,96 +358,130 @@ class _StaffCard extends StatelessWidget {
     final isActive = member['is_active'] as bool? ?? false;
     final color    = _roleColors[role] ?? AppColors.textSecondary;
     final isSelf   = member['id'] == context.read<AuthProvider>().user?.id;
+    final name     = member['name']     as String? ?? '—';
+    final username = member['username'] as String? ?? '';
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: AppShadows.card,
-      ),
-      child: Row(children: [
-        // Avatar
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Text(
-              (member['name'] as String? ?? '?')[0].toUpperCase(),
-              style: TextStyle(
-                  fontSize: 17, fontWeight: FontWeight.w700, color: color),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          // Staff Member — flex 4
+          Expanded(
+            flex: 4,
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      name[0].toUpperCase(),
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: color),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        '@$username',
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textHint),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(width: 12),
-        // Info
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(
-              member['name'] as String? ?? '—',
-              style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              '@${member['username'] as String? ?? ''}',
-              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 6),
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          // Role — flex 2, badge is intrinsic-width, left-aligned
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
+                  color: color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   _roleLabels[role] ?? role,
                   style: TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w600, color: color),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: color),
                 ),
               ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? AppColors.successLight
-                      : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  isActive ? 'Active' : 'Inactive',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: isActive ? AppColors.success : AppColors.textSecondary,
+            ),
+          ),
+          // Status — flex 2, dot + label left-aligned
+          Expanded(
+            flex: 2,
+            child: Row(
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: isActive ? AppColors.success : AppColors.textHint,
+                    shape: BoxShape.circle,
                   ),
                 ),
-              ),
-            ]),
-          ]),
-        ),
-        // Action
-        if (!isSelf)
-          IconButton(
-            icon: Icon(
-              isActive
-                  ? Icons.person_off_rounded
-                  : Icons.person_rounded,
-              size: 20,
-              color: isActive ? AppColors.error : AppColors.success,
+                const SizedBox(width: 6),
+                Text(
+                  isActive ? 'Active' : 'Inactive',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isActive
+                        ? AppColors.success
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
-            tooltip: isActive ? 'Deactivate' : 'Reactivate',
-            onPressed: onToggle,
           ),
-      ]),
+          // Action — fixed 40 px
+          SizedBox(
+            width: 40,
+            child: isSelf
+                ? const SizedBox.shrink()
+                : IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(
+                      isActive
+                          ? Icons.person_off_rounded
+                          : Icons.person_rounded,
+                      size: 18,
+                      color: isActive ? AppColors.error : AppColors.success,
+                    ),
+                    tooltip: isActive ? 'Deactivate' : 'Reactivate',
+                    onPressed: onToggle,
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
