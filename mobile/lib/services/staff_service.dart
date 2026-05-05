@@ -61,6 +61,41 @@ class StaffService {
     throw StaffException(body['message'] as String? ?? 'Failed to create staff.');
   }
 
+  Future<void> updateStaff({
+    required String token,
+    required int userId,
+    required String name,
+    required String email,
+    required String role,
+    String? phone,
+  }) async {
+    final payload = <String, dynamic>{
+      'name': name,
+      'email': email,
+      'role': role,
+    };
+    if (phone != null && phone.trim().isNotEmpty) payload['phone'] = phone.trim();
+
+    final res = await http.put(
+      Uri.parse('$_baseUrl/users/$userId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(payload),
+    ).timeout(const Duration(seconds: 15));
+
+    if (res.statusCode != 200) {
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final errors = body['errors'] as Map<String, dynamic>?;
+      if (errors != null) {
+        throw StaffException((errors.values.first as List).first as String);
+      }
+      throw StaffException(body['message'] as String? ?? 'Failed to update staff.');
+    }
+  }
+
   Future<void> setActive({
     required String token,
     required int userId,

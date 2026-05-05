@@ -1,0 +1,227 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../services/staff_service.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/stat_card.dart';
+
+class SuperAdminDashboard extends StatefulWidget {
+  const SuperAdminDashboard({super.key});
+
+  @override
+  State<SuperAdminDashboard> createState() => _SuperAdminDashboardState();
+}
+
+class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
+  final _staffSvc = StaffService();
+
+  bool _loading = true;
+  int _totalStaff  = 0;
+  int _activeStaff = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  String get _token => context.read<AuthProvider>().user!.token;
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final staff = await _staffSvc.getStaff(token: _token);
+      if (mounted) {
+        setState(() {
+          _totalStaff  = staff.length;
+          _activeStaff = staff.where((s) => s['is_active'] == true).length;
+          _loading     = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = context.read<AuthProvider>().user!;
+    final cs   = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      backgroundColor: cs.surfaceContainerLow,
+      body: RefreshIndicator(
+        onRefresh: _load,
+        color: cs.primary,
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              floating: true,
+              snap: true,
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Super Admin',
+                      style: TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w400, color: Colors.white70)),
+                  Text(user.name,
+                      style: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white)),
+                ],
+              ),
+              centerTitle: false,
+              actions: [
+                Container(
+                  margin: const EdgeInsets.only(right: 16),
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Text(
+                      user.name.isNotEmpty ? user.name[0].toUpperCase() : 'S',
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryTint,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        'Super Admin',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    Text('Overview', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 12),
+
+                    _loading
+                        ? _Skeleton()
+                        : GridView.count(
+                            crossAxisCount: 2,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            childAspectRatio: 1.35,
+                            children: [
+                              StatCard(
+                                icon: Icons.local_hospital_rounded,
+                                label: 'Hospitals',
+                                value: '—',
+                                subtitle: 'All registered',
+                              ),
+                              StatCard(
+                                icon: Icons.group_rounded,
+                                label: 'Total Staff',
+                                value: '$_totalStaff',
+                                subtitle: 'All hospitals',
+                              ),
+                              StatCard(
+                                icon: Icons.check_circle_rounded,
+                                label: 'Active Staff',
+                                value: '$_activeStaff',
+                                subtitle: 'Currently enabled',
+                                iconColor: AppColors.success,
+                                iconBg: AppColors.successLight,
+                              ),
+                              StatCard(
+                                icon: Icons.people_alt_rounded,
+                                label: 'Inactive',
+                                value: '${_totalStaff - _activeStaff}',
+                                subtitle: 'Deactivated',
+                                iconColor: AppColors.error,
+                                iconBg: AppColors.errorLight,
+                              ),
+                            ],
+                          ),
+
+                    const SizedBox(height: 24),
+
+                    Text('Hospitals', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 12),
+
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: cs.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: cs.outline),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.local_hospital_outlined,
+                              size: 40, color: cs.onSurfaceVariant),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Hospital management coming soon',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: cs.onSurface),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Full hospital CRUD will be available in the next update.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                fontSize: 12, color: cs.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Skeleton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 1.35,
+      children: List.generate(4, (_) => Container(
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: cs.outline),
+        ),
+        child: const Center(child: SizedBox(width: 24, height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2))),
+      )),
+    );
+  }
+}

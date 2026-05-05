@@ -157,6 +157,50 @@ class PatientService {
         'Failed to load edit requests (${response.statusCode}).');
   }
 
+  /// POST /api/patients/emergency
+  Future<void> registerPatientEmergency({
+    required String token,
+    required String name,
+    required String dob,
+    required String gender,
+    required String ward,
+    required String reason,
+    String? nida,
+  }) async {
+    late http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('$_baseUrl/patients/emergency'),
+            headers: _headers(token),
+            body: jsonEncode({
+              'full_name':     name,
+              'date_of_birth': dob,
+              'gender':        gender,
+              'ward':          ward,
+              'reason':        reason,
+              'is_emergency':  true,
+              if (nida != null && nida.isNotEmpty) 'nida': nida,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      throw const PatientException(
+          'Could not reach the server. Check your connection.');
+    }
+    if (response.statusCode == 201) return;
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 422) {
+      final errors = body['errors'] as Map<String, dynamic>?;
+      final msg = errors?.values.first is List
+          ? (errors!.values.first as List).first as String
+          : body['message'] as String? ?? 'Validation failed.';
+      throw PatientException(msg);
+    }
+    throw PatientException(body['message'] as String? ??
+        'Failed to register emergency patient (${response.statusCode}).');
+  }
+
   /// PUT /api/edit-requests/{id}/approve or /reject
   Future<void> reviewEditRequest({
     required String token,
