@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\Api\FingerprintController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\PatientEditRequestController;
@@ -129,6 +130,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{user}',    [UserController::class, 'show']);
         Route::put('/{user}',    [UserController::class, 'update']);
         Route::delete('/{user}', [UserController::class, 'destroy']);
+    });
+
+    // ── Facial Recognition ────────────────────────────────────────────────────
+    Route::prefix('face')->middleware('hospital.access')->group(function () {
+
+        // Enroll a face template — nurse + admin (emergency)
+        Route::post('enroll', [FaceController::class, 'enroll'])
+             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+
+        // Hospital-wide face identification — nurse only
+        Route::post('verify', [FaceController::class, 'verify'])
+             ->middleware(['role:nurse', 'throttle:30,1']);
     });
 
     // ── Audit Logs ────────────────────────────────────────────────────────────

@@ -128,21 +128,23 @@ class HospitalController extends Controller
     public function update(Request $request, Hospital $hospital): RedirectResponse
     {
         $data = $request->validate([
-            'name'              => ['required', 'string', 'max:200', Rule::unique('hospitals', 'name')->ignore($hospital->id)],
-            'city'              => 'required|string|max:100',
-            'wifi_ssid'         => 'nullable|string|max:100',
-            'gps_latitude'      => 'nullable|numeric|between:-90,90',
-            'gps_longitude'     => 'nullable|numeric|between:-180,180',
-            'gps_radius_meters' => 'nullable|integer|min:50|max:5000',
+            'name'                     => ['required', 'string', 'max:200', Rule::unique('hospitals', 'name')->ignore($hospital->id)],
+            'city'                     => 'required|string|max:100',
+            'wifi_ssid'                => 'nullable|string|max:100',
+            'gps_latitude'             => 'nullable|numeric|between:-90,90',
+            'gps_longitude'            => 'nullable|numeric|between:-180,180',
+            'gps_radius_meters'        => 'nullable|integer|min:50|max:5000',
+            'face_recognition_enabled' => 'nullable|boolean',
         ]);
 
         $hospital->update([
-            'name'              => $data['name'],
-            'city'              => $data['city'],
-            'wifi_ssid'         => $data['wifi_ssid'] ?? null,
-            'gps_latitude'      => $data['gps_latitude'] ?? null,
-            'gps_longitude'     => $data['gps_longitude'] ?? null,
-            'gps_radius_meters' => $data['gps_radius_meters'] ?? $hospital->gps_radius_meters,
+            'name'                     => $data['name'],
+            'city'                     => $data['city'],
+            'wifi_ssid'                => $data['wifi_ssid'] ?? null,
+            'gps_latitude'             => $data['gps_latitude'] ?? null,
+            'gps_longitude'            => $data['gps_longitude'] ?? null,
+            'gps_radius_meters'        => $data['gps_radius_meters'] ?? $hospital->gps_radius_meters,
+            'face_recognition_enabled' => $request->boolean('face_recognition_enabled'),
         ]);
 
         return redirect()->route('dashboard.hospitals.show', [$hospital, 'tab' => 'settings'])

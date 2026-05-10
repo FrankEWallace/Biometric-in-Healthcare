@@ -1,6 +1,6 @@
 ---
 title: Python Service Endpoints
-description: Internal FastAPI endpoints for fingerprint processing
+description: Internal FastAPI endpoints for fingerprint processing and face recognition
 ---
 
 # Python Service Endpoints
@@ -176,3 +176,103 @@ Compare two uploaded fingerprint images end-to-end and return a MATCH / NO MATCH
 <Note>
   This endpoint is primarily used for standalone testing. In production, Laravel calls `/process-fingerprint` and `/match` separately so it can store/retrieve templates between calls.
 </Note>
+
+---
+
+## POST /face/process
+
+Extract a face embedding from a base64-encoded image. Used by Laravel during both enrollment (`POST /api/face/enroll`) and hospital-wide identification (`POST /api/face/verify`).
+
+**Request body**
+
+```json
+{
+  "image": "<base64-encoded JPEG or PNG>"
+}
+```
+
+**Response — face detected**
+
+```json
+{
+  "face_detected": true,
+  "quality_score": 0.61,
+  "embedding": [0.0023, 0.1145, ...]
+}
+```
+
+**Response — no face detected**
+
+```json
+{
+  "face_detected": false,
+  "quality_score": 0.0,
+  "embedding": []
+}
+```
+
+The embedding is a flat float array produced by a grid-based LBP histogram (8×8 grid × 256 bins = 16 384 values). Laravel encrypts this with AES-256 before storing it in `face_templates.template`.
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | `image` is empty or invalid base64 |
+| 400 | Image bytes could not be decoded as JPEG/PNG |
+
+<Note>
+  **Upgrading the face algorithm.** The current implementation uses OpenCV Haar cascade detection + LBP histogram embedding — no extra dependencies, good for demos. To upgrade to a production-grade model:
+
+  1. `pip install deepface` (or `pip install insightface`) and add to `requirements.txt`.
+  2. In `app/routes/face.py`, replace `_detect_face()` with your library's detection call.
+  3. Replace `_extract_embedding()` with the library's embedding extraction (e.g. `DeepFace.represent(img, model_name="ArcFace")`).
+  4. Re-tune `FaceService::MATCH_THRESHOLD` in Laravel (`app/Services/FaceService.php`) — DeepFace cosine scores sit in a different range than LBP cosine scores; start around **0.40** for ArcFace and adjust from there.
+  5. Re-enroll all patients, as old LBP embeddings are not compatible with the new model.
+
+  The Laravel side (controller, model, routes, DB) requires no changes — it is fully algorithm-agnostic.
+</Note>
+
+---
+
+## POST /face/match
+
+Score a probe embedding against a list of candidate embeddings. Returns the candidate with the highest cosine similarity.
+
+**Request body**
+
+```json
+{
+  "probe": {
+    "embedding": [0.0023, 0.1145, ...]
+  },
+  "candidates": [
+    {
+      "patient_id": 1,
+      "embedding": [0.0019, 0.1098, ...]
+    },
+    {
+      "patient_id": 2,
+      "embedding": [0.0041, 0.2210, ...]
+    }
+  ]
+}
+```
+
+**Response**
+
+```json
+{
+  "patient_id": 1,
+  "score": 0.8412
+}
+```
+
+Score is cosine similarity in [−1, 1], clamped in practice to [0, 1] for valid face embeddings. Laravel applies `FaceService::MATCH_THRESHOLD` (default **0.75**) to decide match / no match.
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | `candidates` list is empty |
+| 400 | `probe.embedding` is missing or empty |
+| 400 | No valid candidates could be processed |

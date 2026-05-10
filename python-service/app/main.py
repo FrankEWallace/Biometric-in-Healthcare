@@ -18,14 +18,16 @@ from fastapi import FastAPI
 
 from app.routes.health import router as health_router
 from app.routes.fingerprint import router as fingerprint_router
+from app.routes.face import router as face_router
 
 app = FastAPI(
-    title="Fingerprint Processing Service",
-    description="OpenCV-based ORB fingerprint feature extraction and matching.",
-    version="1.0.0",
+    title="Biometric Processing Service",
+    description="OpenCV-based fingerprint ORB extraction/matching and face LBP recognition.",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
 app.include_router(health_router)
 app.include_router(fingerprint_router)
+app.include_router(face_router)

@@ -88,6 +88,8 @@ class AuthController extends Controller
 
     private function userPayload(User $user): array
     {
+        $user->loadMissing('hospital');
+
         return [
             'id'          => $user->id,
             'name'        => $user->name,
@@ -95,6 +97,11 @@ class AuthController extends Controller
             'email'       => $user->email,
             'role'        => $user->role,
             'hospital_id' => $user->hospital_id,
+            'hospital'    => $user->hospital ? [
+                'id'                       => $user->hospital->id,
+                'name'                     => $user->hospital->name,
+                'face_recognition_enabled' => (bool) $user->hospital->face_recognition_enabled,
+            ] : null,
         ];
     }
 }

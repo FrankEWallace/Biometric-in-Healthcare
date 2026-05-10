@@ -1,0 +1,152 @@
+---
+title: Facial Recognition — Design Decisions
+description: Q&A record of every design decision made when adding facial recognition to the system
+---
+
+# Facial Recognition — Design Decisions
+
+This page records every question asked and answer chosen when designing the facial recognition feature. Use it as a reference when extending the feature, onboarding a new developer, or revisiting a past decision.
+
+---
+
+## Q1 — Verification flow: alternative or multi-modal?
+
+**Question:** When a hospital enables facial recognition, what should happen during verification?
+
+| Option | Description |
+|---|---|
+| A — Alternative ✅ | Staff choose either fingerprint or face per session. One match is enough. |
+| B — Multi-modal | Patient must pass both fingerprint and face. Higher security, more friction. |
+| C — Face replaces | Hospital switches entirely to face, fingerprint no longer used. |
+
+**Chosen: A — Alternative**
+
+**Why:** Most practical for a clinical setting. A patient with bandaged hands can still be verified by face; a patient with a face covering can still use fingerprint. Existing fingerprint workflows are completely unaffected for hospitals that never enable facial recognition.
+
+**Impact:** Two separate verification endpoints exist (`POST /api/verify` for fingerprint, `POST /api/face/verify` for face). The Flutter app shows both options when the feature is enabled and the patient has both templates enrolled. A single match from either modality is sufficient.
+
+---
+
+## Q2 — Who controls the on/off toggle?
+
+**Question:** Which role can enable or disable facial recognition for a hospital?
+
+| Option | Description |
+|---|---|
+| A — Super admin only ✅ | Platform-level control, consistent with all other hospital settings. |
+| B — Super admin enables, local admin can disable | Shared control. |
+| C — Local admin full control | Hospital autonomy, no super admin needed. |
+
+**Chosen: A — Super admin only**
+
+**Why:** All hospital settings already live in `HospitalController`, which is fully gated behind the `super_admin` role. Adding a new flag here is consistent and keeps capability management at the platform level.
+
+**Impact:** The toggle is a checkbox in the **Settings** tab of the hospital detail page in the admin dashboard. Only super admins see that page. The column `face_recognition_enabled` (boolean, default `false`) was added to the `hospitals` table.
+
+---
+
+## Q3 — What happens to existing patients when the feature is turned on?
+
+**Question:** A hospital has 500 enrolled patients (fingerprint only). The super admin enables facial recognition. What happens?
+
+| Option | Description |
+|---|---|
+| A — Enroll on next visit ✅ | Fingerprint keeps working. Staff enroll face naturally when the patient visits. |
+| B — Face unavailable until enrolled | Face option hidden per-patient until they have a template. |
+| C — Block all verification | Existing patients must re-enroll before they can be verified at all. |
+
+**Chosen: A — Enroll on next visit**
+
+**Why:** Least disruptive migration path. No forced re-registration, no disruption to existing operations. Face templates accumulate over time as patients visit.
+
+**Impact:** `POST /api/face/enroll` upserts — re-enrollment replaces the old template. The verification endpoint returns `no_match` (not an error) when a patient has no face template yet, allowing the nurse to fall back to fingerprint.
+
+---
+
+## Q4 — Where are face templates stored?
+
+**Question:** Where should the face embedding data live in the database?
+
+| Option | Description |
+|---|---|
+| A — New `face_templates` table ✅ | Dedicated table, mirrors the `fingerprints` pattern. |
+| B — Column on `patients` | Simple but conflates identity with biometric data. |
+| C — Reuse `fingerprints` with a `type` column | Avoids a new table but pollutes a clean schema. |
+
+**Chosen: A — New `face_templates` table**
+
+**Why:** Face data is structurally different from fingerprint data — no finger position, no locking mechanism, one face per patient. A dedicated table keeps each biometric type independently queryable and doesn't compromise the existing fingerprint locking/quality logic.
+
+**Impact:** `face_templates` has columns: `patient_id` (unique — one face per patient), `hospital_id` (denormalised for fast hospital-scoped queries), `enrolled_by`, `template` (AES-256 encrypted embedding JSON), `quality_score`, `is_active`. Raw embeddings are never stored unencrypted.
+
+---
+
+## Q5 — Where does face processing run?
+
+**Question:** Should facial recognition be added to the existing Python service or run as a separate microservice?
+
+| Option | Description |
+|---|---|
+| A — Extend existing service ✅ | New `/face/process` and `/face/match` routes in the same FastAPI app. |
+| B — Separate microservice | Independent process, independent scaling. |
+
+**Chosen: A — Extend existing service**
+
+**Why:** One Python process is simpler to run and deploy, especially for an FYP environment. OpenCV and NumPy are already present. The face routes live in `app/routes/face.py` and are registered in `main.py`. Splitting into a second service is straightforward later if load demands it.
+
+**Impact:** `PYTHON_SERVICE_URL` in `.env` serves both fingerprint and face endpoints. The face router is mounted at `/face/*` so there is no collision with existing fingerprint routes.
+
+---
+
+## Q6 — How does the Flutter app know the feature is enabled?
+
+**Question:** How does the app know whether to show the face verification button?
+
+| Option | Description |
+|---|---|
+| A — In the login/me response ✅ | `hospital.face_recognition_enabled` added to the auth payload. Read once on login. |
+| B — Dedicated `/api/hospital/settings` endpoint | Separate call on startup. |
+| C — Per-request flag | Included in every `/api/verify` response. |
+
+**Chosen: A — In the login/me response**
+
+**Why:** Zero extra network calls. The app already receives user and hospital context on login. One extra boolean costs nothing and the UI can render correctly from the moment authentication completes.
+
+**Impact:** `AuthController::userPayload()` now returns a nested `hospital` object:
+
+```json
+{
+  "hospital": {
+    "id": 1,
+    "name": "Central Hospital",
+    "face_recognition_enabled": true
+  }
+}
+```
+
+This is returned by both `POST /api/auth/login` and `GET /api/auth/me`.
+
+---
+
+## Q7 — Where in the admin UI does the toggle live?
+
+**Question:** Where should the facial recognition toggle appear in the dashboard?
+
+| Option | Description |
+|---|---|
+| A — In the existing hospital settings form ✅ | Checkbox alongside GPS radius, WiFi SSID, etc. |
+| B — Separate "Features" tab on the hospital detail page | Dedicated tab for capability toggles. |
+
+**Chosen: A — Existing settings form**
+
+**Why:** Only one feature flag exists. A dedicated tab would be premature. The checkbox sits in a **Feature Flags** card inside the existing settings form — easy to find, no extra navigation.
+
+**Impact:** The hospital settings form posts `face_recognition_enabled` as a boolean checkbox. `HospitalController::update()` reads it with `$request->boolean('face_recognition_enabled')`, which correctly treats an absent checkbox (unchecked) as `false`.
+
+---
+
+## Algorithm note
+
+The current face embedding uses **OpenCV Haar cascade + LBP grid histogram** — no additional pip installs required. This is intentional for an MVP/FYP environment.
+
+To upgrade to a production-grade model (DeepFace ArcFace, InsightFace, etc.), see the upgrade guide in the [Python Service Endpoints](/python-service/endpoints#post-faceprocess) docs. The Laravel layer is fully algorithm-agnostic and requires no changes.

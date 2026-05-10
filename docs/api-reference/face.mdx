@@ -1,0 +1,166 @@
+---
+title: Facial Recognition
+description: Face template enrollment and hospital-wide face identification endpoints
+---
+
+# Facial Recognition
+
+Facial recognition is an **opt-in feature** controlled per hospital by a super admin. All face endpoints require authentication, the `hospital.access` scope, and `face_recognition_enabled = true` on the hospital record. Attempting these endpoints on a hospital where the feature is disabled returns `403`.
+
+---
+
+## POST /api/face/enroll
+
+Enroll a face template for a patient. Accepts a base64-encoded face image, extracts an encrypted embedding via the Python service, and stores it in `face_templates`. Re-enrolling the same patient overwrites their existing template.
+
+**Roles:** nurse, admin — **Rate limit:** 20 req / min
+
+**Request** — `application/json`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `image` | string | Yes | Base64-encoded JPEG or PNG of the patient's face |
+| `patient_id` | integer | Yes | Must belong to the caller's hospital |
+
+**Response 201 — enrolled**
+
+```json
+{
+  "message": "Face template enrolled successfully.",
+  "face_template_id": 3,
+  "patient_id": 42,
+  "quality_score": 0.61
+}
+```
+
+**Response 403 — feature disabled**
+
+```json
+{
+  "error": "Facial recognition is not enabled for this hospital."
+}
+```
+
+**Response 422 — no face detected or quality too low**
+
+```json
+{
+  "error": "Face image quality is too low. Please recapture in better lighting.",
+  "quality_score": 0.11
+}
+```
+
+```json
+{
+  "error": "Face processing failed: No face detected in the image. Please recapture."
+}
+```
+
+**Response 503 — Python service unavailable**
+
+```json
+{
+  "error": "Face processing failed: Connection refused."
+}
+```
+
+<Note>
+  Quality score is in [0, 1]. Captures below **0.20** are rejected. Ask the patient to face the camera directly in good lighting and avoid face coverings.
+</Note>
+
+---
+
+## POST /api/face/verify
+
+Hospital-wide face identification. Extracts an embedding from the probe image, scores it against every active face template enrolled at the hospital, and returns the best match above the similarity threshold.
+
+Use this when the patient's identity is unknown. If you already know which patient to check, use `POST /api/fingerprint/verify` with a known `patient_id` instead.
+
+**Roles:** nurse — **Rate limit:** 30 req / min
+
+**Request** — `application/json`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `image` | string | Yes | Base64-encoded probe face image |
+| `gps_latitude` | float | No | Device GPS for geofence check |
+| `gps_longitude` | float | No | Device GPS for geofence check |
+| `wifi_ssid` | string | No | Connected WiFi SSID for geofence check |
+
+**Response 200 — matched**
+
+```json
+{
+  "status": "matched",
+  "score": 0.8412,
+  "patient": {
+    "id": 42,
+    "full_name": "Mira Kovačević",
+    "date_of_birth": "1985-03-14",
+    "nida": "TZ-...",
+    "gender": "F",
+    "phone": "+255..."
+  },
+  "log_id": 201,
+  "ehr": { ... },
+  "insurance": { ... }
+}
+```
+
+**Response 200 — no match**
+
+```json
+{
+  "status": "no_match",
+  "score": 0.3102,
+  "patient": null,
+  "log_id": 202,
+  "ehr": null,
+  "insurance": null
+}
+```
+
+**Response 403 — feature disabled or outside geofence**
+
+```json
+{
+  "error": "Facial recognition is not enabled for this hospital."
+}
+```
+
+```json
+{
+  "error": "Access denied: device is not within hospital premises."
+}
+```
+
+**Match threshold**
+
+The match threshold is **0.75** cosine similarity (defined in `FaceService::MATCH_THRESHOLD`). Scores below this are logged as `no_match`. Adjust the constant to trade precision for recall.
+
+**Verification log**
+
+Every call writes a row to `verification_logs` with `modality = 'face'`. This means face and fingerprint scans are searchable and auditable through the same `GET /api/verify/logs` endpoint.
+
+---
+
+## Enabling the feature (super admin)
+
+1. Open the hospital detail page in the admin dashboard.
+2. Go to the **Settings** tab.
+3. Under **Feature Flags**, check **Facial Recognition**.
+4. Click **Save Changes**.
+
+The Flutter app reads `hospital.face_recognition_enabled` from the login response and shows or hides the face verification button accordingly — no app update required.
+
+---
+
+## Enrollment fallback behaviour
+
+When facial recognition is first enabled, existing patients have no face template. The system handles this gracefully:
+
+- Fingerprint verification continues to work unchanged.
+- The face verification option is only offered to the patient once a face template is enrolled.
+- Staff enroll the face on the patient's next visit using `POST /api/face/enroll`.
+
+There is no forced re-registration — face templates accumulate naturally over time.

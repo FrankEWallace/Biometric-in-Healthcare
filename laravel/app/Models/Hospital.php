@@ -17,12 +17,14 @@ class Hospital extends Model
         'gps_longitude',
         'gps_radius_meters',
         'is_active',
+        'face_recognition_enabled',
     ];
 
     protected $casts = [
-        'gps_latitude'       => 'decimal:7',
-        'gps_longitude'      => 'decimal:7',
-        'gps_radius_meters'  => 'integer',
+        'gps_latitude'             => 'decimal:7',
+        'gps_longitude'            => 'decimal:7',
+        'gps_radius_meters'        => 'integer',
+        'face_recognition_enabled' => 'boolean',
     ];
 
     public function users(): HasMany

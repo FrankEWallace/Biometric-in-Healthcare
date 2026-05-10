@@ -213,6 +213,28 @@
             </div>
         </div>
 
+        {{-- Feature Flags --}}
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div class="px-5 py-4 border-b border-slate-100">
+                <h2 class="text-sm font-semibold text-slate-900">Feature Flags</h2>
+                <p class="mt-0.5 text-xs text-slate-400">Enable or disable optional capabilities for this hospital.</p>
+            </div>
+            <div class="px-5 py-5">
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" name="face_recognition_enabled" value="1"
+                           {{ old('face_recognition_enabled', $hospital->face_recognition_enabled) ? 'checked' : '' }}
+                           class="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    <span>
+                        <span class="block text-sm font-medium text-slate-800">Facial Recognition</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">
+                            Allows staff to enroll and verify patients using face capture in addition to fingerprint.
+                            Only enable if the Python service has face processing available.
+                        </span>
+                    </span>
+                </label>
+            </div>
+        </div>
+
         <div class="flex justify-end">
             <button type="submit"
                     class="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors">
