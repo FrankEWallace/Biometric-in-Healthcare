@@ -1,8 +1,10 @@
 """
 Fingerprint endpoints consumed by the Laravel backend.
 
-POST /process  — base64 image → ORB template + quality score
-POST /match    — probe template + candidate list → best patient_id + score
+POST /process              — base64 image → SourceAFIS template + quality score
+POST /match                — probe template + candidate list → best patient_id + score
+POST /process-fingerprint  — multipart image → SourceAFIS template + quality score
+POST /match-fingerprint    — two multipart images → verdict + score
 """
 
 from __future__ import annotations
@@ -15,9 +17,8 @@ import numpy as np
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, field_validator
 
-from app.services.processor import build_template, match_templates
-from app.services.image_processor import preprocess_fingerprint
-from app.services.feature_extractor import extract_features, match_features
+from app.services.image_processor import preprocess_fingerprint, to_grayscale
+from app.services.sourceafis_service import extract_template, match_templates
 
 router = APIRouter(tags=["fingerprint"])
 
@@ -61,7 +62,7 @@ class MatchResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _decode_image(b64: str) -> np.ndarray:
+def _decode_base64_image(b64: str) -> np.ndarray:
     """Decode a base64 string into an OpenCV BGR image array."""
     try:
         image_bytes = base64.b64decode(b64)
@@ -78,133 +79,9 @@ def _decode_image(b64: str) -> np.ndarray:
     return img
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-@router.post(
-    "/process",
-    response_model=ProcessResponse,
-    summary="Extract ORB template from a fingerprint image",
-)
-def process(body: ProcessRequest) -> ProcessResponse:
-    """
-    Accepts a base64-encoded fingerprint image, runs the full processing
-    pipeline (CLAHE → Gabor → ORB), and returns the feature template along
-    with a quality score in [0, 1].
-
-    A quality score below **0.30** indicates a poor capture and should be
-    rejected by the caller.
-    """
-    image = _decode_image(body.image)
-    result = build_template(image)
-    return ProcessResponse(
-        template=result["template"],
-        quality_score=result["quality_score"],
-    )
-
-
-@router.post(
-    "/match",
-    response_model=MatchResponse,
-    summary="Match a probe template against a list of candidates",
-)
-def match(body: MatchRequest) -> MatchResponse:
-    """
-    Runs a ratio-test BFMatcher comparison between the probe template and
-    every candidate. Returns the patient_id with the highest score.
-    """
-    if not body.candidates:
-        raise HTTPException(status_code=400, detail="'candidates' list is empty.")
-
-    best_score = -1.0
-    best_id: int | None = None
-
-    for candidate in body.candidates:
-        score = match_templates(body.probe, candidate.template)
-        if score > best_score:
-            best_score = score
-            best_id = candidate.patient_id
-
-    if best_id is None:
-        raise HTTPException(
-            status_code=400, detail="No valid candidates could be processed."
-        )
-
-    return MatchResponse(patient_id=best_id, score=round(best_score, 4))
-
-
-@router.post(
-    "/process-fingerprint",
-    summary="Preprocess a fingerprint image and extract ORB features",
-)
-async def process_fingerprint(file: UploadFile = File(...)) -> dict:
-    """
-    Full pipeline for an uploaded fingerprint image (JPEG or PNG):
-
-      1. Preprocessing  — grayscale → Gaussian blur → histogram equalization
-                          → adaptive threshold → morphological thinning
-      2. Feature extraction — ORB keypoint detection + BRIEF descriptor computation
-
-    Returns the skeleton image (base64 PNG), quality score, and the ORB
-    feature set ready for matching.
-
-    Feature ``status`` field:
-      - ``"ok"``          — sufficient features for reliable matching
-      - ``"low_quality"`` — fewer than 10 keypoints; match result unreliable
-      - ``"no_features"`` — blank or unreadable image; reject the capture
-    """
-    if file.content_type not in ("image/jpeg", "image/png", "image/jpg"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{file.content_type}'. Use JPEG or PNG.",
-        )
-
-    contents = await file.read()
-    if not contents:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-
+def _decode_upload(contents: bytes, field_name: str) -> np.ndarray:
+    """Decode raw upload bytes into an OpenCV BGR array."""
     buf = np.frombuffer(contents, dtype=np.uint8)
-    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-    if img is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not decode image. Ensure it is a valid JPEG or PNG.",
-        )
-
-    preprocessed = preprocess_fingerprint(img)
-
-    # Decode skeleton back to ndarray so feature extractor operates on
-    # the fully processed (thinned) image rather than the raw upload.
-    skeleton_bytes = base64.b64decode(preprocessed["processed_image"])
-    skeleton_buf   = np.frombuffer(skeleton_bytes, dtype=np.uint8)
-    skeleton_img   = cv2.imdecode(skeleton_buf, cv2.IMREAD_GRAYSCALE)
-
-    features = extract_features(skeleton_img)
-
-    return {
-        "success": True,
-        "message": "Image processed successfully.",
-        "filename": file.filename,
-        "quality_score": preprocessed["quality_score"],
-        "steps_applied": preprocessed["steps"],
-        "processed_image": preprocessed["processed_image"],
-        "features": {
-            "keypoint_count": features["keypoint_count"],
-            "status": features["status"],
-            "keypoints": features["keypoints"],
-            "descriptors": features["descriptors"],
-        },
-    }
-
-
-# ---------------------------------------------------------------------------
-# Helpers shared by match-fingerprint
-# ---------------------------------------------------------------------------
-
-def _load_image_from_upload(upload_bytes: bytes, field_name: str) -> np.ndarray:
-    """Decode raw upload bytes → OpenCV BGR array, or raise HTTP 400."""
-    buf = np.frombuffer(upload_bytes, dtype=np.uint8)
     img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(
@@ -214,16 +91,150 @@ def _load_image_from_upload(upload_bytes: bytes, field_name: str) -> np.ndarray:
     return img
 
 
-def _preprocess_to_gray(img: np.ndarray) -> np.ndarray:
-    """Run full preprocessing pipeline and return the skeleton as a grayscale ndarray."""
-    prep           = preprocess_fingerprint(img)
-    skeleton_bytes = base64.b64decode(prep["processed_image"])
+def _preprocess_to_skeleton(img: np.ndarray) -> tuple[np.ndarray, float, list[str]]:
+    """
+    Run the full preprocessing pipeline and return (skeleton_gray, quality_score, steps).
+    The skeleton is a single-channel uint8 array suitable for SourceAFIS.
+    """
+    result         = preprocess_fingerprint(img)
+    quality_score  = result["quality_score"]
+    steps          = result["steps"]
+
+    skeleton_bytes = base64.b64decode(result["processed_image"])
     skeleton_buf   = np.frombuffer(skeleton_bytes, dtype=np.uint8)
-    return cv2.imdecode(skeleton_buf, cv2.IMREAD_GRAYSCALE)
+    skeleton_gray  = cv2.imdecode(skeleton_buf, cv2.IMREAD_GRAYSCALE)
+
+    if skeleton_gray is None:
+        raise HTTPException(status_code=500, detail="Preprocessing produced an unreadable skeleton.")
+
+    return skeleton_gray, quality_score, steps
 
 
 # ---------------------------------------------------------------------------
-# POST /match-fingerprint
+# POST /process  (base64 — used by VerificationController hospital-wide scan)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/process",
+    response_model=ProcessResponse,
+    summary="Extract SourceAFIS template from a base64 fingerprint image",
+)
+def process(body: ProcessRequest) -> ProcessResponse:
+    """
+    Accepts a base64-encoded fingerprint image, runs the full preprocessing
+    pipeline (grayscale → blur → equalization → threshold → thinning), then
+    extracts a SourceAFIS minutiae template.
+
+    The returned template dict is opaque to callers — pass it unchanged to
+    POST /match as a candidate or probe template.
+    """
+    img = _decode_base64_image(body.image)
+    skeleton, quality_score, _ = _preprocess_to_skeleton(img)
+    template = extract_template(skeleton)
+
+    return ProcessResponse(template=template, quality_score=quality_score)
+
+
+# ---------------------------------------------------------------------------
+# POST /match  (SourceAFIS — used by both controllers)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/match",
+    response_model=MatchResponse,
+    summary="Match a probe template against a list of candidates",
+)
+def match(body: MatchRequest) -> MatchResponse:
+    """
+    Runs SourceAFIS minutiae matching between the probe and every candidate.
+    Returns the patient_id with the highest score.
+
+    Score scale: SourceAFIS raw float (typically 0–200+).
+    Recommended threshold: 40.  Calibrate based on FAR/FRR measurements.
+    """
+    if not body.candidates:
+        raise HTTPException(status_code=400, detail="'candidates' list is empty.")
+
+    best_score: float = -1.0
+    best_id: int | None = None
+
+    for candidate in body.candidates:
+        try:
+            score = match_templates(body.probe, candidate.template)
+        except Exception:
+            score = 0.0
+
+        if score > best_score:
+            best_score = score
+            best_id    = candidate.patient_id
+
+    if best_id is None:
+        raise HTTPException(status_code=400, detail="No valid candidates could be processed.")
+
+    return MatchResponse(patient_id=best_id, score=round(best_score, 4))
+
+
+# ---------------------------------------------------------------------------
+# POST /process-fingerprint  (multipart — used by FingerprintController)
+# ---------------------------------------------------------------------------
+
+_ALLOWED_TYPES = ("image/jpeg", "image/png", "image/jpg")
+
+
+@router.post(
+    "/process-fingerprint",
+    summary="Preprocess a fingerprint image and extract a SourceAFIS template",
+)
+async def process_fingerprint(file: UploadFile = File(...)) -> dict:
+    """
+    Full pipeline for an uploaded fingerprint image (JPEG or PNG):
+
+      1. Preprocessing  — grayscale → Gaussian blur → histogram equalization
+                          → adaptive threshold → morphological thinning
+      2. Template extraction — SourceAFIS minutiae detection
+
+    Feature ``status`` field:
+      - ``"ok"``          — sufficient minutiae for reliable matching
+      - ``"low_quality"`` — fewer than 10 minutiae; match result unreliable
+      - ``"no_features"`` — blank or unreadable image; reject the capture
+    """
+    if file.content_type not in _ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{file.content_type}'. Use JPEG or PNG.",
+        )
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    img = _decode_upload(contents, "file")
+    skeleton, quality_score, steps = _preprocess_to_skeleton(img)
+    template = extract_template(skeleton)
+
+    _, buffer = cv2.imencode(".png", skeleton)
+    processed_image_b64 = base64.b64encode(buffer).decode("utf-8")
+
+    return {
+        "success":         True,
+        "message":         "Image processed successfully.",
+        "filename":        file.filename,
+        "quality_score":   quality_score,
+        "steps_applied":   steps,
+        "processed_image": processed_image_b64,
+        "features": {
+            "minutiae_count": template["minutiae_count"],
+            "status":         template["status"],
+            "format":         template["format"],
+            "data":           template["data"],
+            # probe_keypoints alias kept for Laravel FingerprintService compatibility
+            "keypoint_count": template["minutiae_count"],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /match-fingerprint  (two images — direct image-to-image comparison)
 # ---------------------------------------------------------------------------
 
 @router.post(
@@ -238,32 +249,20 @@ async def match_fingerprint(
     Full matching pipeline for two uploaded fingerprint images:
 
       1. Validate and decode both files.
-      2. Preprocess each image (grayscale → blur → equalization →
-         adaptive threshold → thinning).
-      3. Extract ORB keypoints + BRIEF descriptors from each skeleton.
-      4. Match descriptors with BFMatcher (NORM_HAMMING) + Lowe ratio test.
-      5. Compute a normalised score in [0, 100] and return a verdict.
+      2. Preprocess each image (full pipeline through thinning).
+      3. Extract SourceAFIS minutiae template from each skeleton.
+      4. Match templates with SourceAFIS and return score + verdict.
 
-    Verdict thresholds:
-      - Score ≥ 20 → **MATCH**
-      - Score < 20 → **NO MATCH**
-
-    Both images must be JPEG or PNG.  If either image is blank or yields no
-    features the endpoint returns score 0.0 and verdict "NO MATCH" without
-    raising an error.
+    Verdict threshold: score ≥ 40 → MATCH.
     """
-    _ALLOWED = ("image/jpeg", "image/png", "image/jpg")
+    _MATCH_THRESHOLD = 40.0
 
-    if image1.content_type not in _ALLOWED:
-        raise HTTPException(
-            status_code=400,
-            detail=f"'image1' has unsupported type '{image1.content_type}'. Use JPEG or PNG.",
-        )
-    if image2.content_type not in _ALLOWED:
-        raise HTTPException(
-            status_code=400,
-            detail=f"'image2' has unsupported type '{image2.content_type}'. Use JPEG or PNG.",
-        )
+    for field_name, upload in [("image1", image1), ("image2", image2)]:
+        if upload.content_type not in _ALLOWED_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{field_name}' has unsupported type '{upload.content_type}'.",
+            )
 
     bytes1 = await image1.read()
     bytes2 = await image2.read()
@@ -273,34 +272,28 @@ async def match_fingerprint(
     if not bytes2:
         raise HTTPException(status_code=400, detail="'image2' file is empty.")
 
-    # ── Decode ────────────────────────────────────────────────────────────────
-    img1 = _load_image_from_upload(bytes1, "image1")
-    img2 = _load_image_from_upload(bytes2, "image2")
+    img1 = _decode_upload(bytes1, "image1")
+    img2 = _decode_upload(bytes2, "image2")
 
-    # ── Preprocess ────────────────────────────────────────────────────────────
-    skeleton1 = _preprocess_to_gray(img1)
-    skeleton2 = _preprocess_to_gray(img2)
+    skeleton1, _, _ = _preprocess_to_skeleton(img1)
+    skeleton2, _, _ = _preprocess_to_skeleton(img2)
 
-    # ── Extract features ──────────────────────────────────────────────────────
-    features1 = extract_features(skeleton1)
-    features2 = extract_features(skeleton2)
+    t1 = extract_template(skeleton1)
+    t2 = extract_template(skeleton2)
 
-    # ── Match ─────────────────────────────────────────────────────────────────
-    result = match_features(features1["descriptors"], features2["descriptors"])
+    score = match_templates(t1, t2)
 
     return {
-        "verdict":       result["verdict"],
-        "score":         result["score"],
-        "good_matches":  result["good_matches"],
-        "total_matches": result["total_matches"],
+        "verdict":       "MATCH" if score >= _MATCH_THRESHOLD else "NO MATCH",
+        "score":         round(score, 2),
         "image1": {
             "filename":       image1.filename,
-            "keypoint_count": features1["keypoint_count"],
-            "feature_status": features1["status"],
+            "minutiae_count": t1["minutiae_count"],
+            "feature_status": t1["status"],
         },
         "image2": {
             "filename":       image2.filename,
-            "keypoint_count": features2["keypoint_count"],
-            "feature_status": features2["status"],
+            "minutiae_count": t2["minutiae_count"],
+            "feature_status": t2["status"],
         },
     }

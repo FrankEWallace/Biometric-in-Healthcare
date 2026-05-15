@@ -15,7 +15,8 @@ use Illuminate\Http\Request;
 
 class VerificationController extends Controller
 {
-    private const MATCH_THRESHOLD = 0.35;
+    /** Minutiae match score threshold (0–100 scale, 20 recommended starting point). */
+    private const MATCH_THRESHOLD = 20.0;
 
     public function __construct(
         private FingerprintService $fingerprint,

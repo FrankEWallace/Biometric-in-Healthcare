@@ -24,8 +24,15 @@ use RuntimeException;
  */
 class FingerprintService
 {
-    /** Score threshold for declaring a positive match (0–1 scale). */
-    private const MATCH_THRESHOLD = 0.35;
+    /**
+     * Minimum minutiae match score to declare a positive match.
+     * Scale: 0–100 (2 × matched_pairs / total_minutiae × 100).
+     * 20 is the recommended starting point; calibrate using FAR/FRR
+     * measurements on your actual hardware and patient population.
+     * Raise toward 30–40 for higher-security deployments once you have
+     * real enrolled data to measure against.
+     */
+    private const MATCH_THRESHOLD = 20.0;
 
     private string $baseUrl;
 
@@ -146,38 +153,37 @@ class FingerprintService
      * verdict so the controller does not need to know matching thresholds.
      *
      * @param  string $filePath       Absolute path to the probe JPEG/PNG.
-     * @param  array  $storedTemplate Decrypted template from the Fingerprint model.
-     *                                Must contain 'descriptors' key.
+     * @param  array  $storedTemplate Decrypted SourceAFIS template from the Fingerprint model.
      * @param  int    $patientId      ID used as the candidate key in /match.
      * @return array {
      *     verdict: string,           // "MATCH" | "NO MATCH"
-     *     score: float,              // 0.0–100.0
-     *     raw_score: float,          // 0.0–1.0 (from Python /match)
-     *     probe_keypoints: int,
+     *     score: float,              // SourceAFIS raw score (0–∞, threshold 40)
+     *     probe_minutiae: int,
      *     feature_status: string     // "ok" | "low_quality" | "no_features"
      * }
      * @throws RuntimeException  On HTTP errors.
      */
     public function verify(string $filePath, array $storedTemplate, int $patientId): array
     {
-        // ── Step 1: extract probe features ───────────────────────────────────
+        // ── Step 1: extract probe template via SourceAFIS ─────────────────────
         $probeData = $this->register($filePath);
 
-        $featureStatus = $probeData['features']['status'] ?? 'no_features';
-        $probeKeypoints = (int) ($probeData['features']['keypoint_count'] ?? 0);
+        $featureStatus  = $probeData['features']['status'] ?? 'no_features';
+        $probeMinutiae  = (int) ($probeData['features']['minutiae_count'] ?? 0);
 
-        // Short-circuit: no features detected in probe image
-        if ($featureStatus === 'no_features' || $probeKeypoints === 0) {
+        // Short-circuit: no minutiae detected in probe image
+        if ($featureStatus === 'no_features' || $probeMinutiae === 0) {
             return [
-                'verdict'         => 'NO MATCH',
-                'score'           => 0.0,
-                'raw_score'       => 0.0,
-                'probe_keypoints' => $probeKeypoints,
-                'feature_status'  => $featureStatus,
+                'verdict'        => 'NO MATCH',
+                'score'          => 0.0,
+                'probe_minutiae' => $probeMinutiae,
+                // keypoint_count alias kept for Flutter FingerprintVerifyResult
+                'probe_keypoints' => $probeMinutiae,
+                'feature_status' => $featureStatus,
             ];
         }
 
-        // ── Step 2: match probe features against stored template ──────────────
+        // ── Step 2: match probe template against stored SourceAFIS template ───
         $matchResponse = Http::timeout(30)->post("{$this->baseUrl}/match", [
             'probe'      => $probeData['features'],
             'candidates' => [
@@ -191,13 +197,14 @@ class FingerprintService
         }
 
         $matchResult = $matchResponse->json();
-        $rawScore    = (float) ($matchResult['score'] ?? 0.0);
+        $score       = (float) ($matchResult['score'] ?? 0.0);
 
         return [
-            'verdict'         => $rawScore >= self::MATCH_THRESHOLD ? 'MATCH' : 'NO MATCH',
-            'score'           => round($rawScore * 100, 2),   // normalise to 0–100
-            'raw_score'       => $rawScore,
-            'probe_keypoints' => $probeKeypoints,
+            'verdict'         => $score >= self::MATCH_THRESHOLD ? 'MATCH' : 'NO MATCH',
+            'score'           => round($score, 2),
+            'probe_minutiae'  => $probeMinutiae,
+            // keypoint_count alias kept for Flutter FingerprintVerifyResult
+            'probe_keypoints' => $probeMinutiae,
             'feature_status'  => $featureStatus,
         ];
     }

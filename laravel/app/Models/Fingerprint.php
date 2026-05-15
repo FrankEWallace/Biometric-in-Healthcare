@@ -19,6 +19,7 @@ class Fingerprint extends Model
         'enrolled_by',
         'finger_position',
         'template',
+        'template_format',
         'quality_score',
         'is_primary',
         'is_active',
@@ -97,7 +98,8 @@ class Fingerprint extends Model
 
     public function setTemplate(array $template): void
     {
-        $this->template = Crypt::encryptString(json_encode($template));
+        $this->template        = Crypt::encryptString(json_encode($template));
+        $this->template_format = $template['format'] ?? 'sourceafis_v1';
     }
 
     public function getTemplate(): ?array
