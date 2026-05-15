@@ -11,7 +11,7 @@ class AuthException implements Exception {
 
 class AuthService {
   // Base URL — update to match your Laravel server
-  static const String _baseUrl = 'http://192.168.100.127:8000/api';
+  static const String _baseUrl = 'http://localhost:8000/api';
 
   // In-memory token storage (replace with flutter_secure_storage later)
   String? _token;

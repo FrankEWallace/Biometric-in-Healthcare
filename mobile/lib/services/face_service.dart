@@ -85,7 +85,7 @@ class FaceVerifyResult {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class FaceService {
-  static const String _baseUrl = 'http://192.168.100.127:8000/api';
+  static const String _baseUrl = 'http://localhost:8000/api';
 
   Map<String, String> _headers(String token) => {
         'Authorization': 'Bearer $token',
