@@ -10,6 +10,8 @@ import '../../screens/emergency/emergency_registration_screen.dart';
 import '../../screens/profile/profile_screen.dart';
 import '../../screens/verification_screen.dart';
 import '../../screens/patient_registration_screen.dart';
+import '../../screens/face/face_verification_screen.dart';
+import '../../screens/face/face_enroll_screen.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
@@ -191,6 +193,7 @@ class _AppShellState extends State<AppShell> {
           _Tab(label: 'Staff',     icon: Icons.group_outlined,         activeIcon: Icons.group_rounded,         screen: StaffScreen()),
           _Tab(label: 'Requests',  icon: Icons.inbox_outlined,         activeIcon: Icons.inbox_rounded,         screen: RequestsScreen()),
           _Tab(label: 'Emergency', icon: Icons.emergency_outlined,     activeIcon: Icons.emergency_rounded,     screen: EmergencyRegistrationScreen()),
+          _Tab(label: 'Face ID',   icon: Icons.face_outlined,          activeIcon: Icons.face_rounded,          screen: FaceEnrollScreen()),
           _Tab(label: 'Profile',   icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded,        screen: ProfileScreen()),
         ];
       case 'super_admin':
@@ -201,10 +204,11 @@ class _AppShellState extends State<AppShell> {
         ];
       default: // nurse / doctor
         return [
-          const _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,    activeIcon: Icons.dashboard_rounded,    screen: NurseDashboard()),
-          _Tab(label: 'Verify',    icon: Icons.fingerprint,            activeIcon: Icons.fingerprint,           screen: const GeoGatedScreen(child: VerificationScreen())),
-          _Tab(label: 'Register',  icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1_rounded, screen: const GeoGatedScreen(child: PatientRegistrationScreen())),
-          const _Tab(label: 'Profile', icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, screen: ProfileScreen()),
+          const _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,       screen: NurseDashboard()),
+          _Tab(label: 'Fingerprint',     icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,             screen: const GeoGatedScreen(child: VerificationScreen())),
+          _Tab(label: 'Face ID',         icon: Icons.face_outlined,             activeIcon: Icons.face_rounded,            screen: const GeoGatedScreen(child: FaceVerificationScreen())),
+          _Tab(label: 'Register',        icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1_rounded, screen: const GeoGatedScreen(child: PatientRegistrationScreen())),
+          const _Tab(label: 'Profile',   icon: Icons.person_outline_rounded,    activeIcon: Icons.person_rounded,          screen: ProfileScreen()),
         ];
     }
   }

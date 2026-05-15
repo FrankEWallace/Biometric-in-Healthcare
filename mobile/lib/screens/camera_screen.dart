@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/fingerprint_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/fingerprint_overlay.dart';
+import '../widgets/face_overlay.dart';
 
 /// Full-screen camera that handles capture → preview → (upload) in one place.
 ///
@@ -20,6 +21,9 @@ import '../widgets/fingerprint_overlay.dart';
 class CameraScreen extends StatefulWidget {
   final String title;
   final bool showFingerprintOverlay;
+
+  /// When true, shows an oval face-framing guide instead of the fingerprint frame.
+  final bool showFaceOverlay;
 
   /// Patient ID forwarded to the register endpoint (required when
   /// [returnImageOnly] is false).
@@ -41,6 +45,7 @@ class CameraScreen extends StatefulWidget {
     super.key,
     this.title = 'Capture Image',
     this.showFingerprintOverlay = false,
+    this.showFaceOverlay = false,
     this.patientId,
     this.fingerPosition = 'right_index',
     this.fingerLabel,
@@ -414,6 +419,34 @@ class _CameraScreenState extends State<CameraScreen>
                   child: CameraPreview(_controller!),
                 ),
               ),
+              if (widget.showFaceOverlay) ...[
+                Positioned.fill(
+                  child: FaceOverlay(isScanning: _isCapturing),
+                ),
+                Positioned(
+                  bottom: 12,
+                  left: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      _isCapturing
+                          ? 'Hold still…'
+                          : 'Center your face · Look straight · Good lighting',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               if (widget.showFingerprintOverlay) ...[
                 Center(
                   child: FingerprintOverlay(
