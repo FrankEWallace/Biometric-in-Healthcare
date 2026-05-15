@@ -17,7 +17,10 @@ class RequireRole
         $user = $request->user();
 
         if (! $user || ! in_array($user->role, $roles, true)) {
-            return response()->json(['error' => 'Forbidden. Insufficient role.'], 403);
+            if ($request->expectsJson()) {
+                return response()->json(['error' => 'Forbidden. Insufficient role.'], 403);
+            }
+            abort(403);
         }
 
         return $next($request);

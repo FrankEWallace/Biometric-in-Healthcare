@@ -39,7 +39,7 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
     Route::get('/audit-logs', [DashboardController::class, 'auditLogs'])->name('audit-logs');
 
     // ── Hospitals (super_admin only) ──────────────────────────────────────────
-    Route::prefix('hospitals')->name('hospitals.')->group(function () {
+    Route::prefix('hospitals')->name('hospitals.')->middleware('role:super_admin')->group(function () {
         Route::get('/',                                          [HospitalController::class, 'index'])->name('index');
         Route::get('/create',                                    [HospitalController::class, 'create'])->name('create');
         Route::post('/',                                         [HospitalController::class, 'store'])->name('store');

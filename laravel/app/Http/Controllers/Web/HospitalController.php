@@ -19,15 +19,6 @@ use Illuminate\View\View;
 
 class HospitalController extends Controller
 {
-    public function __construct()
-    {
-        // Every action in this controller requires super_admin
-        $this->middleware(function ($request, $next) {
-            abort_unless(Auth::user()?->isSuperAdmin(), 403);
-            return $next($request);
-        });
-    }
-
     // ── List ──────────────────────────────────────────────────────────────────
 
     public function index(Request $request): View
