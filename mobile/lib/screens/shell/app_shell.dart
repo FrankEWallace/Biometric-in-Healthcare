@@ -12,6 +12,8 @@ import '../../screens/verification_screen.dart';
 import '../../screens/patient_registration_screen.dart';
 import '../../screens/face/face_verification_screen.dart';
 import '../../screens/face/face_enroll_screen.dart';
+import '../../screens/clerk/clerk_dashboard.dart';
+import '../../screens/visit/stage_queue_screen.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
@@ -202,7 +204,24 @@ class _AppShellState extends State<AppShell> {
           _Tab(label: 'Staff',     icon: Icons.group_outlined,         activeIcon: Icons.group_rounded,         screen: StaffScreen()),
           _Tab(label: 'Profile',   icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded,        screen: ProfileScreen()),
         ];
-      default: // nurse / doctor
+      case 'clerk':
+        return const [
+          _Tab(label: 'Reception', icon: Icons.inbox_outlined,          activeIcon: Icons.inbox_rounded,          screen: GeoGatedScreen(child: ClerkDashboard())),
+          _Tab(label: 'Profile',   icon: Icons.person_outline_rounded,  activeIcon: Icons.person_rounded,         screen: ProfileScreen()),
+        ];
+      case 'nurse':
+      case 'doctor':
+      case 'lab_technician':
+      case 'pharmacist':
+        return [
+          const _Tab(label: 'Dashboard',  icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,        screen: NurseDashboard()),
+          _Tab(label: 'Queue',            icon: Icons.queue_rounded,             activeIcon: Icons.queue_rounded,            screen: const GeoGatedScreen(child: StageQueueScreen())),
+          _Tab(label: 'Fingerprint',      icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,              screen: const GeoGatedScreen(child: VerificationScreen())),
+          _Tab(label: 'Face ID',          icon: Icons.face_outlined,             activeIcon: Icons.face_rounded,             screen: const GeoGatedScreen(child: FaceVerificationScreen())),
+          _Tab(label: 'Register',         icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1_rounded, screen: const GeoGatedScreen(child: PatientRegistrationScreen())),
+          const _Tab(label: 'Profile',    icon: Icons.person_outline_rounded,    activeIcon: Icons.person_rounded,           screen: ProfileScreen()),
+        ];
+      default:
         return [
           const _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,       screen: NurseDashboard()),
           _Tab(label: 'Fingerprint',     icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,             screen: const GeoGatedScreen(child: VerificationScreen())),

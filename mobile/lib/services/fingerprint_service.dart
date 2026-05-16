@@ -91,6 +91,7 @@ class FingerprintVerifyResult {
   final String patientName;
   final int    patientId;
   final String matchedFinger;
+  final int?   verificationLogId; // ID of the created VerificationLog record
 
   // GoT-HoMIS enrichment (null when unavailable or no match)
   final Map<String, dynamic>? ehr;
@@ -104,6 +105,7 @@ class FingerprintVerifyResult {
     required this.patientName,
     required this.patientId,
     required this.matchedFinger,
+    this.verificationLogId,
     this.ehr,
     this.insurance,
   });
@@ -113,15 +115,16 @@ class FingerprintVerifyResult {
   factory FingerprintVerifyResult.fromJson(Map<String, dynamic> json) {
     final patient = json['patient'] as Map<String, dynamic>? ?? {};
     return FingerprintVerifyResult(
-      verdict:        json['verdict']         as String? ?? 'NO MATCH',
-      score:          (json['score'] as num?)?.toDouble() ?? 0.0,
-      probeKeypoints: json['probe_keypoints'] as int?    ?? 0,
-      featureStatus:  json['feature_status']  as String? ?? 'unknown',
-      patientName:    patient['full_name']    as String? ?? 'Unknown',
-      patientId:      patient['id']           as int?    ?? 0,
-      matchedFinger:  json['matched_finger']  as String? ?? '',
-      ehr:            json['ehr']       as Map<String, dynamic>?,
-      insurance:      json['insurance'] as Map<String, dynamic>?,
+      verdict:             json['verdict']              as String? ?? 'NO MATCH',
+      score:               (json['score'] as num?)?.toDouble() ?? 0.0,
+      probeKeypoints:      json['probe_keypoints']      as int?    ?? 0,
+      featureStatus:       json['feature_status']       as String? ?? 'unknown',
+      verificationLogId:   json['verification_log_id']  as int?,
+      patientName:         patient['full_name']         as String? ?? 'Unknown',
+      patientId:           patient['id']                as int?    ?? 0,
+      matchedFinger:       json['matched_finger']       as String? ?? '',
+      ehr:                 json['ehr']       as Map<String, dynamic>?,
+      insurance:           json['insurance'] as Map<String, dynamic>?,
     );
   }
 }

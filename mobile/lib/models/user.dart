@@ -17,11 +17,34 @@ class User {
     required this.token,
   });
 
-  bool get isNurse      => role == 'nurse';
-  bool get isAdmin      => role == 'admin';
-  bool get isSuperAdmin => role == 'super_admin';
-  bool get isDoctor     => role == 'doctor';
-  bool get isAnyAdmin   => role == 'admin' || role == 'super_admin';
+  bool get isNurse         => role == 'nurse';
+  bool get isAdmin         => role == 'admin';
+  bool get isSuperAdmin    => role == 'super_admin';
+  bool get isDoctor        => role == 'doctor';
+  bool get isClerk         => role == 'clerk';
+  bool get isLabTechnician => role == 'lab_technician';
+  bool get isPharmacist    => role == 'pharmacist';
+  bool get isAnyAdmin      => role == 'admin' || role == 'super_admin';
+
+  // The lifecycle stage this role operates at (null = clerk handles checkin+checkout)
+  String? get assignedStage => switch (role) {
+    'nurse'          => 'triage',
+    'doctor'         => 'consultation',
+    'lab_technician' => 'laboratory',
+    'pharmacist'     => 'pharmacy',
+    _                => null,
+  };
+
+  String get roleLabel => switch (role) {
+    'super_admin'    => 'Super Admin',
+    'admin'          => 'Admin',
+    'clerk'          => 'Clerk',
+    'nurse'          => 'Nurse',
+    'doctor'         => 'Doctor',
+    'lab_technician' => 'Lab Technician',
+    'pharmacist'     => 'Pharmacist',
+    _                => role,
+  };
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\Fingerprint;
 use App\Models\Patient;
+use App\Models\VerificationLog;
 use App\Services\FingerprintService;
 use App\Services\HomisService;
 use Illuminate\Http\JsonResponse;
@@ -348,12 +349,27 @@ class FingerprintController extends Controller
             $insurance = $this->homis->getInsuranceEligibility($homisId);
         }
 
+        // Create a VerificationLog so the result can be linked to a visit stage
+        $log = VerificationLog::create([
+            'patient_id'    => $result['verdict'] === 'MATCH' ? $patient->id : null,
+            'fingerprint_id' => $result['verdict'] === 'MATCH' ? $storedFingerprint->id : null,
+            'operator_id'   => $request->user()->id,
+            'hospital_id'   => $request->user()->hospital_id,
+            'score'         => $result['score'],
+            'status'        => $result['verdict'] === 'MATCH' ? 'matched' : 'no_match',
+            'modality'      => 'fingerprint',
+            'gps_latitude'  => $request->input('gps_latitude'),
+            'gps_longitude' => $request->input('gps_longitude'),
+            'wifi_ssid'     => $request->input('wifi_ssid'),
+        ]);
+
         return response()->json([
-            'verdict'         => $result['verdict'],
-            'score'           => $result['score'],
-            'probe_keypoints' => $result['probe_keypoints'],
-            'feature_status'  => $result['feature_status'],
-            'patient'         => [
+            'verdict'              => $result['verdict'],
+            'score'                => $result['score'],
+            'probe_keypoints'      => $result['probe_keypoints'],
+            'feature_status'       => $result['feature_status'],
+            'verification_log_id'  => $log->id,
+            'patient'              => [
                 'id'        => $patient->id,
                 'full_name' => $patient->full_name,
             ],
