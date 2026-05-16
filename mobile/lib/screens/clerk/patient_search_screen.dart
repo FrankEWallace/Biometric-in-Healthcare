@@ -5,7 +5,9 @@ import '../../models/patient.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
+import '../patient_registration_screen.dart';
 import 'clerk_scan_screen.dart';
+import 'fingerprint_enroll_screen.dart';
 
 class PatientSearchScreen extends StatefulWidget {
   const PatientSearchScreen({super.key});
@@ -61,17 +63,92 @@ class _PatientSearchScreenState extends State<PatientSearchScreen> {
       return;
     }
     if (!patient.isEnrolled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${patient.fullName} has no enrolled fingerprint.'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      _showEnrollDialog(patient);
       return;
     }
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => ClerkScanScreen(patient: patient)),
+    );
+  }
+
+  void _showEnrollDialog(PatientModel patient) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    color: AppColors.errorLight,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.fingerprint,
+                      color: AppColors.error, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(patient.fullName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15)),
+                      Text(patient.displayId,
+                          style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontFamily: 'monospace')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'This patient has no fingerprint enrolled. You must enroll their biometrics before opening a visit.',
+              style: TextStyle(
+                  color: AppColors.textSecondary, fontSize: 14, height: 1.5),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.fingerprint),
+                label: const Text('Enroll Fingerprint Now'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          FingerprintEnrollScreen(patient: patient),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -82,6 +159,14 @@ class _PatientSearchScreenState extends State<PatientSearchScreen> {
     return Scaffold(
       backgroundColor: cs.surfaceContainerLow,
       appBar: AppBar(title: const Text('Find Patient')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PatientRegistrationScreen()),
+        ),
+        icon: const Icon(Icons.person_add_rounded),
+        label: const Text('Register New'),
+      ),
       body: Column(
         children: [
           // Search bar

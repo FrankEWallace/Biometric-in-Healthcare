@@ -38,6 +38,15 @@ class UserSeeder extends Seeder
             ],
             [
                 'hospital_id' => $sarajevo->id,
+                'name'        => 'Amina Clerk',
+                'username'    => 'amina.clerk',
+                'email'       => 'amina.clerk@kcus.ba',
+                'password'    => Hash::make('Clerk@1234'),
+                'role'        => 'clerk',
+                'is_active'   => true,
+            ],
+            [
+                'hospital_id' => $sarajevo->id,
                 'name'        => 'Editha Deo',
                 'username'    => 'editha.deo',
                 'email'       => 'editha.deo@kcus.ba',
@@ -63,6 +72,24 @@ class UserSeeder extends Seeder
                 'role'        => 'doctor',
                 'is_active'   => true,
             ],
+            [
+                'hospital_id' => $sarajevo->id,
+                'name'        => 'Said Lab',
+                'username'    => 'said.lab',
+                'email'       => 'said.lab@kcus.ba',
+                'password'    => Hash::make('Lab@1234'),
+                'role'        => 'lab_technician',
+                'is_active'   => true,
+            ],
+            [
+                'hospital_id' => $sarajevo->id,
+                'name'        => 'Fatima Pharma',
+                'username'    => 'fatima.pharma',
+                'email'       => 'fatima.pharma@kcus.ba',
+                'password'    => Hash::make('Pharma@1234'),
+                'role'        => 'pharmacist',
+                'is_active'   => true,
+            ],
 
             // ── Mostar ────────────────────────────────────────────────
             [
@@ -72,6 +99,15 @@ class UserSeeder extends Seeder
                 'email'       => 'ivan.bariki@kbm.ba',
                 'password'    => Hash::make('Admin@1234'),
                 'role'        => 'admin',
+                'is_active'   => true,
+            ],
+            [
+                'hospital_id' => $mostar->id,
+                'name'        => 'Marko Clerk',
+                'username'    => 'marko.clerk',
+                'email'       => 'marko.clerk@kbm.ba',
+                'password'    => Hash::make('Clerk@1234'),
+                'role'        => 'clerk',
                 'is_active'   => true,
             ],
             [
@@ -90,6 +126,24 @@ class UserSeeder extends Seeder
                 'email'       => 'edward.kimaro@kbm.ba',
                 'password'    => Hash::make('Doctor@1234'),
                 'role'        => 'doctor',
+                'is_active'   => true,
+            ],
+            [
+                'hospital_id' => $mostar->id,
+                'name'        => 'Ana Lab',
+                'username'    => 'ana.lab',
+                'email'       => 'ana.lab@kbm.ba',
+                'password'    => Hash::make('Lab@1234'),
+                'role'        => 'lab_technician',
+                'is_active'   => true,
+            ],
+            [
+                'hospital_id' => $mostar->id,
+                'name'        => 'Pero Pharma',
+                'username'    => 'pero.pharma',
+                'email'       => 'pero.pharma@kbm.ba',
+                'password'    => Hash::make('Pharma@1234'),
+                'role'        => 'pharmacist',
                 'is_active'   => true,
             ],
         ];

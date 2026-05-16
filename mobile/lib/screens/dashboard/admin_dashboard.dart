@@ -70,16 +70,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final user = context.read<AuthProvider>().user!;
     final cs   = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      backgroundColor: cs.surfaceContainerLow,
-      body: RefreshIndicator(
-        onRefresh: _load,
-        color: cs.primary,
-        child: CustomScrollView(
-          slivers: [
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: cs.surfaceContainerLow,
+        body: NestedScrollView(
+          headerSliverBuilder: (_, __) => [
             SliverAppBar(
               floating: true,
               snap: true,
+              forceElevated: true,
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -116,7 +116,25 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ),
                 ),
               ],
+              bottom: const TabBar(
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white60,
+                indicatorColor: Colors.white,
+                tabs: [
+                  Tab(icon: Icon(Icons.monitor_heart_rounded), text: 'Live'),
+                  Tab(icon: Icon(Icons.history_rounded), text: 'History'),
+                ],
+              ),
             ),
+          ],
+          body: TabBarView(
+            children: [
+              // ── Tab 0: Live ──────────────────────────────────────────
+              RefreshIndicator(
+                onRefresh: _load,
+                color: cs.primary,
+                child: CustomScrollView(
+                  slivers: [
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -290,6 +308,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
             ),
           ],
+                ),
+              ),
+
+              // ── Tab 1: History ───────────────────────────────────────
+              _HistoryTab(token: _token),
+            ],
+          ),
         ),
       ),
     );
@@ -533,6 +558,264 @@ class _QuickAction extends StatelessWidget {
                   color: cs.onSurface,
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── History tab ───────────────────────────────────────────────────────────────
+
+class _HistoryTab extends StatefulWidget {
+  final String token;
+  const _HistoryTab({required this.token});
+
+  @override
+  State<_HistoryTab> createState() => _HistoryTabState();
+}
+
+class _HistoryTabState extends State<_HistoryTab>
+    with AutomaticKeepAliveClientMixin {
+  final _service = VisitService();
+
+  DateTime _selectedDate = DateTime.now();
+  List<VisitModel> _visits = [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final dateStr =
+          '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      final visits = await _service.getVisitHistory(
+          token: widget.token, date: dateStr);
+      if (mounted) setState(() { _visits = visits; _loading = false; });
+    } on VisitException catch (e) {
+      if (mounted) setState(() { _error = e.message; _loading = false; });
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null && mounted) {
+      setState(() => _selectedDate = picked);
+      _load();
+    }
+  }
+
+  String _formatDate(DateTime dt) {
+    final now = DateTime.now();
+    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+      return 'Today';
+    }
+    final yesterday = now.subtract(const Duration(days: 1));
+    if (dt.year == yesterday.year &&
+        dt.month == yesterday.month &&
+        dt.day == yesterday.day) {
+      return 'Yesterday';
+    }
+    return '${dt.day.toString().padLeft(2, '0')}/'
+        '${dt.month.toString().padLeft(2, '0')}/'
+        '${dt.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final cs = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        Container(
+          color: cs.surface,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.calendar_today_rounded,
+                  size: 16, color: AppColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Visits on ${_formatDate(_selectedDate)}',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+              ),
+              TextButton(
+                onPressed: _pickDate,
+                child: const Text('Change date'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off_rounded,
+                              size: 48, color: cs.onSurfaceVariant),
+                          const SizedBox(height: 12),
+                          Text(_error!,
+                              style: TextStyle(color: cs.onSurfaceVariant)),
+                          const SizedBox(height: 16),
+                          TextButton.icon(
+                            onPressed: _load,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _visits.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.history_rounded,
+                                  size: 56,
+                                  color: cs.onSurfaceVariant.withAlpha(100)),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No closed visits on ${_formatDate(_selectedDate)}',
+                                style: TextStyle(
+                                    color: cs.onSurfaceVariant, fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _visits.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (_, i) => _HistoryVisitTile(
+                              visit: _visits[i],
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => VisitDetailScreen(
+                                      visitId: _visits[i].id),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HistoryVisitTile extends StatelessWidget {
+  final VisitModel visit;
+  final VoidCallback onTap;
+
+  const _HistoryVisitTile({required this.visit, required this.onTap});
+
+  String _time(String iso) {
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.outline),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: const BoxDecoration(
+                color: AppColors.successLight,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.check_circle_rounded,
+                  color: AppColors.success, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    visit.patient?.fullName ?? 'Patient #${visit.patientId}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    visit.patient?.displayId ?? '',
+                    style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                        fontFamily: 'monospace'),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryTint,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    visit.visitTypeLabel,
+                    style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_time(visit.openedAt)} → ${_time(visit.closedAt ?? '')}',
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ],
             ),
           ],
         ),

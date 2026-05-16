@@ -10,6 +10,8 @@ import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
 import '../camera_screen.dart';
 
+enum _VerifyPhase { fingerprint, face, override }
+
 /// Reusable stage verification screen.
 /// Used by nurse (triage), doctor (consultation), lab tech, pharmacist.
 class StageVerifyScreen extends StatefulWidget {
@@ -34,7 +36,8 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
   bool _verified = false;
   Map<String, dynamic>? _simulatedData;
   String? _error;
-  int _attempts = 0;
+  int _fpAttempts = 0;
+  _VerifyPhase _phase = _VerifyPhase.fingerprint;
   static const int _maxAttempts = 3;
 
   String get _stageLabel => switch (widget.stageName) {
@@ -47,14 +50,15 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
 
   Future<void> _openCamera() async {
     setState(() => _error = null);
+    final bool isFace = _phase == _VerifyPhase.face;
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
         builder: (_) => CameraScreen(
-          title: 'Scan — $_stageLabel',
-          showFingerprintOverlay: true,
+          title: isFace ? 'Face Scan — $_stageLabel' : 'Scan — $_stageLabel',
+          showFingerprintOverlay: !isFace,
           returnImageOnly: true,
-          isHandCapture: true,
+          isHandCapture: !isFace,
         ),
       ),
     );
@@ -65,18 +69,20 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
     if (_capturedImage == null) return;
 
     final token = context.read<AuthProvider>().user?.token ?? '';
-    setState(() { _verifying = true; _error = null; _attempts++; });
+    final isFace = _phase == _VerifyPhase.face;
+    setState(() { _verifying = true; _error = null; });
+    if (!isFace) _fpAttempts++;
 
     try {
-      // Convert captured image to base64 for the stage verify endpoint
-      final bytes        = await File(_capturedImage!.path).readAsBytes();
-      final base64Image  = base64Encode(bytes);
+      final bytes       = await File(_capturedImage!.path).readAsBytes();
+      final base64Image = base64Encode(bytes);
 
       final result = await _visitService.verifyStage(
         token:            token,
         visitId:          widget.visit.id,
         stage:            widget.stageName,
-        fingerprintImage: base64Image,
+        fingerprintImage: isFace ? '' : base64Image,
+        faceImage:        isFace ? base64Image : null,
       );
 
       if (!mounted) return;
@@ -87,17 +93,40 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
         _simulatedData = result['simulated_data'] as Map<String, dynamic>?;
       });
     } on VisitException catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+
+      if (e.message.contains('already been verified')) {
+        setState(() { _verifying = false; _error = e.message; });
+        return;
+      }
+
+      // After fingerprint exhaustion → switch to face fallback
+      if (!isFace && _fpAttempts >= _maxAttempts) {
         setState(() {
           _verifying     = false;
           _capturedImage = null;
-          _error = e.statusCode == 422 && _attempts >= _maxAttempts
-              ? 'Verification failed. You may request a supervisor override.'
-              : e.message.contains('already been verified')
-                  ? e.message
-                  : 'Fingerprint did not match. ${_maxAttempts - _attempts} attempt(s) remaining.';
+          _phase         = _VerifyPhase.face;
+          _error         = 'Fingerprint failed $_fpAttempts times. Try face scan.';
         });
+        return;
       }
+
+      // Face failed → offer override
+      if (isFace) {
+        setState(() {
+          _verifying     = false;
+          _capturedImage = null;
+          _phase         = _VerifyPhase.override;
+          _error         = 'Face scan did not match. Request a supervisor override.';
+        });
+        return;
+      }
+
+      setState(() {
+        _verifying     = false;
+        _capturedImage = null;
+        _error = 'Fingerprint did not match. ${_maxAttempts - _fpAttempts} attempt(s) remaining.';
+      });
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -119,7 +148,7 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
         token: token,
         visitStageId: stage.id,
         fallbackChain: 'fingerprint_and_face_failed',
-        staffNote: 'Manual override requested after $_attempts failed attempts.',
+        staffNote: 'Fingerprint failed $_fpAttempts time(s), face scan also failed.',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -154,67 +183,113 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
               const SizedBox(height: 24),
 
               if (!_verified) ...[
+                // Phase banner
+                if (_phase == _VerifyPhase.face) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.warningLight,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.face_retouching_natural,
+                            color: AppColors.warning, size: 18),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Fingerprint failed. Please scan your face instead.',
+                            style: TextStyle(
+                                color: AppColors.warning,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // Scan section
-                Text('Verify Patient Identity',
-                    style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: cs.onSurface)),
+                Text(
+                  _phase == _VerifyPhase.face
+                      ? 'Face Verification'
+                      : 'Verify Patient Identity',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface),
+                ),
                 const SizedBox(height: 8),
                 Text(
-                  'Scan the patient\'s fingerprint to access the $_stageLabel record.',
+                  _phase == _VerifyPhase.face
+                      ? 'Position the patient\'s face in the frame to verify identity.'
+                      : 'Scan the patient\'s fingerprint to access the $_stageLabel record.',
                   style: TextStyle(
                       color: cs.onSurfaceVariant, fontSize: 14, height: 1.5),
                 ),
                 const SizedBox(height: 20),
 
                 // Capture area
-                GestureDetector(
-                  onTap: _verifying ? null : _openCamera,
-                  child: Container(
-                    width: double.infinity,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      color: _capturedImage != null
-                          ? AppColors.successLight
-                          : cs.surfaceContainer,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
+                if (_phase != _VerifyPhase.override)
+                  GestureDetector(
+                    onTap: _verifying ? null : _openCamera,
+                    child: Container(
+                      width: double.infinity,
+                      height: 150,
+                      decoration: BoxDecoration(
                         color: _capturedImage != null
-                            ? AppColors.success
-                            : cs.outline,
-                        width: _capturedImage != null ? 2 : 1,
+                            ? AppColors.successLight
+                            : cs.surfaceContainer,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _capturedImage != null
+                              ? AppColors.success
+                              : cs.outline,
+                          width: _capturedImage != null ? 2 : 1,
+                        ),
                       ),
+                      child: _capturedImage != null
+                          ? Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.check_circle_rounded,
+                                    color: AppColors.success, size: 40),
+                                const SizedBox(height: 8),
+                                const Text('Image ready',
+                                    style: TextStyle(
+                                        color: AppColors.success,
+                                        fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 4),
+                                Text('Tap to recapture',
+                                    style: TextStyle(
+                                        color: cs.onSurfaceVariant,
+                                        fontSize: 12)),
+                              ],
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _phase == _VerifyPhase.face
+                                      ? Icons.face_rounded
+                                      : Icons.fingerprint,
+                                  size: 44,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _phase == _VerifyPhase.face
+                                      ? 'Tap to scan face'
+                                      : 'Tap to scan fingerprint',
+                                  style:
+                                      TextStyle(color: cs.onSurfaceVariant),
+                                ),
+                              ],
+                            ),
                     ),
-                    child: _capturedImage != null
-                        ? Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.check_circle_rounded,
-                                  color: AppColors.success, size: 40),
-                              const SizedBox(height: 8),
-                              const Text('Image ready',
-                                  style: TextStyle(
-                                      color: AppColors.success,
-                                      fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 4),
-                              Text('Tap to recapture',
-                                  style: TextStyle(
-                                      color: cs.onSurfaceVariant, fontSize: 12)),
-                            ],
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.fingerprint,
-                                  size: 44, color: cs.onSurfaceVariant),
-                              const SizedBox(height: 8),
-                              Text('Tap to scan',
-                                  style: TextStyle(color: cs.onSurfaceVariant)),
-                            ],
-                          ),
                   ),
-                ),
 
                 // Error
                 if (_error != null) ...[
@@ -222,18 +297,30 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.errorLight,
+                      color: _phase == _VerifyPhase.override
+                          ? AppColors.warningLight
+                          : AppColors.errorLight,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.error_outline_rounded,
-                            color: AppColors.error, size: 18),
+                        Icon(
+                          _phase == _VerifyPhase.override
+                              ? Icons.warning_amber_rounded
+                              : Icons.error_outline_rounded,
+                          color: _phase == _VerifyPhase.override
+                              ? AppColors.warning
+                              : AppColors.error,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(_error!,
-                              style: const TextStyle(
-                                  color: AppColors.error, fontSize: 13)),
+                              style: TextStyle(
+                                  color: _phase == _VerifyPhase.override
+                                      ? AppColors.warning
+                                      : AppColors.error,
+                                  fontSize: 13)),
                         ),
                       ],
                     ),
@@ -241,22 +328,44 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                 ],
 
                 const SizedBox(height: 24),
-                PrimaryButton(
-                  label: _verifying ? 'Verifying…' : 'Verify Patient',
-                  onPressed: _capturedImage != null && !_verifying ? _verify : null,
-                  isLoading: _verifying,
-                ),
 
-                // Override option after max attempts
-                if (_attempts >= _maxAttempts) ...[
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _requestOverride,
-                    icon: const Icon(Icons.supervisor_account_rounded),
-                    label: const Text('Request Supervisor Override'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.warning,
-                      side: const BorderSide(color: AppColors.warning),
+                if (_phase != _VerifyPhase.override)
+                  PrimaryButton(
+                    label: _verifying
+                        ? 'Verifying…'
+                        : _phase == _VerifyPhase.face
+                            ? 'Verify Face'
+                            : 'Verify Fingerprint',
+                    onPressed:
+                        _capturedImage != null && !_verifying ? _verify : null,
+                    isLoading: _verifying,
+                  ),
+
+                // Fingerprint attempt counter
+                if (_phase == _VerifyPhase.fingerprint && _fpAttempts > 0) ...[
+                  const SizedBox(height: 8),
+                  Center(
+                    child: Text(
+                      'Attempt $_fpAttempts of $_maxAttempts',
+                      style: TextStyle(
+                          color: cs.onSurfaceVariant, fontSize: 12),
+                    ),
+                  ),
+                ],
+
+                // Override button — shown when all biometrics exhausted
+                if (_phase == _VerifyPhase.override) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _requestOverride,
+                      icon: const Icon(Icons.supervisor_account_rounded),
+                      label: const Text('Request Supervisor Override'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.warning,
+                        side: const BorderSide(color: AppColors.warning),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
                     ),
                   ),
                 ],

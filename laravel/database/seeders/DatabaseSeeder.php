@@ -8,11 +8,12 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // Order matters — users + patients depend on hospitals
+        // Order matters — each seeder depends on the ones before it
         $this->call([
             HospitalSeeder::class,
             UserSeeder::class,
             PatientSeeder::class,
+            VisitSeeder::class,
         ]);
     }
 }

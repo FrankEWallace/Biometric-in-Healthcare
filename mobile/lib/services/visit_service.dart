@@ -89,6 +89,34 @@ class VisitService {
     );
   }
 
+  // ── Visit history (admin — closed visits, optional date filter) ──────────
+
+  Future<List<VisitModel>> getVisitHistory({
+    required String token,
+    String? date, // 'YYYY-MM-DD'
+  }) async {
+    late http.Response response;
+    try {
+      final uri = Uri.parse('$_baseUrl/visits').replace(
+        queryParameters: {
+          'status': 'closed',
+          if (date != null) 'date': date,
+        },
+      );
+      response = await http.get(uri, headers: _headers(token))
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      throw const VisitException('Could not reach the server.');
+    }
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final list = body['visits'] as List<dynamic>? ?? [];
+      return list.map((v) => VisitModel.fromJson(v as Map<String, dynamic>)).toList();
+    }
+    throw VisitException('Failed to load history (${response.statusCode}).');
+  }
+
   // ── List visits / queue ───────────────────────────────────────────────────
 
   Future<List<VisitModel>> getQueue({required String token}) async {
