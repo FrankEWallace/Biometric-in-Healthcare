@@ -11,6 +11,7 @@ class Hospital extends Model
     use HasFactory;
     protected $fillable = [
         'name',
+        'code',
         'city',
         'wifi_ssid',
         'gps_latitude',
@@ -40,5 +41,15 @@ class Hospital extends Model
     public function verificationLogs(): HasMany
     {
         return $this->hasMany(VerificationLog::class);
+    }
+
+    public function visits(): HasMany
+    {
+        return $this->hasMany(Visit::class);
+    }
+
+    public function activeVisits(): HasMany
+    {
+        return $this->hasMany(Visit::class)->where('status', 'open');
     }
 }

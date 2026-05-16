@@ -12,6 +12,8 @@ class Patient extends Model
     use HasFactory;
     protected $fillable = [
         'hospital_id',
+        'patient_seq',
+        'hospital_patient_id',
         'full_name',
         'date_of_birth',
         'gender',
@@ -50,6 +52,16 @@ class Patient extends Model
     public function verificationLogs(): HasMany
     {
         return $this->hasMany(VerificationLog::class);
+    }
+
+    public function visits(): HasMany
+    {
+        return $this->hasMany(Visit::class);
+    }
+
+    public function activeVisit(): HasMany
+    {
+        return $this->hasMany(Visit::class)->where('status', 'open');
     }
 
     // ------------------------------------------------------------------

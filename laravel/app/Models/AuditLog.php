@@ -32,9 +32,15 @@ class AuditLog extends Model
     public const ACTION_USER_DEACTIVATED        = 'user_deactivated';
     public const ACTION_HOSPITAL_CREATED        = 'hospital_created';
     public const ACTION_HOSPITAL_DEACTIVATED    = 'hospital_deactivated';
-    public const ACTION_FACE_ENROLL             = 'face_enroll';
-    public const ACTION_FACE_MATCH              = 'face_match';
-    public const ACTION_FACE_NO_MATCH           = 'face_no_match';
+    public const ACTION_FACE_ENROLL                = 'face_enroll';
+    public const ACTION_FACE_MATCH                 = 'face_match';
+    public const ACTION_FACE_NO_MATCH              = 'face_no_match';
+    public const ACTION_VISIT_OPEN                 = 'visit_open';
+    public const ACTION_VISIT_CLOSE                = 'visit_close';
+    public const ACTION_VISIT_REOPEN               = 'visit_reopen';
+    public const ACTION_STAGE_VERIFIED             = 'stage_verified';
+    public const ACTION_STAGE_OVERRIDE_REQUESTED   = 'stage_override_requested';
+    public const ACTION_STAGE_OVERRIDE_RESOLVED    = 'stage_override_resolved';
 
     protected $fillable = [
         'staff_id',

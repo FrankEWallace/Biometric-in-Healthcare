@@ -6,8 +6,11 @@ use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\Api\FingerprintController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\PatientEditRequestController;
+use App\Http\Controllers\Api\SupervisorOverrideController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\VerificationController;
+use App\Http\Controllers\Api\VisitController;
+use App\Http\Controllers\Api\VisitStageController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -142,6 +145,43 @@ Route::middleware('auth:sanctum')->group(function () {
         // Hospital-wide face identification — nurse only
         Route::post('verify', [FaceController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
+    });
+
+    // ── Patient Visit Lifecycle ───────────────────────────────────────────────
+    Route::prefix('visits')->middleware('hospital.access')->group(function () {
+
+        // All roles: list visits and search patients
+        Route::get('/',               [VisitController::class, 'index']);
+        Route::get('/patient-search', [VisitController::class, 'patientSearch']);
+        Route::get('/{visit}',        [VisitController::class, 'show']);
+
+        // Clerk only: open / close / reopen
+        Route::post('/',                    [VisitController::class, 'store'])
+             ->middleware('role:clerk');
+        Route::put('/{visit}/close',        [VisitController::class, 'close'])
+             ->middleware('role:clerk');
+        Route::put('/{visit}/reopen',       [VisitController::class, 'reopen'])
+             ->middleware('role:clerk');
+
+        // Stage verification — role enforcement is handled inside the controller
+        Route::post('/{visit}/stages/{stage}/verify', [VisitStageController::class, 'verify'])
+             ->middleware('throttle:30,1');
+
+        // Stage data submission (simulated EMR) — role enforcement inside controller
+        Route::put('/{visit}/stages/{stage}/data', [VisitStageController::class, 'updateData']);
+    });
+
+    // ── Stage Queue ───────────────────────────────────────────────────────────
+    Route::get('/queue', [VisitStageController::class, 'queue'])
+         ->middleware('hospital.access');
+
+    // ── Supervisor Overrides ──────────────────────────────────────────────────
+    Route::prefix('supervisor-overrides')->middleware('hospital.access')->group(function () {
+
+        Route::get('/',                          [SupervisorOverrideController::class, 'index']);
+        Route::post('/',                         [SupervisorOverrideController::class, 'store']);
+        Route::put('/{override}/resolve',        [SupervisorOverrideController::class, 'resolve'])
+             ->middleware('role:admin,doctor,nurse');
     });
 
     // ── Audit Logs ────────────────────────────────────────────────────────────

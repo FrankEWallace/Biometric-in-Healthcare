@@ -12,8 +12,10 @@ class VerificationLog extends Model
         'fingerprint_id',
         'operator_id',
         'hospital_id',
+        'visit_stage_id',
         'score',
         'status',
+        'modality',
         'gps_latitude',
         'gps_longitude',
         'wifi_ssid',
@@ -45,6 +47,11 @@ class VerificationLog extends Model
     public function hospital(): BelongsTo
     {
         return $this->belongsTo(Hospital::class);
+    }
+
+    public function visitStage(): BelongsTo
+    {
+        return $this->belongsTo(VisitStage::class);
     }
 
     public function isMatched(): bool

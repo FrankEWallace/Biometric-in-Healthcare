@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Fingerprint;
 use App\Models\Patient;
 use App\Services\FingerprintService;
+use App\Services\PatientService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -16,7 +17,10 @@ class PatientController extends Controller
     // Scores below this indicate a blurry or poorly-positioned capture.
     private const MIN_QUALITY_SCORE = 0.30;
 
-    public function __construct(private FingerprintService $fingerprint) {}
+    public function __construct(
+        private FingerprintService $fingerprint,
+        private PatientService     $patientService,
+    ) {}
 
     /**
      * GET /api/patients?page=1&per_page=20
@@ -46,9 +50,8 @@ class PatientController extends Controller
             'notes'         => 'nullable|string|max:1000',
         ]);
 
-        $patient = Patient::create(array_merge($data, [
-            'hospital_id' => $request->user()->hospital_id,
-        ]));
+        $hospital = $request->user()->hospital;
+        $patient  = $this->patientService->register($hospital, $data);
 
         AuditLog::record($request, AuditLog::ACTION_PATIENT_CREATE, $patient->id);
 

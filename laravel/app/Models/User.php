@@ -64,6 +64,34 @@ class User extends Authenticatable
         return $this->role === 'nurse';
     }
 
+    public function isClerk(): bool
+    {
+        return $this->role === 'clerk';
+    }
+
+    public function isLabTechnician(): bool
+    {
+        return $this->role === 'lab_technician';
+    }
+
+    public function isPharmacist(): bool
+    {
+        return $this->role === 'pharmacist';
+    }
+
+    // The stage this role is responsible for verifying at
+    public function assignedStage(): ?string
+    {
+        return match($this->role) {
+            'clerk'          => null, // clerk handles both clerk_checkin and clerk_checkout
+            'nurse'          => 'triage',
+            'doctor'         => 'consultation',
+            'lab_technician' => 'laboratory',
+            'pharmacist'     => 'pharmacy',
+            default          => null,
+        };
+    }
+
     // ------------------------------------------------------------------
     // Relationships
     // ------------------------------------------------------------------
@@ -76,6 +104,22 @@ class User extends Authenticatable
     public function verificationLogs(): HasMany
     {
         return $this->hasMany(VerificationLog::class, 'operator_id');
+    }
+
+    public function openedVisits(): HasMany
+    {
+        return $this->hasMany(Visit::class, 'opened_by');
+    }
+
+    public function supervisorOverrides(): HasMany
+    {
+        return $this->hasMany(SupervisorOverride::class, 'supervisor_id');
+    }
+
+    public function pendingOverrideRequests(): HasMany
+    {
+        return $this->hasMany(SupervisorOverride::class, 'supervisor_id')
+                    ->where('status', 'pending');
     }
 
     public function avatarUrl(): string
