@@ -155,7 +155,7 @@ class _PatientRegistrationScreenState
             builder: (_) => ResultScreen(
               isSuccess: true,
               patientName: patient.fullName,
-              patientId: patient.id.toString(),
+              patientId: patient.displayId,
               isRegistration: true,
             ),
           ),
@@ -406,7 +406,7 @@ class _FingerProgressView extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '${patient.fullName}  ·  #${patient.id}',
+                    '${patient.fullName}  ·  ${patient.displayId}',
                     style: const TextStyle(
                       color: AppColors.primary,
                       fontWeight: FontWeight.w600,

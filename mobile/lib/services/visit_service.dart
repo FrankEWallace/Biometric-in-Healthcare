@@ -259,6 +259,59 @@ class VisitService {
     );
   }
 
+  // ── List supervisor overrides ─────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> getPendingOverrides({
+    required String token,
+  }) async {
+    late http.Response response;
+    try {
+      response = await http.get(
+        Uri.parse('$_baseUrl/supervisor-overrides'),
+        headers: _headers(token),
+      ).timeout(const Duration(seconds: 10));
+    } catch (_) {
+      throw const VisitException('Could not reach the server.');
+    }
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final list = body['overrides'] as List<dynamic>? ?? [];
+      return list.cast<Map<String, dynamic>>();
+    }
+    throw VisitException('Failed to load overrides (${response.statusCode}).');
+  }
+
+  // ── Resolve a supervisor override ─────────────────────────────────────────
+
+  Future<void> resolveOverride({
+    required String token,
+    required int overrideId,
+    required String decision,
+    String? note,
+  }) async {
+    late http.Response response;
+    try {
+      response = await http.put(
+        Uri.parse('$_baseUrl/supervisor-overrides/$overrideId/resolve'),
+        headers: _headers(token),
+        body: jsonEncode({
+          'decision': decision,
+          if (note != null && note.isNotEmpty) 'supervisor_note': note,
+        }),
+      ).timeout(const Duration(seconds: 15));
+    } catch (_) {
+      throw const VisitException('Could not reach the server.');
+    }
+
+    if (response.statusCode == 200) return;
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    throw VisitException(
+      body['error'] as String? ?? 'Failed to resolve override.',
+      statusCode: response.statusCode,
+    );
+  }
+
   // ── Update simulated data for a stage ────────────────────────────────────
 
   Future<void> updateStageData({
