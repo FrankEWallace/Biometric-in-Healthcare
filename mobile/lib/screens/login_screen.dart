@@ -45,219 +45,120 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Column(
-        children: [
-          // ── Blue gradient header ──────────────────────────────────────
-          Flexible(
-            flex: 38,
-            child: Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppColors.primaryDark, AppColors.primary],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+      backgroundColor: AppColors.surface,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(height: 72),
+
+              // ── Icon + wordmark ───────────────────────────────────────
+              Container(
+                width: 76,
+                height: 76,
+                decoration: const BoxDecoration(
+                  color: AppColors.primaryTint,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.fingerprint, size: 42, color: AppColors.primary),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'BiH Biometric System',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                  letterSpacing: -0.3,
                 ),
               ),
-              child: SafeArea(
-                bottom: false,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.15),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.25),
-                            width: 1.5),
-                      ),
-                      child: const Icon(
-                        Icons.fingerprint,
-                        size: 44,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'BiH Biometric System',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Secure Patient Identification',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.75),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w400,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
+              const SizedBox(height: 6),
+              const Text(
+                'Secure Patient Identification',
+                style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
               ),
-            ),
-          ),
 
-          // ── White form card ───────────────────────────────────────────
-          Expanded(
-            flex: 62,
-            child: Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-              ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+              const SizedBox(height: 52),
+
+              // ── Form ─────────────────────────────────────────────────
+              Form(
+                key: _formKey,
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Welcome back',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Sign in to your account',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-
-                    // ── Form ──────────────────────────────────────────────
-                    Form(
-                      key: _formKey,
-                      child: Column(
-                        children: [
-                          CustomTextField(
-                            label: 'Username',
-                            hint: 'admin.sarajevo',
-                            controller: _usernameController,
-                            prefixIcon: Icons.person_outline,
-                            keyboardType: TextInputType.text,
-                            textInputAction: TextInputAction.next,
-                            validator: (val) {
-                              if (val == null || val.trim().isEmpty) {
-                                return 'Username is required';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          CustomTextField(
-                            label: 'Password',
-                            hint: '••••••••',
-                            controller: _passwordController,
-                            prefixIcon: Icons.lock_outline,
-                            obscureText: true,
-                            textInputAction: TextInputAction.done,
-                            onFieldSubmitted: (_) => _handleLogin(),
-                            validator: (val) {
-                              if (val == null || val.isEmpty) {
-                                return 'Password is required';
-                              }
-                              if (val.length < 6) {
-                                return 'Password must be at least 6 characters';
-                              }
-                              return null;
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // ── API error ─────────────────────────────────────────
-                    Consumer<AuthProvider>(
-                      builder: (context, auth, child) {
-                        if (auth.errorMessage == null) {
-                          return const SizedBox.shrink();
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: _AlertBanner(
-                            message: auth.errorMessage!,
-                            onDismiss: auth.clearError,
-                          ),
-                        );
+                    CustomTextField(
+                      label: 'Username',
+                      hint: 'admin.sarajevo',
+                      controller: _usernameController,
+                      prefixIcon: Icons.person_outline,
+                      keyboardType: TextInputType.text,
+                      textInputAction: TextInputAction.next,
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) return 'Username is required';
+                        return null;
                       },
                     ),
-
-                    const SizedBox(height: 28),
-
-                    // ── Login button ──────────────────────────────────────
-                    Consumer<AuthProvider>(
-                      builder: (context, auth, child) => PrimaryButton(
-                        label: 'Sign In',
-                        icon: Icons.login_rounded,
-                        onPressed: _handleLogin,
-                        isLoading: auth.isLoading,
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // ── Footer ────────────────────────────────────────────
-                    Center(
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryTint,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.local_hospital_outlined,
-                                    size: 14,
-                                    color: AppColors.primary),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Hospital Staff Access Only',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Smartphone Biometric Verification System',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: AppColors.textHint,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                     const SizedBox(height: 16),
+                    CustomTextField(
+                      label: 'Password',
+                      hint: '••••••••',
+                      controller: _passwordController,
+                      prefixIcon: Icons.lock_outline,
+                      obscureText: true,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _handleLogin(),
+                      validator: (val) {
+                        if (val == null || val.isEmpty) return 'Password is required';
+                        if (val.length < 6) return 'Password must be at least 6 characters';
+                        return null;
+                      },
+                    ),
                   ],
                 ),
               ),
-            ),
+
+              Consumer<AuthProvider>(
+                builder: (context, auth, child) {
+                  if (auth.errorMessage == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: _AlertBanner(message: auth.errorMessage!, onDismiss: auth.clearError),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 28),
+
+              Consumer<AuthProvider>(
+                builder: (context, auth, child) => PrimaryButton(
+                  label: 'Sign In',
+                  icon: Icons.login_rounded,
+                  onPressed: _handleLogin,
+                  isLoading: auth.isLoading,
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // ── Footer ────────────────────────────────────────────────
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Icon(Icons.local_hospital_outlined, size: 13, color: AppColors.textHint),
+                  SizedBox(width: 5),
+                  Text(
+                    'Hospital Staff Access Only',
+                    style: TextStyle(fontSize: 12, color: AppColors.textHint),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 48),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

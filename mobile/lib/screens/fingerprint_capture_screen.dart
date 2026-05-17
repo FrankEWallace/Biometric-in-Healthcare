@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
-import '../widgets/primary_button.dart';
 import 'camera_screen.dart';
 import 'fingerprint_preview_screen.dart';
 
@@ -61,10 +60,15 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
+        backgroundColor: const Color(0xFF0F172A),
+        foregroundColor: Colors.white,
         title: Text(
           widget.isRegistration ? 'Capture Fingerprint' : 'Scan Fingerprint',
+          style: const TextStyle(color: Colors.white),
         ),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SafeArea(
         child: Padding(
@@ -80,18 +84,19 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: AppColors.secondary,
+                    color: Colors.white.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
                   ),
                   child: Row(
                     children: [
                       const Icon(Icons.person,
-                          color: AppColors.primary, size: 18),
+                          color: Colors.white70, size: 18),
                       const SizedBox(width: 10),
                       Text(
                         '${widget.patientName}  ·  ${widget.patientId}',
                         style: const TextStyle(
-                          color: AppColors.primary,
+                          color: Colors.white,
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
                         ),
@@ -115,21 +120,39 @@ class _FingerprintCaptureScreenState extends State<FingerprintCaptureScreen> {
 
               // Action buttons
               if (_capturedImage == null)
-                PrimaryButton(
-                  label: 'Open Camera',
-                  icon: Icons.camera_alt,
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.camera_alt, size: 18),
+                  label: const Text('Open Camera'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 56),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
                   onPressed: _openCamera,
                 )
               else ...[
-                PrimaryButton(
-                  label: 'Confirm & Continue',
-                  icon: Icons.check,
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Confirm & Continue'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 56),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
                   onPressed: _proceedToPreview,
                 ),
                 const SizedBox(height: 12),
-                SecondaryButton(
-                  label: 'Retake',
-                  icon: Icons.refresh,
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Retake'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: const BorderSide(color: Colors.white24),
+                    minimumSize: const Size(double.infinity, 56),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
                   onPressed: _openCamera,
                 ),
               ],

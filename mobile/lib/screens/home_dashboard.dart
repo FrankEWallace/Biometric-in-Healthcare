@@ -284,17 +284,16 @@ class _DashboardBodyState extends State<_DashboardBody> {
 
   Widget _homeBody(User user) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _WelcomeCard(user: user, onHospitalWifi: widget.actionsEnabled),
-          const SizedBox(height: 12),
+          _GreetingHeader(user: user, onHospitalWifi: widget.actionsEnabled),
+          const SizedBox(height: 20),
           if (!widget.actionsEnabled) ...[
             _WifiBanner(onRetry: widget.onRetryWifi),
-            const SizedBox(height: 12),
+            const SizedBox(height: 20),
           ],
-          const SizedBox(height: 4),
           if (user.isNurse)
             _NurseDashboard(actionsEnabled: widget.actionsEnabled)
           else if (user.isDoctor)
@@ -341,7 +340,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
     return Scaffold(
       backgroundColor: Ct(context).background,
       appBar: AppBar(
-        title: Text(_appBarTitle(user)),
+        title: _selectedIndex == 0 ? null : Text(_appBarTitle(user)),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout_rounded),
@@ -612,12 +611,12 @@ class _SettingsSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      text.toUpperCase(),
+      text,
       style: TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        color: Ct(context).textHint,
-        letterSpacing: 0.8,
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: Ct(context).textSecondary,
+        letterSpacing: 0.1,
       ),
     );
   }
@@ -772,15 +771,11 @@ class _NurseDashboard extends StatelessWidget {
       children: [
         const _SectionHeader('Today\'s Activity'),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            _StatCard(label: 'Registered',    value: '—', icon: Icons.how_to_reg_rounded,      color: AppColors.primary),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Verified',      value: '—', icon: Icons.verified_user_rounded,    color: const Color(0xFF0D7C66)),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Edit Requests', value: '—', icon: Icons.pending_actions_rounded,  color: AppColors.warning),
-          ],
-        ),
+        const _StatRows(rows: [
+          _StatRowData(label: 'Registered',    value: '—', icon: Icons.how_to_reg_rounded,     color: AppColors.primary),
+          _StatRowData(label: 'Verified',      value: '—', icon: Icons.verified_user_rounded,   color: Color(0xFF0D7C66)),
+          _StatRowData(label: 'Edit Requests', value: '—', icon: Icons.pending_actions_rounded, color: AppColors.warning),
+        ]),
         const SizedBox(height: 24),
         const _SectionHeader('Quick Actions'),
         const SizedBox(height: 12),
@@ -838,15 +833,11 @@ class _AdminDashboard extends StatelessWidget {
       children: [
         const _SectionHeader('Hospital Stats'),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            _StatCard(label: 'Patients',   value: '—', icon: Icons.people_rounded,           color: AppColors.primary),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Enrolled',   value: '—', icon: Icons.fingerprint,               color: const Color(0xFF7C3AED)),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Pending',    value: '—', icon: Icons.rate_review_rounded,       color: AppColors.warning),
-          ],
-        ),
+        const _StatRows(rows: [
+          _StatRowData(label: 'Patients', value: '—', icon: Icons.people_rounded,       color: AppColors.primary),
+          _StatRowData(label: 'Enrolled', value: '—', icon: Icons.fingerprint,           color: Color(0xFF0D7C66)),
+          _StatRowData(label: 'Pending',  value: '—', icon: Icons.rate_review_rounded,  color: AppColors.warning),
+        ]),
         const SizedBox(height: 24),
         const _SectionHeader('Quick Actions'),
         const SizedBox(height: 12),
@@ -905,15 +896,11 @@ class _DoctorDashboard extends StatelessWidget {
       children: [
         const _SectionHeader('Hospital Today'),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            _StatCard(label: 'Verifications', value: '—', icon: Icons.verified_user_rounded, color: const Color(0xFF0D7C66)),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Patients',      value: '—', icon: Icons.people_rounded,        color: AppColors.primary),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Match Rate',    value: '—%', icon: Icons.bar_chart_rounded,    color: const Color(0xFF7C3AED)),
-          ],
-        ),
+        const _StatRows(rows: [
+          _StatRowData(label: 'Verifications', value: '—',  icon: Icons.verified_user_rounded, color: Color(0xFF0D7C66)),
+          _StatRowData(label: 'Patients',      value: '—',  icon: Icons.people_rounded,        color: AppColors.primary),
+          _StatRowData(label: 'Match Rate',    value: '—%', icon: Icons.bar_chart_rounded,     color: AppColors.warning),
+        ]),
         const SizedBox(height: 24),
         const _SectionHeader('Patient Lookup'),
         const SizedBox(height: 12),
@@ -985,15 +972,11 @@ class _SuperAdminDashboard extends StatelessWidget {
       children: [
         const _SectionHeader('System Overview'),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            _StatCard(label: 'Hospitals', value: '—', icon: Icons.local_hospital_rounded,   color: const Color(0xFF7C3AED)),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Patients',  value: '—', icon: Icons.people_rounded,           color: AppColors.primary),
-            const SizedBox(width: 10),
-            _StatCard(label: 'Today',     value: '—', icon: Icons.verified_user_rounded,    color: const Color(0xFF0D7C66)),
-          ],
-        ),
+        const _StatRows(rows: [
+          _StatRowData(label: 'Hospitals',      value: '—', icon: Icons.local_hospital_rounded, color: AppColors.primary),
+          _StatRowData(label: 'Patients',       value: '—', icon: Icons.people_rounded,          color: AppColors.primary),
+          _StatRowData(label: 'Today\'s Verif', value: '—', icon: Icons.verified_user_rounded,   color: Color(0xFF0D7C66)),
+        ]),
         const SizedBox(height: 24),
         Container(
           width: double.infinity,
@@ -1071,119 +1054,86 @@ class _SuperAdminLink extends StatelessWidget {
 // Shared widgets
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _WelcomeCard extends StatelessWidget {
+class _GreetingHeader extends StatelessWidget {
   final User user;
   final bool onHospitalWifi;
-  const _WelcomeCard({required this.user, required this.onHospitalWifi});
+  const _GreetingHeader({required this.user, required this.onHospitalWifi});
 
-  String get _roleLabel => switch (user.role) {
-    'super_admin' => 'Super Admin',
-    'admin'       => 'Administrator',
-    'doctor'      => 'Doctor',
-    _             => 'Nurse',
+  static const _roleLabels = {
+    'super_admin': 'Super Admin',
+    'admin':       'Administrator',
+    'doctor':      'Doctor',
+    'nurse':       'Nurse',
   };
 
-  Color get _roleAccent => switch (user.role) {
-    'super_admin' => const Color(0xFFE11D48),
-    'admin'       => const Color(0xFFF59E0B),
-    'doctor'      => const Color(0xFF0EA5E9),
-    _             => const Color(0xFF10B981),
+  static const _roleColors = {
+    'super_admin': Color(0xFFE11D48),
+    'admin':       Color(0xFFF59E0B),
+    'doctor':      Color(0xFF0EA5E9),
+    'nurse':       Color(0xFF10B981),
   };
 
-  String _timeOfDay() {
+  String get _timeOfDay {
     final h = DateTime.now().hour;
     if (h < 12) return 'morning';
     if (h < 17) return 'afternoon';
     return 'evening';
   }
 
+  String get _roleLabel  => _roleLabels[user.role] ?? 'Staff';
+  Color  get _roleAccent => _roleColors[user.role] ?? AppColors.primary;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primaryDark, AppColors.primary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Good $_timeOfDay',
+          style: TextStyle(fontSize: 14, color: Ct(context).textSecondary),
         ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppShadows.elevated,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Good ${_timeOfDay()},',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 13),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  user.name,
-                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _roleAccent.withValues(alpha: 0.25),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: _roleAccent.withValues(alpha: 0.4)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.badge_outlined, size: 12, color: _roleAccent),
-                          const SizedBox(width: 5),
-                          Text(_roleLabel, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: onHospitalWifi
-                            ? AppColors.success.withValues(alpha: 0.25)
-                            : AppColors.error.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.circle, size: 7,
-                              color: onHospitalWifi ? AppColors.success : const Color(0xFFFF8A80)),
-                          const SizedBox(width: 5),
-                          Text(
-                            onHospitalWifi ? 'Hospital Network' : 'Off Network',
-                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+        const SizedBox(height: 2),
+        Text(
+          user.name,
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            color: Ct(context).textPrimary,
+            letterSpacing: -0.5,
           ),
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: _roleAccent.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                _roleLabel,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _roleAccent),
+              ),
             ),
-            child: const Icon(Icons.person_rounded, color: Colors.white, size: 28),
-          ),
-        ],
-      ),
+            const SizedBox(width: 10),
+            Icon(
+              Icons.circle,
+              size: 7,
+              color: onHospitalWifi ? AppColors.success : AppColors.error,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              onHospitalWifi ? 'Hospital Network' : 'Off Network',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: onHospitalWifi ? AppColors.success : AppColors.error,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -1355,62 +1305,62 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
+class _StatRowData {
   final String label;
   final String value;
   final IconData icon;
   final Color color;
-
-  const _StatCard({
+  const _StatRowData({
     required this.label,
     required this.value,
     required this.icon,
     required this.color,
   });
+}
+
+class _StatRows extends StatelessWidget {
+  final List<_StatRowData> rows;
+  const _StatRows({required this.rows});
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-        decoration: BoxDecoration(
-          color: Ct(context).surface,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: AppShadows.card,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Icon(icon, color: color, size: 17),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: color,
-                height: 1,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: Ct(context).textSecondary,
-                fontWeight: FontWeight.w500,
+    return Container(
+      decoration: BoxDecoration(
+        color: Ct(context).surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: AppShadows.card,
+      ),
+      child: Column(
+        children: [
+          for (int i = 0; i < rows.length; i++) ...[
+            if (i > 0)
+              Divider(height: 1, indent: 20, endIndent: 20, color: Ct(context).divider),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Row(
+                children: [
+                  Text(
+                    rows[i].value,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: rows[i].color,
+                      height: 1,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      rows[i].label,
+                      style: TextStyle(fontSize: 14, color: Ct(context).textSecondary),
+                    ),
+                  ),
+                  Icon(rows[i].icon, color: rows[i].color.withValues(alpha: 0.4), size: 20),
+                ],
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }

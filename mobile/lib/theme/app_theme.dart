@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppColors {
   // ── Brand ──────────────────────────────────────────────────────────────────
@@ -67,22 +68,23 @@ class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.background,
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
-        centerTitle: true,
+        centerTitle: false,
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
         ),
         titleTextStyle: TextStyle(
-          color: Colors.white,
+          color: AppColors.textPrimary,
           fontSize: 17,
           fontWeight: FontWeight.w600,
-          letterSpacing: 0.2,
+          letterSpacing: 0.1,
         ),
-        iconTheme: IconThemeData(color: Colors.white, size: 22),
+        iconTheme: IconThemeData(color: AppColors.textPrimary, size: 22),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.surface,
@@ -105,7 +107,7 @@ class AppTheme {
         shadowColor: Colors.black12,
         elevation: 8,
       ),
-      textTheme: const TextTheme(
+      textTheme: GoogleFonts.interTextTheme(const TextTheme(
         displaySmall:  TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary, letterSpacing: -0.5),
         headlineMedium: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
         headlineSmall:  TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
@@ -114,7 +116,7 @@ class AppTheme {
         bodyLarge:      TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: AppColors.textPrimary, height: 1.5),
         bodyMedium:     TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.textSecondary, height: 1.5),
         labelMedium:    TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textSecondary),
-      ),
+      )),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
@@ -211,18 +213,19 @@ class AppTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColorsDark.background,
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.primaryDark,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColorsDark.surface,
+        foregroundColor: AppColorsDark.textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
-        centerTitle: true,
+        centerTitle: false,
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
         ),
         titleTextStyle: TextStyle(
-          color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600, letterSpacing: 0.2),
-        iconTheme: IconThemeData(color: Colors.white, size: 22),
+          color: AppColorsDark.textPrimary, fontSize: 17, fontWeight: FontWeight.w600, letterSpacing: 0.1),
+        iconTheme: IconThemeData(color: AppColorsDark.textPrimary, size: 22),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColorsDark.surface,
@@ -244,7 +247,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 8,
       ),
-      textTheme: const TextTheme(
+      textTheme: GoogleFonts.interTextTheme(const TextTheme(
         displaySmall:   TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColorsDark.textPrimary, letterSpacing: -0.5),
         headlineMedium: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColorsDark.textPrimary),
         headlineSmall:  TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColorsDark.textPrimary),
@@ -253,7 +256,7 @@ class AppTheme {
         bodyLarge:      TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: AppColorsDark.textPrimary, height: 1.5),
         bodyMedium:     TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: AppColorsDark.textSecondary, height: 1.5),
         labelMedium:    TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColorsDark.textSecondary),
-      ),
+      )),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primaryLight,
