@@ -8,7 +8,8 @@ import '../../providers/auth_provider.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import '../face/liveness_camera_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 
 enum _VerifyPhase { fingerprint, face, override }
 
@@ -50,16 +51,15 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
 
   Future<void> _openCamera() async {
     setState(() => _error = null);
-    final bool isFace = _phase == _VerifyPhase.face;
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => CameraScreen(
-          title: isFace ? 'Face Scan — $_stageLabel' : 'Scan — $_stageLabel',
-          showFingerprintOverlay: !isFace,
-          returnImageOnly: true,
-          isHandCapture: !isFace,
-        ),
+        builder: (_) => _phase == _VerifyPhase.face
+            ? const LivenessCameraScreen()
+            : FingerprintLivenessCameraScreen(
+                isHandCapture: true,
+                fingerLabel: _stageLabel,
+              ),
       ),
     );
     if (result != null && mounted) setState(() => _capturedImage = result);
