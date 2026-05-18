@@ -1,14 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 /// GPS-based geofencing service.
 ///
-/// Configure [hospitalLat], [hospitalLng], and [allowedRadiusMeters] to match
-/// the real hospital location before deploying.
+/// Set [hospitalLat], [hospitalLng], and [allowedRadiusMeters] to your demo /
+/// deployment venue before going live.  The kDebugMode bypass below keeps
+/// development unblocked — remove it before the final demo.
 class LocationService {
   // ── Hospital anchor point ──────────────────────────────────────────────────
-  static const double hospitalLat = 43.8563;   // TODO: replace with real coordinates
-  static const double hospitalLng = 18.4131;   // TODO: replace with real coordinates
-  static const double allowedRadiusMeters = 200.0;
+  // Updated to Dar es Salaam (development location) — replace with real
+  // hospital coordinates before deployment.
+  static const double hospitalLat         = -6.827;
+  static const double hospitalLng         = 39.2675;
+  static const double allowedRadiusMeters = 500.0;
 
   /// Returns the current [Position], or `null` if permission is denied,
   /// services are off, or the fix times out.
@@ -43,6 +47,9 @@ class LocationService {
   ///   - Location services are disabled on the device.
   ///   - Any other error occurs while fetching the position.
   Future<bool> isWithinHospitalRange() async {
+    // DEBUG BYPASS — remove before final demo / production deployment
+    if (kDebugMode) return true;
+
     final position = await getCurrentPosition();
     if (position == null) return false;
 
