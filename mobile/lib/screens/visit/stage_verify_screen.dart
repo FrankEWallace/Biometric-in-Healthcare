@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/visit.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/location_service.dart';
+import '../../services/network_service.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
@@ -77,12 +79,18 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
       final bytes       = await File(_capturedImage!.path).readAsBytes();
       final base64Image = base64Encode(bytes);
 
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       final result = await _visitService.verifyStage(
         token:            token,
         visitId:          widget.visit.id,
         stage:            widget.stageName,
         fingerprintImage: isFace ? '' : base64Image,
         faceImage:        isFace ? base64Image : null,
+        gpsLatitude:      position?.latitude,
+        gpsLongitude:     position?.longitude,
+        wifiSsid:         wifiSsid,
       );
 
       if (!mounted) return;

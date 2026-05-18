@@ -207,12 +207,19 @@ class FingerprintService {
     File image, {
     required String token,
     required String patientId,
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
   }) async {
     final uri = Uri.parse('$_baseUrl/fingerprint/verify');
 
     final request = http.MultipartRequest('POST', uri)
       ..headers.addAll(_authHeaders(token))
       ..fields['patient_id'] = patientId;
+
+    if (gpsLatitude  != null) request.fields['gps_latitude']  = gpsLatitude.toString();
+    if (gpsLongitude != null) request.fields['gps_longitude'] = gpsLongitude.toString();
+    if (wifiSsid     != null) request.fields['wifi_ssid']     = wifiSsid;
 
     request.files.add(
       await http.MultipartFile.fromPath('fingerprint', image.path),

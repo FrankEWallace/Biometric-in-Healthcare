@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/face_service.dart';
+import '../../services/location_service.dart';
+import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
 import 'liveness_camera_screen.dart';
@@ -65,9 +67,15 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
     });
 
     try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       final result = await FaceService().verifyFace(
         File(_capturedImage!.path),
-        token: token,
+        token:        token,
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
       );
 
       if (!mounted) return;

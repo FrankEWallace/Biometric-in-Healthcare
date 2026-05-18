@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/fingerprint_service.dart';
+import '../services/location_service.dart';
+import '../services/network_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
 import 'camera_screen.dart';
@@ -83,10 +85,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
     });
 
     try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       final result = await FingerprintService().verifyFingerprint(
         File(_capturedImage!.path),
-        token: token,
-        patientId: patientId,
+        token:        token,
+        patientId:    patientId,
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
       );
 
       if (!mounted) return;

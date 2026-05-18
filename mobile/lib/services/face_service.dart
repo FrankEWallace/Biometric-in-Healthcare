@@ -118,11 +118,19 @@ class FaceService {
   Future<FaceVerifyResult> verifyFace(
     File image, {
     required String token,
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
   }) async {
     final base64Image = base64Encode(await image.readAsBytes());
     final uri = Uri.parse('$_baseUrl/face/verify');
 
-    final response = await _post(uri, token, {'image': base64Image});
+    final body = <String, dynamic>{'image': base64Image};
+    if (gpsLatitude  != null) body['gps_latitude']  = gpsLatitude;
+    if (gpsLongitude != null) body['gps_longitude'] = gpsLongitude;
+    if (wifiSsid     != null) body['wifi_ssid']     = wifiSsid;
+
+    final response = await _post(uri, token, body);
     final json     = _parseBody(response);
 
     if (response.statusCode == 200) return FaceVerifyResult.fromJson(json);
