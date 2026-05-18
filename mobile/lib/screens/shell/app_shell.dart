@@ -236,7 +236,13 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final user = context.read<AuthProvider>().user!;
+    final user = context.watch<AuthProvider>().user;
+    if (user == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacementNamed(context, '/login');
+      });
+      return const SizedBox.shrink();
+    }
     final tabs = _tabsForRole(user.role);
     final cs   = Theme.of(context).colorScheme;
 

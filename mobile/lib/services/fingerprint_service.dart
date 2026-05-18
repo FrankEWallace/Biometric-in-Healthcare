@@ -156,7 +156,7 @@ class FingerprintVerifyResult {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class FingerprintService {
-  static const String _baseUrl = 'http://localhost:8000/api';
+  static const String _baseUrl = 'http://192.168.100.144:8000/api';
 
   Map<String, String> _authHeaders(String token) => {
         'Authorization': 'Bearer $token',
