@@ -2,6 +2,7 @@
 Face recognition endpoints — InsightFace ArcFace + FAISS.
 
 POST /face/process          base64 image → ArcFace embedding + quality score
+POST /face/liveness         base64 image → passive liveness check (moiré + highlights)
 POST /face/identify         embedding → top-N patient candidates (FAISS search)
 POST /face/enroll           add one embedding to the FAISS index
 POST /face/remove           logically delete all embeddings for a patient
@@ -21,6 +22,7 @@ from pydantic import BaseModel
 
 from app.services.insightface_service import detect_and_embed
 from app.services import faiss_service
+from app.services.liveness_service import face_liveness_check
 
 router = APIRouter(prefix="/face", tags=["face"])
 
@@ -87,6 +89,28 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.post("/liveness", summary="Passive liveness check on a face image")
+def face_liveness(body: ProcessRequest) -> dict:
+    """
+    Runs two passive anti-spoofing checks on the supplied image:
+
+    **moiré score** — 2D FFT coefficient-of-variation in the mid-frequency ring.
+    Screen / printer dot patterns create periodic peaks that real skin does not.
+    Score > 25 → likely attack.
+
+    **specular highlight ratio** — fraction of near-white pixels.
+    Real skin has a small localised highlight; flat prints have almost none
+    (< 0.001); phone screens produce broad overexposed regions (> 0.12).
+
+    Both checks must pass for `is_live` to be `true`.
+
+    Thresholds are engineering estimates and must be calibrated via FAR/FRR
+    study before production deployment.
+    """
+    img = _decode_image(body.image)
+    return face_liveness_check(img)
+
 
 @router.post("/process", summary="Extract ArcFace embedding from a base64 image")
 def face_process(body: ProcessRequest) -> dict:

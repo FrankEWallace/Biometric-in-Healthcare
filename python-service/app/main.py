@@ -5,15 +5,17 @@ Consumed internally by the Laravel backend only.
 Not exposed to the public internet.
 
 Endpoints:
-  GET  /health              — liveness probe
-  POST /process             — fingerprint base64 image → minutiae template
-  POST /match               — fingerprint probe + candidates → best match
-  POST /face/process        — face base64 image → ArcFace embedding
-  POST /face/identify       — embedding → top-N candidates (FAISS)
-  POST /face/enroll         — add embedding to FAISS index
-  POST /face/remove         — remove patient from FAISS index
-  POST /face/rebuild        — rebuild FAISS from full template list
-  GET  /face/index/stats    — FAISS health check
+  GET  /health                        — liveness probe
+  POST /process                       — fingerprint base64 image → minutiae template
+  POST /match                         — fingerprint probe + candidates → best match
+  POST /fingerprint/liveness-check    — frame sequence → optical-flow liveness verdict
+  POST /face/process                  — face base64 image → ArcFace embedding
+  POST /face/liveness                 — face base64 image → passive liveness check
+  POST /face/identify                 — embedding → top-N candidates (FAISS)
+  POST /face/enroll                   — add embedding to FAISS index
+  POST /face/remove                   — remove patient from FAISS index
+  POST /face/rebuild                  — rebuild FAISS from full template list
+  GET  /face/index/stats              — FAISS health check
 
 Interactive docs: http://localhost:5001/docs
 """

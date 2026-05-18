@@ -5,6 +5,7 @@ POST /process              — base64 image → SourceAFIS template + quality sc
 POST /match                — probe template + candidate list → best patient_id + score
 POST /process-fingerprint  — multipart image → SourceAFIS template + quality score
 POST /match-fingerprint    — two multipart images → verdict + score
+POST /fingerprint/liveness-check — base64 frame list → optical-flow liveness verdict
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from pydantic import BaseModel, field_validator
 
 from app.services.image_processor import preprocess_fingerprint, to_grayscale
 from app.services.sourceafis_service import extract_template, match_templates
+from app.services.liveness_service import fingerprint_liveness_check
 
 router = APIRouter(tags=["fingerprint"])
 
@@ -297,3 +299,49 @@ async def match_fingerprint(
             "feature_status": t2["status"],
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /fingerprint/liveness-check  (optical-flow on a frame sequence)
+# ---------------------------------------------------------------------------
+
+class FingerprintLivenessRequest(BaseModel):
+    frames: list[str]  # ordered list of base64 JPEG/PNG frames (oldest → newest)
+
+    @field_validator("frames")
+    @classmethod
+    def must_have_frames(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("'frames' must contain at least one image.")
+        return v
+
+
+@router.post(
+    "/fingerprint/liveness-check",
+    summary="Optical-flow liveness check on a fingerprint frame sequence",
+)
+def fingerprint_liveness(body: FingerprintLivenessRequest) -> dict:
+    """
+    Detects micro-movement across consecutive camera frames using sparse
+    Lucas-Kanade optical flow.
+
+    **Live finger** (0.15–2.5 px mean displacement): micro-tremor from
+    breathing and pulse is always present when a real finger is held against
+    the lens.
+
+    **Spoofed finger** (< 0.15 px): a printed photo or phone screen shows
+    near-zero displacement between frames.
+
+    Recommended: send 6–10 consecutive frames captured at the device's
+    native frame rate (~30 fps).  Two frames minimum is enforced.
+
+    The displacement threshold is an engineering estimate; calibrate against
+    your target device and lighting before production deployment.
+    """
+    decoded: list = []
+    for idx, b64 in enumerate(body.frames):
+        img = _decode_base64_image(b64)
+        if img is not None:
+            decoded.append(img)
+
+    return fingerprint_liveness_check(decoded)
