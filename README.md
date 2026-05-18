@@ -4,6 +4,16 @@ A final-year project implementing a hospital-grade patient identification system
 
 ---
 
+## Service READMEs
+
+| Service | README |
+|---------|--------|
+| Laravel REST API | [laravel/README.md](laravel/README.md) |
+| Python Fingerprint Microservice | [python-service/README.md](python-service/README.md) |
+| Flutter Mobile App | [mobile/README.md](mobile/README.md) |
+
+---
+
 ## Table of Contents
 
 1. [System Overview](#system-overview)
