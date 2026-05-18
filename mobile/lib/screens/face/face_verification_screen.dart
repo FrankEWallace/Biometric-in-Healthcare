@@ -6,7 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/face_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import 'liveness_camera_screen.dart';
 import '../ehr_screen.dart';
 import '../result_screen.dart';
 
@@ -36,13 +36,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
 
     final XFile? result = await Navigator.push<XFile?>(
       context,
-      MaterialPageRoute(
-        builder: (_) => const CameraScreen(
-          title: 'Scan Face',
-          showFaceOverlay: true,
-          returnImageOnly: true,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const LivenessCameraScreen()),
     );
 
     if (result != null && mounted) {
