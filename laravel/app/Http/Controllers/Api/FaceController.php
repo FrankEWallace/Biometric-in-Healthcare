@@ -79,6 +79,20 @@ class FaceController extends Controller
             ], 422);
         }
 
+        // ── Passive liveness check ────────────────────────────────────────────
+        try {
+            $liveness = $this->face->liveness($data['image']);
+        } catch (\RuntimeException $e) {
+            return response()->json(['error' => 'Liveness check failed: ' . $e->getMessage()], 503);
+        }
+
+        if (! ($liveness['is_live'] ?? false)) {
+            return response()->json([
+                'error'  => 'Liveness check failed — possible spoofing attempt. Please retake using a real face.',
+                'reason' => $liveness['reason'] ?? 'unknown',
+            ], 422);
+        }
+
         // ── Enforce per-patient template cap ──────────────────────────────────
         $activeTemplates = FaceTemplate::where('patient_id', $patient->id)
             ->where('is_active', true)
@@ -190,6 +204,20 @@ class FaceController extends Controller
             return response()->json([
                 'error' => 'Access denied: device is not within hospital premises.',
             ], 403);
+        }
+
+        // ── Passive liveness check ────────────────────────────────────────────
+        try {
+            $liveness = $this->face->liveness($data['image']);
+        } catch (\RuntimeException $e) {
+            return response()->json(['error' => 'Liveness check failed: ' . $e->getMessage()], 503);
+        }
+
+        if (! ($liveness['is_live'] ?? false)) {
+            return response()->json([
+                'error'  => 'Liveness check failed — possible spoofing attempt. Please retake using a real face.',
+                'reason' => $liveness['reason'] ?? 'unknown',
+            ], 422);
         }
 
         // ── Extract probe embedding ───────────────────────────────────────────

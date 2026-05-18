@@ -175,6 +175,30 @@ class FaceService
         return (int) ($response->json('indexed_count') ?? 0);
     }
 
+    // ── Passive liveness check ────────────────────────────────────────────────
+
+    /**
+     * Send a base64 face image to /face/liveness and return the liveness verdict.
+     *
+     * @param  string $base64Image  Base64-encoded JPEG or PNG.
+     * @return array  { is_live: bool, screen_score: float, highlight_ratio: float, reason: string }
+     * @throws RuntimeException
+     */
+    public function liveness(string $base64Image): array
+    {
+        $response = Http::timeout(15)->post("{$this->baseUrl}/face/liveness", [
+            'image' => $base64Image,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'Python /face/liveness failed: ' . ($response->json('detail') ?? $response->body())
+            );
+        }
+
+        return $response->json();
+    }
+
     // ── Legacy 1:1 match (kept for fingerprint-stage confirmation) ────────────
 
     /**

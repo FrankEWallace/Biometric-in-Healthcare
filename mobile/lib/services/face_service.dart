@@ -52,13 +52,14 @@ class FaceEnrollResult {
 }
 
 class FaceVerifyResult {
-  final String status;       // "matched" | "no_match"
+  final String status;       // "matched" | "needs_review" | "no_match"
   final double score;        // cosine similarity 0–1
   final Map<String, dynamic>? patient;
   final Map<String, dynamic>? ehr;
   final Map<String, dynamic>? insurance;
 
-  bool get isMatch => status == 'matched';
+  bool get isMatch       => status == 'matched';
+  bool get isNeedsReview => status == 'needs_review';
 
   String get patientName =>
       (patient?['full_name'] as String?) ?? 'Unknown';
