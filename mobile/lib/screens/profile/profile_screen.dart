@@ -4,9 +4,14 @@ import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/status_snackbar.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user  = context.watch<AuthProvider>().user!;
@@ -63,7 +68,7 @@ class ProfileScreen extends StatelessWidget {
           _SettingsTile(
             icon: Icons.edit_rounded,
             label: 'Edit Profile',
-            subtitle: 'Update your name and phone number',
+            subtitle: 'Update your display name',
             onTap: () => _showEditProfile(context, user),
           ),
 
@@ -158,69 +163,83 @@ class ProfileScreen extends StatelessWidget {
   // ── Edit profile sheet ──────────────────────────────────────────────────────
 
   void _showEditProfile(BuildContext context, dynamic user) {
-    final nameCtrl  = TextEditingController(text: user.name as String);
-    final phoneCtrl = TextEditingController(
-        text: user.phone as String? ?? '');
-    final formKey = GlobalKey<FormState>();
+    final nameCtrl = TextEditingController(text: user.name as String);
+    final formKey  = GlobalKey<FormState>();
+    bool saving    = false;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40, height: 4,
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      color: Theme.of(ctx).colorScheme.outline,
-                      borderRadius: BorderRadius.circular(2),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: Theme.of(ctx).colorScheme.outline,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                Text('Edit Profile',
-                    style: Theme.of(ctx).textTheme.headlineSmall),
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'Full Name *'),
-                  textCapitalization: TextCapitalization.words,
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: phoneCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone (optional)',
-                    hintText: '+387…',
+                  Text('Edit Profile',
+                      style: Theme.of(ctx).textTheme.headlineSmall),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Full Name *'),
+                    textCapitalization: TextCapitalization.words,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Required' : null,
                   ),
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      if (formKey.currentState!.validate()) {
-                        Navigator.pop(ctx);
-                        showStatusSnackbar(context,
-                            message: 'Profile update submitted.',
-                            status: SnackStatus.info);
-                      }
-                    },
-                    child: const Text('Save Changes'),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              if (!formKey.currentState!.validate()) return;
+                              setSheetState(() => saving = true);
+
+                              final ok = await context
+                                  .read<AuthProvider>()
+                                  .updateProfile(name: nameCtrl.text.trim());
+
+                              if (!context.mounted) return;
+                              Navigator.pop(ctx);
+
+                              if (ok) {
+                                showStatusSnackbar(context,
+                                    message: 'Profile updated successfully.',
+                                    status: SnackStatus.success);
+                              } else {
+                                final err = context.read<AuthProvider>().errorMessage
+                                    ?? 'Update failed.';
+                                showStatusSnackbar(context,
+                                    message: err,
+                                    status: SnackStatus.error);
+                              }
+                            },
+                      child: saving
+                          ? const SizedBox(
+                              height: 18, width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Save Changes'),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

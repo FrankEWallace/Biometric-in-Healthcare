@@ -64,6 +64,36 @@ class AuthService {
     throw AuthException(message);
   }
 
+  /// PUT /api/auth/profile  →  { user }
+  Future<User> updateProfile({required String name}) async {
+    if (_token == null) throw const AuthException('Not authenticated.');
+
+    late http.Response response;
+    try {
+      response = await http
+          .put(
+            Uri.parse('$_baseUrl/auth/profile'),
+            headers: authHeaders,
+            body: jsonEncode({'name': name}),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      throw const AuthException('Could not reach the server. Check your connection.');
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+    if (response.statusCode == 200) {
+      final userData = body['user'] as Map<String, dynamic>;
+      userData['token'] = _token!;
+      _currentUser = User.fromJson(userData);
+      return _currentUser!;
+    }
+
+    final message = body['message'] as String? ?? body['error'] as String? ?? 'Update failed.';
+    throw AuthException(message);
+  }
+
   /// Clear session
   void logout() {
     _token = null;

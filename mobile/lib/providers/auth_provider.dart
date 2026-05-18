@@ -35,6 +35,24 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> updateProfile({required String name}) async {
+    _status = AuthStatus.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      _user = await _authService.updateProfile(name: name);
+      _status = AuthStatus.authenticated;
+      notifyListeners();
+      return true;
+    } on AuthException catch (e) {
+      _status = AuthStatus.authenticated; // stay logged in on profile error
+      _errorMessage = e.message;
+      notifyListeners();
+      return false;
+    }
+  }
+
   void logout() {
     _authService.logout();
     _user = null;
