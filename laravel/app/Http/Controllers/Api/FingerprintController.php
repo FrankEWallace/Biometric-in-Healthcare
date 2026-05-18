@@ -380,6 +380,48 @@ class FingerprintController extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // POST /api/fingerprint/liveness-check
+    // -------------------------------------------------------------------------
+
+    /**
+     * Optical-flow passive liveness check on a sequence of fingerprint frames.
+     *
+     * The mobile app captures several frames in quick succession before the
+     * final still photograph.  A live finger shows micro-movement from
+     * breathing / pulse (mean displacement 0.15–2.5 px).  A printed image or
+     * phone screen shows near-zero displacement.
+     *
+     * This endpoint does not touch patient data — no hospital-scope check
+     * is needed beyond the authenticated session.
+     *
+     * Fields:
+     *   frames[]  (string[], required, min:2, max:12) — base64-encoded JPEG/PNG
+     *             frames ordered from oldest to newest.
+     *
+     * Responses:
+     *   200  — verdict returned (check 'is_live' field)
+     *   422  — validation error (too few frames, empty strings)
+     *   503  — Python service unavailable
+     */
+    public function livenessCheck(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'frames'   => 'required|array|min:2|max:12',
+            'frames.*' => 'required|string|min:1',
+        ]);
+
+        try {
+            $result = $this->fingerprint->livenessCheck($data['frames']);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'error' => 'Liveness check failed: ' . $e->getMessage(),
+            ], 503);
+        }
+
+        return response()->json($result);
+    }
+
+    // -------------------------------------------------------------------------
     // POST /api/fingerprint/{fingerprint}/unlock   (admin / super_admin only)
     // -------------------------------------------------------------------------
 

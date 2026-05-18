@@ -1,6 +1,7 @@
 import 'dart:async' show TimeoutException;
 import 'dart:convert';
 import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
 
 // ── Error kind ────────────────────────────────────────────────────────────────
@@ -79,6 +80,29 @@ class FingerprintRegisterResult {
       keypointCount: json['keypoint_count'] as int? ?? 0,
       featureStatus: json['feature_status'] as String? ?? 'unknown',
       message:       json['message'] as String? ?? 'Registered successfully.',
+    );
+  }
+}
+
+class FingerprintLivenessResult {
+  final bool isLive;
+  final double meanDisplacement;
+  final int frameCount;
+  final String reason;
+
+  const FingerprintLivenessResult({
+    required this.isLive,
+    required this.meanDisplacement,
+    required this.frameCount,
+    required this.reason,
+  });
+
+  factory FingerprintLivenessResult.fromJson(Map<String, dynamic> json) {
+    return FingerprintLivenessResult(
+      isLive:          json['is_live']           as bool?   ?? false,
+      meanDisplacement:(json['mean_displacement'] as num?)?.toDouble() ?? 0.0,
+      frameCount:      json['frame_count']        as int?    ?? 0,
+      reason:          json['reason']             as String? ?? 'unknown',
     );
   }
 }
@@ -206,6 +230,80 @@ class FingerprintService {
       msg,
       statusCode: streamed.statusCode,
       kind: _kindFromStatus(streamed.statusCode, msg),
+    );
+  }
+
+  // ── Liveness check ────────────────────────────────────────────────────────
+
+  /// POST /api/fingerprint/liveness-check
+  ///
+  /// Encodes [frames] as base64 and sends them to the server-side optical-flow
+  /// liveness endpoint.  [frames] must contain at least 2 images ordered
+  /// oldest → newest (same order they were captured).
+  Future<FingerprintLivenessResult> checkLiveness(
+    List<XFile> frames, {
+    required String token,
+  }) async {
+    if (frames.length < 2) {
+      throw const FingerprintException(
+        'At least 2 frames are required for liveness check.',
+        kind: FingerprintErrorKind.unknown,
+      );
+    }
+
+    final base64Frames = await Future.wait(
+      frames.map((f) async => base64Encode(await f.readAsBytes())),
+    );
+
+    final uri = Uri.parse('$_baseUrl/fingerprint/liveness-check');
+
+    late http.Response response;
+    try {
+      response = await http.post(
+        uri,
+        headers: {
+          ..._authHeaders(token),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'frames': base64Frames}),
+      ).timeout(const Duration(seconds: 30));
+    } on TimeoutException {
+      throw const FingerprintException(
+        'Liveness check timed out. Please try again.',
+        kind: FingerprintErrorKind.network,
+      );
+    } on SocketException {
+      throw const FingerprintException(
+        'No internet connection. Check your network.',
+        kind: FingerprintErrorKind.network,
+      );
+    } catch (_) {
+      throw const FingerprintException(
+        'Could not reach the server.',
+        kind: FingerprintErrorKind.network,
+      );
+    }
+
+    late Map<String, dynamic> json;
+    try {
+      json = jsonDecode(response.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw FingerprintException(
+        'Unexpected server response (${response.statusCode}).',
+        statusCode: response.statusCode,
+        kind: FingerprintErrorKind.invalidResponse,
+      );
+    }
+
+    if (response.statusCode == 200) {
+      return FingerprintLivenessResult.fromJson(json);
+    }
+
+    final msg = _extractMessage(json);
+    throw FingerprintException(
+      msg,
+      statusCode: response.statusCode,
+      kind: _kindFromStatus(response.statusCode, msg),
     );
   }
 

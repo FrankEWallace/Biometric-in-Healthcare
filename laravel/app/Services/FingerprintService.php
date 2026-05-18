@@ -18,9 +18,10 @@ use RuntimeException;
  *   match()    → POST /match      probe template + candidates → best patient_id
  *
  *  New (used by FingerprintController — register + direct verify)
- *   register() → POST /process-fingerprint   multipart image → enhanced features
- *   verify()   → POST /process-fingerprint   probe image → features
- *               POST /match                  probe features + stored template → verdict
+ *   register()      → POST /process-fingerprint   multipart image → enhanced features
+ *   verify()        → POST /process-fingerprint   probe image → features
+ *                     POST /match                  probe features + stored template → verdict
+ *   livenessCheck() → POST /fingerprint/liveness-check   frame list → optical-flow verdict
  */
 class FingerprintService
 {
@@ -207,5 +208,38 @@ class FingerprintService
             'probe_keypoints' => $probeMinutiae,
             'feature_status'  => $featureStatus,
         ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Fingerprint passive liveness check
+    // -------------------------------------------------------------------------
+
+    /**
+     * Send a sequence of base64-encoded frames to the Python optical-flow
+     * liveness endpoint and return the verdict.
+     *
+     * @param  string[] $base64Frames  Ordered list (oldest → newest), min 2.
+     * @return array {
+     *     is_live:           bool,
+     *     mean_displacement: float,  // average px displacement per frame pair
+     *     frame_count:       int,
+     *     reason:            string  // "ok" | "static_image" | "insufficient_frames" | "no_features"
+     * }
+     * @throws RuntimeException  On HTTP error or Python-side failure.
+     */
+    public function livenessCheck(array $base64Frames): array
+    {
+        $response = Http::timeout(30)->post("{$this->baseUrl}/fingerprint/liveness-check", [
+            'frames' => $base64Frames,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'Python /fingerprint/liveness-check failed: '
+                . ($response->json('detail') ?? $response->body())
+            );
+        }
+
+        return $response->json();
     }
 }

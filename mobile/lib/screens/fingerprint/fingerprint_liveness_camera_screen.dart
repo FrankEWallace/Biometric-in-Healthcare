@@ -1,0 +1,682 @@
+import 'package:camera/camera.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../services/fingerprint_service.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/fingerprint_overlay.dart';
+
+/// Full-screen fingerprint capture with server-side optical-flow liveness check.
+///
+/// Captures [_frameTarget] stills in rapid succession, sends them to
+/// POST /api/fingerprint/liveness-check, and — if the finger is live —
+/// pops with the last [XFile] for downstream fingerprint matching.
+///
+/// Returns `null` if the user cancels.
+class FingerprintLivenessCameraScreen extends StatefulWidget {
+  final bool isHandCapture;
+  final String? fingerLabel;
+
+  const FingerprintLivenessCameraScreen({
+    super.key,
+    this.isHandCapture = true,
+    this.fingerLabel,
+  });
+
+  @override
+  State<FingerprintLivenessCameraScreen> createState() =>
+      _FingerprintLivenessCameraScreenState();
+}
+
+// ── State ──────────────────────────────────────────────────────────────────────
+
+enum _ScreenState { initializing, ready, capturing, checking, failed }
+
+class _FingerprintLivenessCameraScreenState
+    extends State<FingerprintLivenessCameraScreen>
+    with WidgetsBindingObserver {
+  // Camera
+  List<CameraDescription> _cameras = [];
+  CameraController? _controller;
+
+  _ScreenState _screenState = _ScreenState.initializing;
+  String? _cameraError;
+
+  // Capture progress
+  int _capturedCount = 0;
+  static const int _frameTarget = 6;
+  static const Duration _frameInterval = Duration(milliseconds: 120);
+
+  // Failure details
+  String? _errorMessage;
+  double? _meanDisplacement;
+
+  // ── Lifecycle ────────────────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initCamera();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final ctrl = _controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      ctrl.dispose();
+      _controller = null;
+      if (mounted) setState(() => _screenState = _ScreenState.initializing);
+    } else if (state == AppLifecycleState.resumed) {
+      _initCamera();
+    }
+  }
+
+  // ── Camera ────────────────────────────────────────────────────────────────
+
+  Future<void> _initCamera() async {
+    if (mounted) {
+      setState(() {
+        _screenState = _ScreenState.initializing;
+        _cameraError = null;
+      });
+    }
+
+    try {
+      _cameras = await availableCameras();
+    } catch (_) {
+      if (mounted) setState(() => _cameraError = 'No camera available.');
+      return;
+    }
+
+    if (_cameras.isEmpty) {
+      if (mounted) setState(() => _cameraError = 'No camera found.');
+      return;
+    }
+
+    final camera = _cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.back,
+      orElse: () => _cameras.first,
+    );
+
+    final ctrl = CameraController(
+      camera,
+      ResolutionPreset.medium,
+      enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.jpeg,
+    );
+    _controller = ctrl;
+
+    try {
+      await ctrl.initialize();
+    } on CameraException catch (e) {
+      if (mounted) setState(() => _cameraError = _friendlyError(e));
+      return;
+    }
+
+    if (mounted) setState(() => _screenState = _ScreenState.ready);
+  }
+
+  // ── Capture ───────────────────────────────────────────────────────────────
+
+  Future<void> _startCapture() async {
+    final ctrl = _controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+
+    setState(() {
+      _screenState    = _ScreenState.capturing;
+      _capturedCount  = 0;
+      _errorMessage   = null;
+      _meanDisplacement = null;
+    });
+
+    final frames = <XFile>[];
+
+    for (int i = 0; i < _frameTarget; i++) {
+      if (!mounted) return;
+      try {
+        final file = await ctrl.takePicture();
+        frames.add(file);
+        if (mounted) setState(() => _capturedCount = i + 1);
+        if (i < _frameTarget - 1) await Future.delayed(_frameInterval);
+      } catch (_) {
+        break;
+      }
+    }
+
+    if (!mounted) return;
+
+    if (frames.length < 2) {
+      setState(() {
+        _screenState  = _ScreenState.failed;
+        _errorMessage = 'Could not capture enough frames. Try again.';
+      });
+      return;
+    }
+
+    // ── Liveness check ────────────────────────────────────────────────────
+
+    setState(() => _screenState = _ScreenState.checking);
+
+    final token = context.read<AuthProvider>().user?.token ?? '';
+
+    try {
+      final result = await FingerprintService().checkLiveness(
+        frames,
+        token: token,
+      );
+
+      if (!mounted) return;
+
+      if (result.isLive) {
+        Navigator.pop(context, frames.last);
+      } else {
+        setState(() {
+          _screenState      = _ScreenState.failed;
+          _meanDisplacement = result.meanDisplacement;
+          _errorMessage     = _livenessFailureMessage(result.reason);
+        });
+      }
+    } on FingerprintException catch (e) {
+      if (mounted) {
+        setState(() {
+          _screenState  = _ScreenState.failed;
+          _errorMessage = e.message;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _screenState  = _ScreenState.failed;
+          _errorMessage = 'Liveness check failed unexpectedly. Please try again.';
+        });
+      }
+    }
+  }
+
+  void _retry() => setState(() {
+        _screenState      = _ScreenState.ready;
+        _errorMessage     = null;
+        _meanDisplacement = null;
+        _capturedCount    = 0;
+      });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  String _livenessFailureMessage(String reason) {
+    switch (reason) {
+      case 'static_image':
+        return 'No movement detected. Ensure this is a real hand, not a photo or screen.';
+      case 'insufficient_frames':
+        return 'Too few frames captured. Hold still and try again.';
+      case 'no_features':
+        return 'No features detected. Place your hand closer to the camera.';
+      default:
+        return 'Liveness check did not pass. Please try again.';
+    }
+  }
+
+  String _friendlyError(CameraException e) {
+    switch (e.code) {
+      case 'CameraAccessDenied':
+      case 'cameraPermission':
+        return 'Camera permission denied. Open Settings and allow camera access.';
+      default:
+        return e.description ?? 'Camera error (${e.code}).';
+    }
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(widget.fingerLabel != null
+            ? 'Scan — ${widget.fingerLabel}'
+            : 'Fingerprint Scan'),
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(child: _buildViewfinder()),
+            _buildBottomBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildViewfinder() {
+    if (_cameraError != null) {
+      return _ErrorView(message: _cameraError!, onRetry: _initCamera);
+    }
+    if (_screenState == _ScreenState.initializing ||
+        _controller == null) {
+      return const _LoadingView(message: 'Starting camera…');
+    }
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final overlayW = constraints.maxWidth  * 0.75;
+      final overlayH = constraints.maxHeight * 0.75;
+
+      return Stack(
+        alignment: Alignment.center,
+        fit: StackFit.expand,
+        children: [
+          // Camera preview
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width:  _controller!.value.previewSize?.height ?? 1,
+              height: _controller!.value.previewSize?.width  ?? 1,
+              child: CameraPreview(_controller!),
+            ),
+          ),
+
+          // Fingerprint frame overlay
+          Center(
+            child: FingerprintOverlay(
+              width:         overlayW,
+              height:        overlayH,
+              isScanning:    _screenState == _ScreenState.capturing ||
+                             _screenState == _ScreenState.checking,
+              isHandCapture: widget.isHandCapture,
+            ),
+          ),
+
+          // Instruction / status strip
+          Positioned(
+            bottom: 12,
+            left: 16,
+            right: 16,
+            child: _InstructionBanner(
+              screenState:   _screenState,
+              capturedCount: _capturedCount,
+              frameTarget:   _frameTarget,
+              fingerLabel:   widget.fingerLabel,
+              isHandCapture: widget.isHandCapture,
+            ),
+          ),
+
+          // Flash effect while capturing
+          if (_screenState == _ScreenState.capturing)
+            Container(color: Colors.white.withValues(alpha: 0.06)),
+        ],
+      );
+    });
+  }
+
+  Widget _buildBottomBar() {
+    switch (_screenState) {
+      case _ScreenState.ready:
+        return _ReadyBar(
+          onScan:   _startCapture,
+          onCancel: () => Navigator.pop(context, null),
+        );
+
+      case _ScreenState.capturing:
+        return _ProgressBar(
+          capturedCount: _capturedCount,
+          frameTarget:   _frameTarget,
+        );
+
+      case _ScreenState.checking:
+        return const _CheckingBar();
+
+      case _ScreenState.failed:
+        return _FailedBar(
+          message:          _errorMessage,
+          meanDisplacement: _meanDisplacement,
+          onRetry:          _retry,
+          onCancel:         () => Navigator.pop(context, null),
+        );
+
+      default:
+        return const SizedBox(height: 80);
+    }
+  }
+}
+
+// ── Bottom-bar widgets ────────────────────────────────────────────────────────
+
+class _ReadyBar extends StatelessWidget {
+  final VoidCallback onScan;
+  final VoidCallback onCancel;
+  const _ReadyBar({required this.onScan, required this.onCancel});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: onCancel,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white70,
+                side: const BorderSide(color: Colors.white24),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Cancel',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: ElevatedButton.icon(
+              onPressed: onScan,
+              icon: const Icon(Icons.fingerprint, size: 20),
+              label: const Text('Scan',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProgressBar extends StatelessWidget {
+  final int capturedCount;
+  final int frameTarget;
+  const _ProgressBar(
+      {required this.capturedCount, required this.frameTarget});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          LinearProgressIndicator(
+            value: capturedCount / frameTarget,
+            backgroundColor: Colors.white12,
+            valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+            minHeight: 4,
+            borderRadius: BorderRadius.circular(2),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Hold still… capturing $capturedCount / $frameTarget',
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CheckingBar extends StatelessWidget {
+  const _CheckingBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+                color: AppColors.primary, strokeWidth: 2),
+          ),
+          SizedBox(width: 12),
+          Text('Checking liveness…',
+              style: TextStyle(color: Colors.white70, fontSize: 14)),
+        ],
+      ),
+    );
+  }
+}
+
+class _FailedBar extends StatelessWidget {
+  final String? message;
+  final double? meanDisplacement;
+  final VoidCallback onRetry;
+  final VoidCallback onCancel;
+
+  const _FailedBar({
+    required this.message,
+    required this.meanDisplacement,
+    required this.onRetry,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Error message
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+            ),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(Icons.warning_amber_rounded,
+                    color: AppColors.error, size: 18),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message ?? 'Liveness check failed.',
+                  style: const TextStyle(
+                      color: AppColors.error, fontSize: 13, height: 1.4),
+                ),
+              ),
+            ]),
+          ),
+          if (meanDisplacement != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Detected movement: ${meanDisplacement!.toStringAsFixed(2)} px',
+              style: const TextStyle(color: Colors.white38, fontSize: 11),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onCancel,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Cancel',
+                      style:
+                          TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Try Again',
+                      style: TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Instruction banner ────────────────────────────────────────────────────────
+
+class _InstructionBanner extends StatelessWidget {
+  final _ScreenState screenState;
+  final int capturedCount;
+  final int frameTarget;
+  final String? fingerLabel;
+  final bool isHandCapture;
+
+  const _InstructionBanner({
+    required this.screenState,
+    required this.capturedCount,
+    required this.frameTarget,
+    required this.fingerLabel,
+    required this.isHandCapture,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final (String main, String? sub) = switch (screenState) {
+      _ScreenState.capturing => (
+          'Hold still…',
+          null,
+        ),
+      _ScreenState.checking => (
+          'Analysing movement…',
+          null,
+        ),
+      _ScreenState.failed => (
+          'Liveness check failed',
+          'Tap "Try Again" below',
+        ),
+      _ => (
+          isHandCapture
+              ? 'Place hand flat · Fingers spread · Fill the frame'
+              : 'Place finger inside the frame',
+          'Good lighting · Steady hand',
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (fingerLabel != null && screenState == _ScreenState.ready) ...[
+          Text(fingerLabel!,
+              style: TextStyle(
+                  color: AppColors.primaryLight,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3)),
+          const SizedBox(height: 3),
+        ],
+        Text(main,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600)),
+        if (sub != null) ...[
+          const SizedBox(height: 2),
+          Text(sub,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 11)),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Supporting widgets ────────────────────────────────────────────────────────
+
+class _LoadingView extends StatelessWidget {
+  final String message;
+  const _LoadingView({required this.message});
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const CircularProgressIndicator(color: Colors.white54),
+          const SizedBox(height: 16),
+          Text(message,
+              style: const TextStyle(color: Colors.white54, fontSize: 14)),
+        ]),
+      );
+}
+
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorView({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.no_photography_outlined,
+              color: Colors.white38, size: 64),
+          const SizedBox(height: 16),
+          Text(message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white38)),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+          ),
+        ]),
+      ),
+    );
+  }
+}

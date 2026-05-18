@@ -110,6 +110,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('verify', [FingerprintController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
 
+        // Passive liveness check (optical flow) — nurse + admin
+        Route::post('liveness-check', [FingerprintController::class, 'livenessCheck'])
+             ->middleware(['role:nurse,admin', 'throttle:60,1']);
+
         // Admin/super_admin: unlock a locked fingerprint record
         Route::post('/{fingerprint}/unlock', [FingerprintController::class, 'unlock'])
              ->middleware('role:admin,super_admin');
