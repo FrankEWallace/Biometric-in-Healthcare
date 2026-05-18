@@ -15,6 +15,7 @@ python-service/*.pyc
 python-service/.venv/
 python-service/venv/
 *.egg-info/
+python-service/face_index/
 
 # OS
 .DS_Store

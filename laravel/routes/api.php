@@ -146,6 +146,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // Hospital-wide face identification — nurse only
         Route::post('verify', [FaceController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
+
+        // Rebuild FAISS index from all active templates — admin only
+        Route::post('rebuild-index', [FaceController::class, 'rebuildIndex'])
+             ->middleware(['role:admin', 'throttle:5,1']);
     });
 
     // ── Patient Visit Lifecycle ───────────────────────────────────────────────

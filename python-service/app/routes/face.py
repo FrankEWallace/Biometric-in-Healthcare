@@ -1,19 +1,17 @@
 """
-Face recognition endpoints consumed by the Laravel backend.
+Face recognition endpoints — InsightFace ArcFace + FAISS.
 
-POST /face/process — base64 image → face embedding + quality score
-POST /face/match   — probe embedding + candidate list → best patient_id + score
-
-Uses OpenCV Haar cascade for face detection and LBP histogram as the
-embedding. Lightweight and works without additional pip installs.
-Swap the embedding in _extract_embedding() for DeepFace/InsightFace
-to improve accuracy once those dependencies are available.
+POST /face/process          base64 image → ArcFace embedding + quality score
+POST /face/identify         embedding → top-N patient candidates (FAISS search)
+POST /face/enroll           add one embedding to the FAISS index
+POST /face/remove           logically delete all embeddings for a patient
+POST /face/rebuild          rebuild the FAISS index from a full template list
+GET  /face/index/stats      FAISS index health statistics
+POST /face/match            probe embedding + candidate list → best match (1:1 cosine)
 """
-
 from __future__ import annotations
 
 import base64
-import math
 from typing import Any
 
 import cv2
@@ -21,222 +19,152 @@ import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.services.insightface_service import detect_and_embed
+from app.services import faiss_service
+
 router = APIRouter(prefix="/face", tags=["face"])
 
-# Haar cascade bundled with OpenCV — no extra files needed.
-_face_cascade = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-)
 
-_FACE_SIZE = 100          # pixels — aligned face is resized to this square
-_LBP_RADIUS = 1
-_LBP_POINTS = 8 * _LBP_RADIUS
-_LBP_GRID   = 8           # grid cells per axis → 8×8 = 64 histogram bins total
-
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
+# ── Schemas ───────────────────────────────────────────────────────────────────
 
 class ProcessRequest(BaseModel):
-    image: str  # base64-encoded JPEG or PNG
+    image: str  # base64 JPEG or PNG
 
 
-class Candidate(BaseModel):
-    patient_id: int
+class IdentifyRequest(BaseModel):
     embedding: list[float]
+    top_k: int = 5
+
+
+class EnrollRequest(BaseModel):
+    patient_id:  int
+    template_id: int
+    embedding:   list[float]
+
+
+class RemoveRequest(BaseModel):
+    patient_id: int
+
+
+class RebuildItem(BaseModel):
+    patient_id:  int
+    template_id: int
+    embedding:   list[float]
+
+
+class RebuildRequest(BaseModel):
+    templates: list[RebuildItem]
+
+
+class MatchCandidate(BaseModel):
+    patient_id: int
+    embedding:  list[float]
 
 
 class MatchRequest(BaseModel):
-    probe: dict[str, Any]   # { "embedding": [float, ...] }
-    candidates: list[Candidate]
+    probe:      dict[str, Any]   # {"embedding": [...]}
+    candidates: list[MatchCandidate]
 
 
-class MatchResponse(BaseModel):
-    patient_id: int
-    score: float
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _decode_base64_image(b64: str) -> np.ndarray:
+def _decode_image(b64: str) -> np.ndarray:
     try:
-        image_bytes = base64.b64decode(b64)
+        buf = np.frombuffer(base64.b64decode(b64), dtype=np.uint8)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid base64 data: {exc}")
-
-    buf = np.frombuffer(image_bytes, dtype=np.uint8)
+        raise HTTPException(400, f"Invalid base64 data: {exc}")
     img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
     if img is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not decode image. Ensure it is a valid JPEG or PNG.",
-        )
+        raise HTTPException(400, "Could not decode image. Send a valid JPEG or PNG.")
     return img
 
 
-def _detect_face(img: np.ndarray) -> np.ndarray | None:
-    """Detect the largest frontal face and return the cropped region, or None."""
-    gray  = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray  = cv2.equalizeHist(gray)
-    faces = _face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(60, 60),
-    )
-
-    if len(faces) == 0:
-        return None
-
-    # Pick the largest detected face
-    x, y, w, h = max(faces, key=lambda r: r[2] * r[3])
-    face_gray   = gray[y : y + h, x : x + w]
-    return cv2.resize(face_gray, (_FACE_SIZE, _FACE_SIZE))
+def _cosine(a: list[float], b: list[float]) -> float:
+    va = np.array(a, dtype=np.float64)
+    vb = np.array(b, dtype=np.float64)
+    na, nb = float(np.linalg.norm(va)), float(np.linalg.norm(vb))
+    return float(np.dot(va, vb) / (na * nb)) if na > 0 and nb > 0 else 0.0
 
 
-def _lbp_pixel(img: np.ndarray, y: int, x: int, radius: int, points: int) -> int:
-    """Compute the LBP value for a single pixel."""
-    center = img[y, x]
-    code   = 0
-    for p in range(points):
-        angle = 2 * math.pi * p / points
-        nx    = x + radius * math.cos(angle)
-        ny    = y - radius * math.sin(angle)
-        # Bilinear interpolation
-        nx0, ny0 = int(math.floor(nx)), int(math.floor(ny))
-        nx1, ny1 = nx0 + 1, ny0 + 1
-        tx, ty   = nx - nx0, ny - ny0
+# ── Routes ────────────────────────────────────────────────────────────────────
 
-        if 0 <= nx0 < img.shape[1] - 1 and 0 <= ny0 < img.shape[0] - 1:
-            val = (
-                (1 - tx) * (1 - ty) * img[ny0, nx0]
-                + tx      * (1 - ty) * img[ny0, nx1]
-                + (1 - tx) * ty      * img[ny1, nx0]
-                + tx      * ty       * img[ny1, nx1]
-            )
-        else:
-            val = 0
-
-        if val >= center:
-            code |= 1 << p
-    return code
-
-
-def _extract_embedding(face: np.ndarray) -> list[float]:
-    """
-    Compute a grid-based LBP histogram embedding.
-
-    Divides the face into an _LBP_GRID×_LBP_GRID grid and concatenates
-    normalised LBP histograms from each cell into one flat vector.
-    """
-    h, w    = face.shape
-    cell_h  = h // _LBP_GRID
-    cell_w  = w // _LBP_GRID
-
-    embedding: list[float] = []
-
-    for gy in range(_LBP_GRID):
-        for gx in range(_LBP_GRID):
-            cell = face[
-                gy * cell_h : (gy + 1) * cell_h,
-                gx * cell_w : (gx + 1) * cell_w,
-            ]
-            # Use cv2.calcHist for speed — much faster than pixel-by-pixel LBP
-            hist = cv2.calcHist([cell], [0], None, [256], [0, 256])
-            hist = hist.flatten()
-            total = hist.sum()
-            if total > 0:
-                hist = hist / total
-            embedding.extend(hist.tolist())
-
-    return embedding
-
-
-def _quality_score(face: np.ndarray) -> float:
-    """Laplacian variance as a sharpness proxy, clamped to [0, 1]."""
-    lap = cv2.Laplacian(face, cv2.CV_64F).var()
-    return float(min(lap / 300.0, 1.0))
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    va  = np.array(a, dtype=np.float64)
-    vb  = np.array(b, dtype=np.float64)
-    dot = float(np.dot(va, vb))
-    na  = float(np.linalg.norm(va))
-    nb  = float(np.linalg.norm(vb))
-    if na == 0 or nb == 0:
-        return 0.0
-    return dot / (na * nb)
-
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-@router.post("/process", summary="Extract face embedding from a base64 image")
+@router.post("/process", summary="Extract ArcFace embedding from a base64 image")
 def face_process(body: ProcessRequest) -> dict:
     """
-    Accepts a base64-encoded face image. Detects the largest frontal face,
-    computes a grid LBP histogram embedding, and returns the embedding along
-    with a quality score and face_detected flag.
-
-    quality_score is in [0, 1]. Captures below 0.20 should be rejected.
+    Detect the largest face and return its 512-dim ArcFace embedding.
+    quality_score is InsightFace detection confidence [0, 1].
+    Callers should reject captures where quality_score < 0.50.
     """
-    img          = _decode_base64_image(body.image)
-    face         = _detect_face(img)
-    face_detected = face is not None
-
-    if not face_detected:
-        return {
-            "face_detected": False,
-            "quality_score": 0.0,
-            "embedding":     [],
-        }
-
-    quality   = _quality_score(face)
-    embedding = _extract_embedding(face)
-
-    return {
-        "face_detected": True,
-        "quality_score": round(quality, 4),
-        "embedding":     embedding,
-    }
+    img = _decode_image(body.image)
+    return detect_and_embed(img)
 
 
-@router.post(
-    "/match",
-    response_model=MatchResponse,
-    summary="Match a probe embedding against a list of face candidates",
-)
-def face_match(body: MatchRequest) -> MatchResponse:
+@router.post("/identify", summary="Identify top-N patients by face embedding (FAISS)")
+def face_identify(body: IdentifyRequest) -> dict:
     """
-    Computes cosine similarity between the probe embedding and every candidate.
-    Returns the candidate with the highest similarity score.
+    Search the in-memory FAISS index for the closest patient embeddings.
+    Returns up to top_k candidates sorted by cosine similarity (descending).
     """
+    if not body.embedding:
+        raise HTTPException(400, "'embedding' must not be empty.")
+    candidates = faiss_service.identify(body.embedding, top_k=body.top_k)
+    return {"candidates": candidates}
+
+
+@router.post("/enroll", summary="Add an embedding to the FAISS index")
+def face_enroll(body: EnrollRequest) -> dict:
+    """Called by Laravel immediately after storing a new FaceTemplate row."""
+    if not body.embedding:
+        raise HTTPException(400, "'embedding' must not be empty.")
+    pos = faiss_service.enroll(body.patient_id, body.template_id, body.embedding)
+    return {"success": True, "position": pos}
+
+
+@router.post("/remove", summary="Remove all embeddings for a patient from FAISS")
+def face_remove(body: RemoveRequest) -> dict:
+    """Called by Laravel when a patient's face templates are deactivated or deleted."""
+    count = faiss_service.remove_patient(body.patient_id)
+    return {"removed_count": count}
+
+
+@router.post("/rebuild", summary="Rebuild the FAISS index from a full template list")
+def face_rebuild(body: RebuildRequest) -> dict:
+    """
+    Replaces the current index entirely.  Payload must contain all active
+    templates.  Called after bulk migrations or when the index file is lost.
+    """
+    templates = [t.model_dump() for t in body.templates]
+    count = faiss_service.rebuild(templates)
+    return {"indexed_count": count}
+
+
+@router.get("/index/stats", summary="FAISS index health statistics")
+def face_index_stats() -> dict:
+    return faiss_service.stats()
+
+
+@router.post("/match", summary="1:1 cosine similarity match (verification stage)")
+def face_match(body: MatchRequest) -> dict:
+    """
+    Kept for backward compatibility and 1:1 verification use cases.
+    Scores the probe against a small explicit candidate list rather than
+    searching the full FAISS index.
+    """
+    probe_emb = body.probe.get("embedding")
+    if not probe_emb:
+        raise HTTPException(400, "'probe.embedding' is missing.")
     if not body.candidates:
-        raise HTTPException(status_code=400, detail="'candidates' list is empty.")
+        raise HTTPException(400, "'candidates' is empty.")
 
-    probe_embedding = body.probe.get("embedding")
-    if not probe_embedding:
-        raise HTTPException(status_code=400, detail="'probe.embedding' is missing or empty.")
-
-    best_score = -1.0
-    best_id: int | None = None
-
-    for candidate in body.candidates:
-        if not candidate.embedding:
+    best_score, best_id = -1.0, None
+    for c in body.candidates:
+        if not c.embedding:
             continue
-        score = _cosine_similarity(probe_embedding, candidate.embedding)
-        if score > best_score:
-            best_score = score
-            best_id    = candidate.patient_id
+        s = _cosine(probe_emb, c.embedding)
+        if s > best_score:
+            best_score, best_id = s, c.patient_id
 
     if best_id is None:
-        raise HTTPException(
-            status_code=400, detail="No valid candidates could be processed."
-        )
+        raise HTTPException(400, "No valid candidates could be processed.")
 
-    return MatchResponse(patient_id=best_id, score=round(best_score, 4))
+    return {"patient_id": best_id, "score": round(best_score, 4)}
