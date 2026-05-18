@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/status_snackbar.dart';
 
@@ -11,7 +10,6 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user  = context.watch<AuthProvider>().user!;
-    final theme = context.watch<ThemeProvider>();
     final cs    = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -81,39 +79,6 @@ class ProfileScreen extends StatelessWidget {
             ),
             child: Column(
               children: [
-                // Dark mode toggle
-                ListTile(
-                  leading: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: theme.isDark
-                          ? const Color(0xFF1E3A5F)
-                          : AppColors.primaryTint,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      theme.isDark
-                          ? Icons.dark_mode_rounded
-                          : Icons.light_mode_rounded,
-                      size: 18,
-                      color: cs.primary,
-                    ),
-                  ),
-                  title: Text('Dark Mode',
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: cs.onSurface)),
-                  subtitle: Text(theme.isDark ? 'Dark theme enabled' : 'Light theme enabled',
-                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
-                  trailing: Switch.adaptive(
-                    value: theme.isDark,
-                    onChanged: (_) => theme.toggle(),
-                    activeColor: cs.primary,
-                  ),
-                ),
-                Divider(height: 1, color: cs.outline),
 
                 // Change password
                 ListTile(

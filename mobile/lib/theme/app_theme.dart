@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppColors {
   // ── Brand ──────────────────────────────────────────────────────────────────
@@ -107,16 +106,16 @@ class AppTheme {
         shadowColor: Colors.black12,
         elevation: 8,
       ),
-      textTheme: GoogleFonts.interTextTheme(const TextTheme(
-        displaySmall:  TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary, letterSpacing: -0.5),
-        headlineMedium: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-        headlineSmall:  TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-        titleMedium:    TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-        titleSmall:     TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-        bodyLarge:      TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: AppColors.textPrimary, height: 1.5),
-        bodyMedium:     TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.textSecondary, height: 1.5),
-        labelMedium:    TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textSecondary),
-      )),
+      textTheme: const TextTheme(
+        displaySmall:  TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary, letterSpacing: -0.5),
+        headlineMedium: TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+        headlineSmall:  TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+        titleMedium:    TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+        titleSmall:     TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+        bodyLarge:      TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w400, color: AppColors.textPrimary, height: 1.5),
+        bodyMedium:     TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.textSecondary, height: 1.5),
+        labelMedium:    TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textSecondary),
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
@@ -247,16 +246,16 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 8,
       ),
-      textTheme: GoogleFonts.interTextTheme(const TextTheme(
-        displaySmall:   TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColorsDark.textPrimary, letterSpacing: -0.5),
-        headlineMedium: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColorsDark.textPrimary),
-        headlineSmall:  TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColorsDark.textPrimary),
-        titleMedium:    TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColorsDark.textPrimary),
-        titleSmall:     TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColorsDark.textPrimary),
-        bodyLarge:      TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: AppColorsDark.textPrimary, height: 1.5),
-        bodyMedium:     TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: AppColorsDark.textSecondary, height: 1.5),
-        labelMedium:    TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColorsDark.textSecondary),
-      )),
+      textTheme: const TextTheme(
+        displaySmall:   TextStyle(fontFamily: 'Inter', fontSize: 28, fontWeight: FontWeight.w800, color: AppColorsDark.textPrimary, letterSpacing: -0.5),
+        headlineMedium: TextStyle(fontFamily: 'Inter', fontSize: 22, fontWeight: FontWeight.w700, color: AppColorsDark.textPrimary),
+        headlineSmall:  TextStyle(fontFamily: 'Inter', fontSize: 18, fontWeight: FontWeight.w700, color: AppColorsDark.textPrimary),
+        titleMedium:    TextStyle(fontFamily: 'Inter', fontSize: 16, fontWeight: FontWeight.w600, color: AppColorsDark.textPrimary),
+        titleSmall:     TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w600, color: AppColorsDark.textPrimary),
+        bodyLarge:      TextStyle(fontFamily: 'Inter', fontSize: 15, fontWeight: FontWeight.w400, color: AppColorsDark.textPrimary, height: 1.5),
+        bodyMedium:     TextStyle(fontFamily: 'Inter', fontSize: 14, fontWeight: FontWeight.w400, color: AppColorsDark.textSecondary, height: 1.5),
+        labelMedium:    TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w500, color: AppColorsDark.textSecondary),
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primaryLight,

@@ -105,6 +105,7 @@ class _VisitDetailScreenState extends State<VisitDetailScreen> {
   Future<void> _reopen() async {
     final reason = await _showReopenDialog();
     if (reason == null || reason.trim().isEmpty) return;
+    if (!mounted) return;
 
     final token = context.read<AuthProvider>().user?.token ?? '';
     try {

@@ -8,6 +8,7 @@ import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/stat_card.dart';
 import '../clerk/visit_detail_screen.dart';
+import '../profile/profile_screen.dart';
 import 'supervisor_override_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -84,43 +85,46 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Good ${_greeting()},',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w400,
-                          color: Colors.white70)),
+                          color: cs.onSurfaceVariant)),
                   Text(user.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white)),
+                          color: cs.onSurface)),
                 ],
               ),
               centerTitle: false,
               actions: [
-                Container(
-                  margin: const EdgeInsets.only(right: 16),
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Center(
-                    child: Text(
-                      user.name.isNotEmpty ? user.name[0].toUpperCase() : 'A',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700),
+                GestureDetector(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 16),
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Center(
+                      child: Text(
+                        user.name.isNotEmpty ? user.name[0].toUpperCase() : 'A',
+                        style: TextStyle(
+                            color: cs.onPrimaryContainer,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
                 ),
               ],
-              bottom: const TabBar(
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.white60,
-                indicatorColor: Colors.white,
-                tabs: [
+              bottom: TabBar(
+                labelColor: cs.primary,
+                unselectedLabelColor: cs.onSurfaceVariant,
+                indicatorColor: cs.primary,
+                tabs: const [
                   Tab(icon: Icon(Icons.monitor_heart_rounded), text: 'Live'),
                   Tab(icon: Icon(Icons.history_rounded), text: 'History'),
                 ],

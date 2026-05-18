@@ -11,8 +11,9 @@ class ThemeProvider extends ChangeNotifier {
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(_key);
-    _mode = saved == 'dark' ? ThemeMode.dark : ThemeMode.light;
+    // Clear any stale dark preference — app uses light theme only
+    await prefs.remove(_key);
+    _mode = ThemeMode.light;
     notifyListeners();
   }
 

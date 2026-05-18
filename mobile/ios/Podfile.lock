@@ -9,6 +9,9 @@ PODS:
     - Flutter
   - network_info_plus (0.0.1):
     - Flutter
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
 
 DEPENDENCIES:
   - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
@@ -16,6 +19,7 @@ DEPENDENCIES:
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - network_info_plus (from `.symlinks/plugins/network_info_plus/ios`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
 
 EXTERNAL SOURCES:
   camera_avfoundation:
@@ -28,6 +32,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
   network_info_plus:
     :path: ".symlinks/plugins/network_info_plus/ios"
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
 
 SPEC CHECKSUMS:
   camera_avfoundation: 5675ca25298b6f81fa0a325188e7df62cc217741
@@ -35,6 +41,7 @@ SPEC CHECKSUMS:
   geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
   image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
   network_info_plus: cf61925ab5205dce05a4f0895989afdb6aade5fc
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
 
 PODFILE CHECKSUM: 50fd0505f665bfa50c65bca6a6da7109c67dd0c6
 

@@ -17,7 +17,6 @@ void main() async {
 
   final themeProvider = ThemeProvider();
   await themeProvider.load();
-
   runApp(BiometricApp(themeProvider: themeProvider));
 }
 

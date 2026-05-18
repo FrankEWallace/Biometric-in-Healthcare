@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../screens/profile/profile_screen.dart';
 import '../../services/staff_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/stat_card.dart';
@@ -61,29 +62,32 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Super Admin',
+                  Text('Super Admin',
                       style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w400, color: Colors.white70)),
+                          fontSize: 13, fontWeight: FontWeight.w400, color: cs.onSurfaceVariant)),
                   Text(user.name,
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white)),
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w600, color: cs.onSurface)),
                 ],
               ),
               centerTitle: false,
               actions: [
-                Container(
-                  margin: const EdgeInsets.only(right: 16),
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Center(
-                    child: Text(
-                      user.name.isNotEmpty ? user.name[0].toUpperCase() : 'S',
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                GestureDetector(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 16),
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Center(
+                      child: Text(
+                        user.name.isNotEmpty ? user.name[0].toUpperCase() : 'S',
+                        style: TextStyle(
+                            color: cs.onPrimaryContainer, fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ),
                 ),

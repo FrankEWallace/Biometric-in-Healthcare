@@ -4,6 +4,7 @@ import '../../models/visit.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
+import '../profile/profile_screen.dart';
 import 'patient_search_screen.dart';
 import 'visit_detail_screen.dart';
 
@@ -52,6 +53,27 @@ class _ClerkDashboardState extends State<ClerkDashboard> {
             icon: const Icon(Icons.refresh_rounded),
             onPressed: _load,
             tooltip: 'Refresh',
+          ),
+          GestureDetector(
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+            child: Container(
+              margin: const EdgeInsets.only(right: 16),
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Center(
+                child: Text(
+                  user.name.isNotEmpty ? user.name[0].toUpperCase() : 'C',
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
           ),
         ],
       ),

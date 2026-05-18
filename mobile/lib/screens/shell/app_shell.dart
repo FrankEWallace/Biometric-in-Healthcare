@@ -7,12 +7,12 @@ import '../../screens/dashboard/super_admin_dashboard.dart';
 import '../../screens/staff/staff_screen.dart';
 import '../../screens/requests/requests_screen.dart';
 import '../../screens/emergency/emergency_registration_screen.dart';
-import '../../screens/profile/profile_screen.dart';
 import '../../screens/verification_screen.dart';
 import '../../screens/patient_registration_screen.dart';
 import '../../screens/face/face_verification_screen.dart';
-import '../../screens/face/face_enroll_screen.dart';
 import '../../screens/clerk/clerk_dashboard.dart';
+import '../../screens/clerk/clerk_history_screen.dart';
+import '../../screens/clerk/clerk_summary_screen.dart';
 import '../../screens/visit/stage_queue_screen.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
@@ -191,43 +191,45 @@ class _AppShellState extends State<AppShell> {
     switch (role) {
       case 'admin':
         return const [
-          _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,    activeIcon: Icons.dashboard_rounded,    screen: AdminDashboard()),
-          _Tab(label: 'Staff',     icon: Icons.group_outlined,         activeIcon: Icons.group_rounded,         screen: StaffScreen()),
-          _Tab(label: 'Requests',  icon: Icons.inbox_outlined,         activeIcon: Icons.inbox_rounded,         screen: RequestsScreen()),
-          _Tab(label: 'Emergency', icon: Icons.emergency_outlined,     activeIcon: Icons.emergency_rounded,     screen: EmergencyRegistrationScreen()),
-          _Tab(label: 'Face ID',   icon: Icons.face_outlined,          activeIcon: Icons.face_rounded,          screen: FaceEnrollScreen()),
-          _Tab(label: 'Profile',   icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded,        screen: ProfileScreen()),
+          _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,  activeIcon: Icons.dashboard_rounded,  screen: AdminDashboard()),
+          _Tab(label: 'Staff',     icon: Icons.group_outlined,       activeIcon: Icons.group_rounded,       screen: StaffScreen()),
+          _Tab(label: 'Requests',  icon: Icons.inbox_outlined,       activeIcon: Icons.inbox_rounded,       screen: RequestsScreen()),
+          _Tab(label: 'Emergency', icon: Icons.emergency_outlined,   activeIcon: Icons.emergency_rounded,   screen: EmergencyRegistrationScreen()),
         ];
       case 'super_admin':
         return const [
-          _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,    activeIcon: Icons.dashboard_rounded,    screen: SuperAdminDashboard()),
-          _Tab(label: 'Staff',     icon: Icons.group_outlined,         activeIcon: Icons.group_rounded,         screen: StaffScreen()),
-          _Tab(label: 'Profile',   icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded,        screen: ProfileScreen()),
+          _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined, activeIcon: Icons.dashboard_rounded, screen: SuperAdminDashboard()),
+          _Tab(label: 'Staff',     icon: Icons.group_outlined,      activeIcon: Icons.group_rounded,      screen: StaffScreen()),
         ];
       case 'clerk':
         return const [
-          _Tab(label: 'Reception', icon: Icons.inbox_outlined,          activeIcon: Icons.inbox_rounded,          screen: GeoGatedScreen(child: ClerkDashboard())),
-          _Tab(label: 'Profile',   icon: Icons.person_outline_rounded,  activeIcon: Icons.person_rounded,         screen: ProfileScreen()),
+          _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,  activeIcon: Icons.dashboard_rounded,  screen: ClerkSummaryScreen()),
+          _Tab(label: 'Queue',     icon: Icons.inbox_outlined,       activeIcon: Icons.inbox_rounded,       screen: GeoGatedScreen(child: ClerkDashboard())),
+          _Tab(label: 'History',   icon: Icons.history_rounded,      activeIcon: Icons.history_rounded,     screen: ClerkHistoryScreen()),
         ];
       case 'nurse':
+        return [
+          const _Tab(label: 'Dashboard',   icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,        screen: NurseDashboard()),
+          _Tab(label: 'Queue',             icon: Icons.queue_rounded,             activeIcon: Icons.queue_rounded,            screen: const GeoGatedScreen(child: StageQueueScreen())),
+          _Tab(label: 'Fingerprint',       icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,              screen: const GeoGatedScreen(child: VerificationScreen())),
+          _Tab(label: 'Face ID',           icon: Icons.face_outlined,             activeIcon: Icons.face_rounded,             screen: const GeoGatedScreen(child: FaceVerificationScreen())),
+          _Tab(label: 'Register',          icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1_rounded, screen: const GeoGatedScreen(child: PatientRegistrationScreen())),
+        ];
       case 'doctor':
       case 'lab_technician':
       case 'pharmacist':
         return [
-          const _Tab(label: 'Dashboard',  icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,        screen: NurseDashboard()),
-          _Tab(label: 'Queue',            icon: Icons.queue_rounded,             activeIcon: Icons.queue_rounded,            screen: const GeoGatedScreen(child: StageQueueScreen())),
-          _Tab(label: 'Fingerprint',      icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,              screen: const GeoGatedScreen(child: VerificationScreen())),
-          _Tab(label: 'Face ID',          icon: Icons.face_outlined,             activeIcon: Icons.face_rounded,             screen: const GeoGatedScreen(child: FaceVerificationScreen())),
-          _Tab(label: 'Register',         icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1_rounded, screen: const GeoGatedScreen(child: PatientRegistrationScreen())),
-          const _Tab(label: 'Profile',    icon: Icons.person_outline_rounded,    activeIcon: Icons.person_rounded,           screen: ProfileScreen()),
+          const _Tab(label: 'Dashboard',   icon: Icons.dashboard_outlined, activeIcon: Icons.dashboard_rounded,  screen: NurseDashboard()),
+          _Tab(label: 'Queue',             icon: Icons.queue_rounded,       activeIcon: Icons.queue_rounded,      screen: const GeoGatedScreen(child: StageQueueScreen())),
+          _Tab(label: 'Fingerprint',       icon: Icons.fingerprint,         activeIcon: Icons.fingerprint,        screen: const GeoGatedScreen(child: VerificationScreen())),
+          _Tab(label: 'Face ID',           icon: Icons.face_outlined,       activeIcon: Icons.face_rounded,       screen: const GeoGatedScreen(child: FaceVerificationScreen())),
         ];
       default:
         return [
-          const _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,       screen: NurseDashboard()),
-          _Tab(label: 'Fingerprint',     icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,             screen: const GeoGatedScreen(child: VerificationScreen())),
-          _Tab(label: 'Face ID',         icon: Icons.face_outlined,             activeIcon: Icons.face_rounded,            screen: const GeoGatedScreen(child: FaceVerificationScreen())),
-          _Tab(label: 'Register',        icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1_rounded, screen: const GeoGatedScreen(child: PatientRegistrationScreen())),
-          const _Tab(label: 'Profile',   icon: Icons.person_outline_rounded,    activeIcon: Icons.person_rounded,          screen: ProfileScreen()),
+          const _Tab(label: 'Dashboard', icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,        screen: NurseDashboard()),
+          _Tab(label: 'Queue',           icon: Icons.queue_rounded,             activeIcon: Icons.queue_rounded,            screen: const GeoGatedScreen(child: StageQueueScreen())),
+          _Tab(label: 'Fingerprint',     icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,              screen: const GeoGatedScreen(child: VerificationScreen())),
+          _Tab(label: 'Face ID',         icon: Icons.face_outlined,             activeIcon: Icons.face_rounded,             screen: const GeoGatedScreen(child: FaceVerificationScreen())),
         ];
     }
   }
@@ -246,7 +248,7 @@ class _AppShellState extends State<AppShell> {
         index: safeIndex,
         children: tabs.map((t) => t.screen).toList(),
       ),
-      bottomNavigationBar: Container(
+      bottomNavigationBar: tabs.length < 2 ? null : Container(
         decoration: BoxDecoration(
           border: Border(top: BorderSide(color: cs.outline, width: 1)),
         ),
