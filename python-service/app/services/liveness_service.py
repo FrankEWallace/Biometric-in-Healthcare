@@ -43,6 +43,7 @@ MOIRE_THRESHOLD   = 25.0   # screen_score above this → moiré attack
 HIGHLIGHT_MIN     = 0.001  # below this → flat/matte surface (print)
 HIGHLIGHT_MAX     = 0.12   # above this → overexposed region (phone screen)
 FLOW_LIVE_MIN     = 0.15   # mean displacement below this → static (spoofed)
+SKIN_MIN_RATIO    = 0.08   # skin-tone pixels below this fraction → no hand in frame
 
 
 # ── Face passive liveness ─────────────────────────────────────────────────────
@@ -139,6 +140,37 @@ def _highlight_ratio(image_bgr: np.ndarray) -> float:
     return round(ratio, 6)
 
 
+# ── Hand presence detection ───────────────────────────────────────────────────
+
+def detect_hand_presence(frame: np.ndarray) -> bool:
+    """
+    Returns True when a hand-like skin-tone region covers at least
+    SKIN_MIN_RATIO of the frame area.
+
+    Uses HSV skin-tone segmentation — fast, no model required.
+    Two hue ranges cover most human complexions under indoor lighting:
+      Range 1: H 0–25   (warm skin tones, light to medium)
+      Range 2: H 160–180 (wrap-around at red end, darker complexions)
+
+    A morphological open (5×5 ellipse) removes isolated noise pixels so
+    the ratio is not inflated by stray warm-coloured objects.
+    """
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    mask = cv2.bitwise_or(
+        cv2.inRange(hsv, np.array([0,   20,  50], dtype=np.uint8),
+                         np.array([25, 200, 255], dtype=np.uint8)),
+        cv2.inRange(hsv, np.array([160,  20,  50], dtype=np.uint8),
+                         np.array([180, 200, 255], dtype=np.uint8)),
+    )
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask   = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+    skin_ratio = float(cv2.countNonZero(mask)) / (frame.shape[0] * frame.shape[1])
+    return skin_ratio >= SKIN_MIN_RATIO
+
+
 # ── Fingerprint passive liveness ──────────────────────────────────────────────
 
 def fingerprint_liveness_check(frames: list[np.ndarray]) -> dict:
@@ -173,6 +205,15 @@ def fingerprint_liveness_check(frames: list[np.ndarray]) -> dict:
             "mean_displacement": 0.0,
             "frame_count":       n,
             "reason":            "insufficient_frames",
+        }
+
+    # A2: Reject before running optical flow if no hand is visible in frame.
+    if not detect_hand_presence(frames[0]):
+        return {
+            "is_live":           False,
+            "mean_displacement": 0.0,
+            "frame_count":       n,
+            "reason":            "no_hand",
         }
 
     displacements: list[float] = []

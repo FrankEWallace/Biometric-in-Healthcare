@@ -32,6 +32,7 @@ class _LivenessCameraScreenState extends State<LivenessCameraScreen>
   late final LivenessController _liveness;
   bool _isProcessing = false;
   bool _isCaptured = false;
+  bool _faceDetected = false;
 
   // Orientation map for Android rotation compensation
   static final _orientations = <DeviceOrientation, int>{
@@ -158,6 +159,10 @@ class _LivenessCameraScreenState extends State<LivenessCameraScreen>
     if (inputImage == null) return;
     try {
       final faces = await _detector.processImage(inputImage);
+      final detected = faces.isNotEmpty;
+      if (detected != _faceDetected && mounted) {
+        setState(() => _faceDetected = detected);
+      }
       _liveness.processFaces(faces);
     } catch (_) {
       // ignore individual frame errors
@@ -355,7 +360,7 @@ class _LivenessCameraScreenState extends State<LivenessCameraScreen>
         ),
         // Oval + dark surround
         Positioned.fill(
-          child: _LivenessOverlay(step: _liveness.step),
+          child: _LivenessOverlay(step: _liveness.step, faceDetected: _faceDetected),
         ),
         // Step progress dots
         Positioned(
@@ -368,9 +373,10 @@ class _LivenessCameraScreenState extends State<LivenessCameraScreen>
           left: 16,
           right: 16,
           child: _InstructionBanner(
-            instruction: _liveness.instruction,
-            subInstruction: _liveness.subInstruction,
+            instruction: _faceDetected ? _liveness.instruction : 'Center your face in the oval',
+            subInstruction: _faceDetected ? _liveness.subInstruction : 'No face detected',
             step: _liveness.step,
+            faceDetected: _faceDetected,
           ),
         ),
       ],
@@ -422,7 +428,8 @@ class _LivenessCameraScreenState extends State<LivenessCameraScreen>
 
 class _LivenessOverlay extends StatefulWidget {
   final LivenessStep step;
-  const _LivenessOverlay({required this.step});
+  final bool faceDetected;
+  const _LivenessOverlay({required this.step, required this.faceDetected});
 
   @override
   State<_LivenessOverlay> createState() => _LivenessOverlayState();
@@ -452,6 +459,11 @@ class _LivenessOverlayState extends State<_LivenessOverlay>
   }
 
   Color _colorForStep(LivenessStep step) {
+    // Grey out the oval until a face is in frame (only during the waiting steps).
+    if (!widget.faceDetected &&
+        (step == LivenessStep.promptBlink || step == LivenessStep.idle)) {
+      return Colors.white38;
+    }
     switch (step) {
       case LivenessStep.promptBlink:
         return AppColors.primary;
@@ -477,8 +489,8 @@ class _LivenessOverlayState extends State<_LivenessOverlay>
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         final h = constraints.maxHeight;
-        final ovalW = w * 0.68;
-        final ovalH = h * 0.55;
+        final ovalW = w * 0.82;
+        final ovalH = h * 0.68;
 
         return Stack(
           alignment: Alignment.center,
@@ -646,14 +658,20 @@ class _InstructionBanner extends StatelessWidget {
   final String instruction;
   final String? subInstruction;
   final LivenessStep step;
+  final bool faceDetected;
 
   const _InstructionBanner({
     required this.instruction,
     required this.subInstruction,
     required this.step,
+    required this.faceDetected,
   });
 
   IconData _icon() {
+    if (!faceDetected &&
+        (step == LivenessStep.promptBlink || step == LivenessStep.idle)) {
+      return Icons.face_outlined;
+    }
     switch (step) {
       case LivenessStep.promptBlink:
         return Icons.visibility_outlined;

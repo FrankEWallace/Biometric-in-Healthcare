@@ -40,13 +40,14 @@ def to_grayscale(image: np.ndarray) -> np.ndarray:
 # Step 2 — Gaussian blur
 # ---------------------------------------------------------------------------
 
-def apply_gaussian_blur(image: np.ndarray, ksize: int = 5) -> np.ndarray:
+def apply_gaussian_blur(image: np.ndarray, ksize: int = 3) -> np.ndarray:
     """
     Smooth the image with a Gaussian kernel to reduce sensor noise.
 
     Args:
         image: Grayscale uint8 image.
-        ksize: Kernel size (must be odd). Default 5×5.
+        ksize: Kernel size (must be odd). Default 3×3 — enough for noise
+               reduction without smearing fine fingerprint ridges.
     """
     if ksize % 2 == 0:
         ksize += 1

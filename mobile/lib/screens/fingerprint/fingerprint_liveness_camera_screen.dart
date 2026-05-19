@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -46,6 +48,10 @@ class _FingerprintLivenessCameraScreenState
   int _capturedCount = 0;
   static const int _frameTarget = 6;
   static const Duration _frameInterval = Duration(milliseconds: 120);
+
+  // A3: sharpness gate — variance of 0-255 grayscale values on a 320px thumbnail.
+  // Below this value the image is too blurry to send for liveness check.
+  static const double _sharpnessThreshold = 300.0;
 
   // Failure details
   String? _errorMessage;
@@ -139,6 +145,19 @@ class _FingerprintLivenessCameraScreenState
       _meanDisplacement = null;
     });
 
+    // A3: lock focus + exposure to the centre before capturing so the hand
+    // image is sharp. Best-effort — some devices don't support it.
+    try {
+      final size = ctrl.value.previewSize;
+      if (size != null) {
+        final center = Offset(size.height / 2, size.width / 2);
+        await ctrl.setFocusPoint(center);
+        await ctrl.setExposurePoint(center);
+      }
+      await ctrl.setFocusMode(FocusMode.locked);
+    } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 400));
+
     final frames = <XFile>[];
 
     for (int i = 0; i < _frameTarget; i++) {
@@ -146,12 +165,34 @@ class _FingerprintLivenessCameraScreenState
       try {
         final file = await ctrl.takePicture();
         frames.add(file);
+
+        // A3: check sharpness on the first frame — fast-reject blurry captures
+        // before running the full 6-frame liveness sequence.
+        if (i == 0) {
+          final sharpness = await _estimateSharpness(file);
+          if (sharpness < _sharpnessThreshold) {
+            if (mounted) {
+              // Unlock focus so the viewfinder re-focuses on retry.
+              ctrl.setFocusMode(FocusMode.auto).catchError((_) {});
+              setState(() {
+                _screenState  = _ScreenState.failed;
+                _errorMessage = 'Image too blurry. Hold steady, ensure good '
+                    'lighting, and try again.';
+              });
+            }
+            return;
+          }
+        }
+
         if (mounted) setState(() => _capturedCount = i + 1);
         if (i < _frameTarget - 1) await Future.delayed(_frameInterval);
       } catch (_) {
         break;
       }
     }
+
+    // Unlock focus so the viewfinder is live again if the user retries.
+    ctrl.setFocusMode(FocusMode.auto).catchError((_) {});
 
     if (!mounted) return;
 
@@ -214,6 +255,8 @@ class _FingerprintLivenessCameraScreenState
 
   String _livenessFailureMessage(String reason) {
     switch (reason) {
+      case 'no_hand':
+        return 'No hand detected. Place your hand flat to fill the frame, then try again.';
       case 'static_image':
         return 'No movement detected. Ensure this is a real hand, not a photo or screen.';
       case 'insufficient_frames':
@@ -222,6 +265,51 @@ class _FingerprintLivenessCameraScreenState
         return 'No features detected. Place your hand closer to the camera.';
       default:
         return 'Liveness check did not pass. Please try again.';
+    }
+  }
+
+  /// A3: Estimate image sharpness from a captured frame.
+  ///
+  /// Decodes the JPEG at 320×240 using [dart:ui], then computes the variance
+  /// of grayscale pixel values over a subsample.  Sharp images have higher
+  /// contrast across adjacent pixels → higher variance.  Blurry images are
+  /// nearly uniform → low variance.
+  ///
+  /// Returns a large value (1000) on any decode error so a broken frame never
+  /// blocks the capture flow.
+  Future<double> _estimateSharpness(XFile frame) async {
+    try {
+      final bytes = await File(frame.path).readAsBytes();
+      final codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: 320,
+        targetHeight: 240,
+      );
+      final fi = await codec.getNextFrame();
+      final bd = await fi.image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      fi.image.dispose();
+      codec.dispose();
+
+      if (bd == null) return 1000.0;
+
+      final px = bd.buffer.asUint8List();
+      double sum = 0;
+      double sumSq = 0;
+      int n = 0;
+
+      // Sample every 4th pixel (stride 16 in RGBA bytes) for speed.
+      for (int i = 0; i < px.length - 3; i += 16) {
+        final g = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+        sum  += g;
+        sumSq += g * g;
+        n++;
+      }
+
+      if (n == 0) return 1000.0;
+      final mean = sum / n;
+      return (sumSq / n) - (mean * mean); // variance
+    } catch (_) {
+      return 1000.0; // fail open — don't block on unexpected decode errors
     }
   }
 
