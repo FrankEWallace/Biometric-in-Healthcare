@@ -40,14 +40,13 @@ def to_grayscale(image: np.ndarray) -> np.ndarray:
 # Step 2 — Gaussian blur
 # ---------------------------------------------------------------------------
 
-def apply_gaussian_blur(image: np.ndarray, ksize: int = 3) -> np.ndarray:
+def apply_gaussian_blur(image: np.ndarray, ksize: int = 5) -> np.ndarray:
     """
     Smooth the image with a Gaussian kernel to reduce sensor noise.
 
-    Args:
-        image: Grayscale uint8 image.
-        ksize: Kernel size (must be odd). Default 3×3 — enough for noise
-               reduction without smearing fine fingerprint ridges.
+    5×5 kernel (instead of 3×3) is needed for phone camera images which have
+    more high-frequency noise than dedicated scanner images.  A stronger blur
+    here directly reduces false minutiae in the final skeleton.
     """
     if ksize % 2 == 0:
         ksize += 1
@@ -55,17 +54,21 @@ def apply_gaussian_blur(image: np.ndarray, ksize: int = 3) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — Histogram equalization
+# Step 3 — CLAHE (contrast-limited adaptive histogram equalization)
 # ---------------------------------------------------------------------------
 
 def equalize_histogram(image: np.ndarray) -> np.ndarray:
     """
-    Apply standard histogram equalization to enhance ridge/valley contrast.
+    Enhance local contrast using CLAHE.
 
-    Spreads intensity values across the full [0, 255] range so that
-    subsequent thresholding works more reliably across varied lighting.
+    Standard equalizeHist spreads the global histogram and often over-amplifies
+    noise in low-contrast areas of camera-captured fingerprints.  CLAHE works on
+    small tiles (8×8) and clips the redistribution, preserving ridge structure
+    while suppressing background noise.  This produces far fewer false minutiae
+    in the skeleton.
     """
-    return cv2.equalizeHist(image)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    return clahe.apply(image)
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +119,20 @@ def apply_adaptive_threshold(
 # ---------------------------------------------------------------------------
 # Step 5 — Morphological thinning (skeletonization)
 # ---------------------------------------------------------------------------
+
+def clean_binary(binary_image: np.ndarray) -> np.ndarray:
+    """
+    Remove small noise blobs from a binary image before skeletonisation.
+
+    MORPH_OPEN (erode then dilate) removes isolated pixels and short stubs
+    that are camera noise rather than real ridge segments.  This is the single
+    most effective step for reducing false minutiae in phone captures.
+    """
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    opened = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN,  kernel, iterations=2)
+    closed = cv2.morphologyEx(opened,       cv2.MORPH_CLOSE, kernel, iterations=1)
+    return closed
+
 
 def apply_thinning(binary_image: np.ndarray) -> np.ndarray:
     """
@@ -212,7 +229,8 @@ def preprocess_fingerprint(image: np.ndarray) -> dict:
     blurred   = apply_gaussian_blur(gray)
     equalized = equalize_histogram(blurred)
     binary    = apply_adaptive_threshold(equalized)
-    skeleton  = apply_thinning(binary)
+    cleaned   = clean_binary(binary)
+    skeleton  = apply_thinning(cleaned)
 
     _, buffer = cv2.imencode(".png", skeleton)
     b64 = base64.b64encode(buffer).decode("utf-8")
@@ -223,8 +241,9 @@ def preprocess_fingerprint(image: np.ndarray) -> dict:
         "steps": [
             "grayscale",
             "gaussian_blur",
-            "histogram_equalization",
+            "clahe",
             "adaptive_threshold",
+            "morphological_clean",
             "thinning",
         ],
     }

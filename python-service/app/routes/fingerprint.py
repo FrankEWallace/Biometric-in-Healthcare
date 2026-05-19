@@ -228,8 +228,7 @@ async def process_fingerprint(file: UploadFile = File(...)) -> dict:
             "minutiae_count": template["minutiae_count"],
             "status":         template["status"],
             "format":         template["format"],
-            "data":           template["minutiae"],
-            # probe_keypoints alias kept for Laravel FingerprintService compatibility
+            "minutiae":       template["minutiae"],
             "keypoint_count": template["minutiae_count"],
         },
     }

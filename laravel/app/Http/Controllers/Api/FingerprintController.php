@@ -264,53 +264,56 @@ class FingerprintController extends Controller
             return response()->json(['error' => 'Patient not found.'], 404);
         }
 
-        // ── Load stored template (primary active fingerprint) ─────────────────
-        $storedFingerprint = Fingerprint::where('patient_id', $patient->id)
+        // ── Load ALL active fingerprints for the patient ──────────────────────
+        $enrolledFingerprints = Fingerprint::where('patient_id', $patient->id)
             ->where('is_active', true)
-            ->where('is_primary', true)
-            ->first();
+            ->get();
 
-        if (! $storedFingerprint) {
-            // Fall back to any active fingerprint if no primary is set
-            $storedFingerprint = Fingerprint::where('patient_id', $patient->id)
-                ->where('is_active', true)
-                ->first();
-        }
-
-        if (! $storedFingerprint) {
+        if ($enrolledFingerprints->isEmpty()) {
             return response()->json([
                 'error' => 'No enrolled fingerprint found for this patient.',
             ], 404);
         }
 
-        // ── Lock check ────────────────────────────────────────────────────────
-        if ($storedFingerprint->isLocked()) {
+        // Build candidate list, skipping locked or templateless records
+        $candidates      = [];
+        $fingerprintMap  = [];   // fingerprint_id → model instance
+
+        foreach ($enrolledFingerprints as $fp) {
+            if ($fp->isLocked()) {
+                continue;
+            }
+            $template = $fp->getTemplate();
+            if (empty($template)) {
+                continue;
+            }
+            $candidates[]              = ['fingerprint_id' => $fp->id, 'template' => $template];
+            $fingerprintMap[$fp->id]   = $fp;
+        }
+
+        if (empty($candidates)) {
+            // All fingerprints are either locked or corrupted
             return response()->json([
-                'error'     => 'This fingerprint record is locked due to repeated failed attempts. Contact an administrator to unlock.',
-                'locked_at' => $storedFingerprint->locked_at,
+                'error'     => 'All fingerprint records for this patient are locked or invalid. Contact an administrator.',
+                'locked_at' => $enrolledFingerprints->first()?->locked_at,
             ], 423);
         }
 
-        $storedTemplate = $storedFingerprint->getTemplate();
-
-        if (empty($storedTemplate)) {
-            return response()->json([
-                'error' => 'Stored fingerprint template is invalid or corrupted.',
-            ], 500);
-        }
-
-        // ── Process probe image + match against stored template ───────────────
+        // ── Match probe against every enrolled template ───────────────────────
         try {
-            $result = $this->fingerprint->verify(
+            $result = $this->fingerprint->verifyAgainstAll(
                 $request->file('fingerprint')->getRealPath(),
-                $storedTemplate,
-                $patient->id
+                $candidates
             );
         } catch (\RuntimeException $e) {
             return response()->json([
                 'error' => 'Fingerprint verification failed: ' . $e->getMessage(),
             ], 503);
         }
+
+        // Resolve which Fingerprint model was the best match
+        $matchedFpId       = $result['matched_fingerprint_id'];
+        $storedFingerprint = $fingerprintMap[$matchedFpId] ?? $enrolledFingerprints->first();
 
         // ── Track failures and lock if threshold reached ──────────────────────
         if ($result['verdict'] !== 'MATCH') {
@@ -335,7 +338,7 @@ class FingerprintController extends Controller
                 'failed_attempts' => $storedFingerprint->failed_attempts,
             ]);
         } else {
-            // Successful match — reset failure counters
+            // Successful match — reset failure counters on the matched finger
             $storedFingerprint->unlock();
         }
 
@@ -366,8 +369,11 @@ class FingerprintController extends Controller
         return response()->json([
             'verdict'              => $result['verdict'],
             'score'                => $result['score'],
+            'threshold'            => $result['threshold'],
+            'probe_minutiae'       => $result['probe_minutiae'],
             'probe_keypoints'      => $result['probe_keypoints'],
             'feature_status'       => $result['feature_status'],
+            'enrolled_count'       => count($candidates),
             'verification_log_id'  => $log->id,
             'patient'              => [
                 'id'        => $patient->id,
