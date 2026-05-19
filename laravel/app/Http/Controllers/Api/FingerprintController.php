@@ -186,7 +186,7 @@ class FingerprintController extends Controller
             ], 422);
         }
 
-        $fingerPosition = $data['finger_position'] ?? 'right_hand';
+        $fingerPosition = $data['finger_position'] ?? 'right_index';
         $isPrimary      = (bool) ($data['is_primary'] ?? false);
 
         // ── Demote existing primary if needed ─────────────────────────────────

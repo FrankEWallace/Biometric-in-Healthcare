@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/patient.dart';
 import '../providers/auth_provider.dart';
 import '../services/fingerprint_service.dart';
 import '../services/location_service.dart';
 import '../services/network_service.dart';
+import '../services/patient_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
 import 'camera_screen.dart';
@@ -20,8 +23,14 @@ class VerificationScreen extends StatefulWidget {
 }
 
 class _VerificationScreenState extends State<VerificationScreen> {
-  final _patientIdController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
+  final _searchController = TextEditingController();
+  final _searchFocus      = FocusNode();
+
+  PatientModel? _selectedPatient;
+  List<PatientModel> _searchResults = [];
+  bool _isSearching = false;
+  bool _showDropdown = false;
+  Timer? _debounce;
 
   XFile? _capturedImage;
   bool _isVerifying = false;
@@ -31,17 +40,86 @@ class _VerificationScreenState extends State<VerificationScreen> {
   int _attemptCount = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _searchFocus.addListener(() {
+      if (!_searchFocus.hasFocus) {
+        setState(() => _showDropdown = false);
+      }
+    });
+  }
+
+  @override
   void dispose() {
-    _patientIdController.dispose();
+    _searchController.dispose();
+    _searchFocus.dispose();
+    _debounce?.cancel();
     super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    if (value.trim().length < 2) {
+      setState(() {
+        _searchResults = [];
+        _showDropdown = false;
+        _selectedPatient = null;
+      });
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 350), () => _runSearch(value.trim()));
+  }
+
+  Future<void> _runSearch(String query) async {
+    final token = context.read<AuthProvider>().user?.token;
+    if (token == null) return;
+
+    setState(() => _isSearching = true);
+
+    try {
+      final results = await PatientService().searchPatients(
+        token: token,
+        query: query,
+      );
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _showDropdown = results.isNotEmpty;
+          _isSearching = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isSearching = false);
+    }
+  }
+
+  void _selectPatient(PatientModel patient) {
+    setState(() {
+      _selectedPatient = patient;
+      _showDropdown = false;
+      _searchResults = [];
+      _capturedImage = null;
+      _attemptCount = 0;
+      _error = null;
+    });
+    _searchController.clear();
+    _searchFocus.unfocus();
+  }
+
+  void _clearPatient() {
+    setState(() {
+      _selectedPatient = null;
+      _capturedImage = null;
+      _attemptCount = 0;
+      _error = null;
+    });
   }
 
   // ── Step 1: open camera in capture-only mode ──────────────────────────────
 
   Future<void> _openCamera() async {
-    final pid = _patientIdController.text.trim();
-    if (pid.isEmpty || int.tryParse(pid) == null) {
-      setState(() => _error = 'Enter a valid numeric Patient ID first.');
+    if (_selectedPatient == null) {
+      setState(() => _error = 'Search and select a patient first.');
       return;
     }
 
@@ -76,7 +154,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       return;
     }
 
-    final patientId = _patientIdController.text.trim();
+    final patientId = _selectedPatient!.id.toString();
 
     setState(() {
       _isVerifying = true;
@@ -205,10 +283,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   Widget _buildContent() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Form(
-        key: _formKey,
+    return GestureDetector(
+      onTap: () {
+        _searchFocus.unfocus();
+        setState(() => _showDropdown = false);
+      },
+      behavior: HitTestBehavior.translucent,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -228,7 +310,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Enter the patient\'s ID, then capture their fingerprint to verify identity.',
+                      'Search for the patient by name or ID, then capture their fingerprint to verify identity.',
                       style: TextStyle(
                         color: AppColors.primary,
                         fontSize: 13,
@@ -246,16 +328,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
               _ErrorBanner(
                 message: _error!,
                 onDismiss: () => setState(() => _error = null),
-                // Show retry only when an image is already captured so the
-                // user can attempt again without going back to the camera.
                 onRetry: _capturedImage != null ? _verify : null,
               ),
               const SizedBox(height: 16),
             ],
 
-            // ── Patient ID field ────────────────────────────────────────
+            // ── Patient search / selected chip ──────────────────────────
             const Text(
-              'Patient ID',
+              'Patient',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -263,35 +343,23 @@ class _VerificationScreenState extends State<VerificationScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            TextFormField(
-              controller: _patientIdController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                hintText: 'Enter numeric patient ID',
-                prefixIcon: const Icon(Icons.badge_outlined,
-                    color: AppColors.textSecondary, size: 20),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                      color: AppColors.divider, width: 1),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                      color: AppColors.divider, width: 1),
-                ),
+
+            if (_selectedPatient != null)
+              _SelectedPatientChip(
+                patient: _selectedPatient!,
+                onClear: _clearPatient,
+              )
+            else
+              _PatientSearchField(
+                controller: _searchController,
+                focusNode: _searchFocus,
+                isSearching: _isSearching,
+                showDropdown: _showDropdown,
+                results: _searchResults,
+                onChanged: _onSearchChanged,
+                onSelect: _selectPatient,
               ),
-              onChanged: (_) {
-                if (_capturedImage != null || _attemptCount > 0) {
-                  setState(() {
-                    _capturedImage = null;
-                    _attemptCount  = 0;
-                  });
-                }
-              },
-            ),
+
             const SizedBox(height: 24),
 
             // ── Fingerprint capture section ─────────────────────────────
@@ -568,6 +636,190 @@ class _ErrorBanner extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+// Shows the confirmed patient as a dismissible tile.
+class _SelectedPatientChip extends StatelessWidget {
+  final PatientModel patient;
+  final VoidCallback onClear;
+
+  const _SelectedPatientChip({required this.patient, required this.onClear});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.person_outline, color: AppColors.primary, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  patient.fullName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Text(
+                  patient.displayId,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: onClear,
+            child: const Icon(Icons.close, color: AppColors.textSecondary, size: 18),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Search field with live dropdown results.
+class _PatientSearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool isSearching;
+  final bool showDropdown;
+  final List<PatientModel> results;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<PatientModel> onSelect;
+
+  const _PatientSearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.isSearching,
+    required this.showDropdown,
+    required this.results,
+    required this.onChanged,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextField(
+          controller: controller,
+          focusNode: focusNode,
+          textInputAction: TextInputAction.search,
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            hintText: 'Search by name or patient ID…',
+            prefixIcon: const Icon(Icons.search,
+                color: AppColors.textSecondary, size: 20),
+            suffixIcon: isSearching
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.primary),
+                    ),
+                  )
+                : null,
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: AppColors.divider, width: 1),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: AppColors.divider, width: 1),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: AppColors.primary, width: 1.5),
+            ),
+          ),
+        ),
+        if (showDropdown)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.divider),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: results.length,
+                separatorBuilder: (_, __) =>
+                    Divider(height: 1, color: AppColors.divider),
+                itemBuilder: (_, i) {
+                  final p = results[i];
+                  return InkWell(
+                    onTap: () => onSelect(p),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.person_outline,
+                              color: AppColors.textSecondary, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  p.fullName,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  p.displayId,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
