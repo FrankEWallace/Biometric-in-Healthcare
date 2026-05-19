@@ -1,3 +1,4 @@
+import '../config/app_config.dart';
 import 'dart:async' show TimeoutException;
 import 'dart:convert';
 import 'dart:io';
@@ -156,7 +157,7 @@ class FingerprintVerifyResult {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class FingerprintService {
-  static const String _baseUrl = 'http://192.168.100.144:8000/api';
+  static const String _baseUrl = AppConfig.baseUrl;
 
   Map<String, String> _authHeaders(String token) => {
         'Authorization': 'Bearer $token',

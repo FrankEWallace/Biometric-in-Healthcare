@@ -1,12 +1,20 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
 /// WiFi-based access restriction service.
 ///
 /// Only the SSIDs listed in [allowedSsids] are considered hospital networks.
 /// Add or remove SSIDs here as the hospital infrastructure changes.
+///
+/// To bypass WiFi checking in a specific build (e.g. development):
+///   flutter run --dart-define=BYPASS_WIFI=true
+/// Never use this in production builds — set it only in local dev launch configs.
 class NetworkService {
+  // Explicit build-time flag — false in all production builds unless
+  // --dart-define=BYPASS_WIFI=true is passed at compile time.
+  static const bool _bypassWifi =
+      bool.fromEnvironment('BYPASS_WIFI', defaultValue: false);
+
   static const List<String> allowedSsids = ['Hospital_WiFi'];
 
   final _info = NetworkInfo();
@@ -25,8 +33,7 @@ class NetworkService {
   /// When null is returned on iOS the method returns `true` to avoid locking
   /// out real hospital staff — change this policy before production if needed.
   Future<bool> isConnectedToHospitalWifi() async {
-    // DEBUG BYPASS — remove before final demo / production deployment
-    if (kDebugMode) return true;
+    if (_bypassWifi) return true;
 
     String? ssid;
     try {

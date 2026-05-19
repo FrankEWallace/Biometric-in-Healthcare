@@ -1,3 +1,4 @@
+import '../config/app_config.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/patient.dart';
@@ -12,7 +13,7 @@ class VisitException implements Exception {
 }
 
 class VisitService {
-  static const String _baseUrl = 'http://192.168.100.144:8000/api';
+  static const String _baseUrl = AppConfig.baseUrl;
 
   Map<String, String> _headers(String token) => {
         'Content-Type': 'application/json',

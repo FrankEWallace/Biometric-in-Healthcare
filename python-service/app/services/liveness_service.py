@@ -34,16 +34,21 @@ Threshold notes
 """
 from __future__ import annotations
 
+import os
+
 import cv2
 import numpy as np
 
-# ── Thresholds (tune via FAR/FRR study before production) ────────────────────
+# ── Thresholds — configurable via environment variables ───────────────────────
+# All values are engineering estimates on a small sample set.
+# Override with env vars (e.g. LIVENESS_MOIRE_THRESHOLD=30.0) and validate
+# via a proper FAR/FRR study on target hardware before production deployment.
 
-MOIRE_THRESHOLD   = 25.0   # screen_score above this → moiré attack
-HIGHLIGHT_MIN     = 0.001  # below this → flat/matte surface (print)
-HIGHLIGHT_MAX     = 0.12   # above this → overexposed region (phone screen)
-FLOW_LIVE_MIN     = 0.15   # mean displacement below this → static (spoofed)
-SKIN_MIN_RATIO    = 0.08   # skin-tone pixels below this fraction → no hand in frame
+MOIRE_THRESHOLD   = float(os.getenv("LIVENESS_MOIRE_THRESHOLD",   "25.0"))
+HIGHLIGHT_MIN     = float(os.getenv("LIVENESS_HIGHLIGHT_MIN",      "0.001"))
+HIGHLIGHT_MAX     = float(os.getenv("LIVENESS_HIGHLIGHT_MAX",      "0.12"))
+FLOW_LIVE_MIN     = float(os.getenv("LIVENESS_FLOW_LIVE_MIN",      "0.15"))
+SKIN_MIN_RATIO    = float(os.getenv("LIVENESS_SKIN_MIN_RATIO",     "0.08"))
 
 
 # ── Face passive liveness ─────────────────────────────────────────────────────

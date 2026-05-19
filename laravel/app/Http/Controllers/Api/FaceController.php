@@ -13,6 +13,7 @@ use App\Services\HomisService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class FaceController extends Controller
 {
@@ -100,33 +101,50 @@ class FaceController extends Controller
             ->get();
 
         DB::transaction(function () use ($patient, $request, $result, $qualityScore, $activeTemplates) {
-            // Deactivate the oldest template when at cap
-            if ($activeTemplates->count() >= FaceService::MAX_TEMPLATES_PER_PATIENT) {
-                $oldest = $activeTemplates->first();
-                $oldest->update(['is_active' => false]);
-                $this->face->removeFromIndex($patient->id);
-
-                // Re-enroll remaining active templates so FAISS stays consistent
-                $activeTemplates->skip(1)->each(function (FaceTemplate $ft) use ($patient) {
-                    $decoded = $ft->getTemplate();
-                    if ($decoded && isset($decoded['embedding'])) {
-                        $this->face->enrollToIndex($patient->id, $ft->id, $decoded['embedding']);
-                    }
-                });
-            }
-
-            // Create new template row
+            // 1. Persist the new template first so we have a valid template_id
+            //    before touching the FAISS index.
             $ft = new FaceTemplate();
-            $ft->patient_id   = $patient->id;
-            $ft->hospital_id  = $patient->hospital_id;
-            $ft->enrolled_by  = $request->user()->id;
+            $ft->patient_id    = $patient->id;
+            $ft->hospital_id   = $patient->hospital_id;
+            $ft->enrolled_by   = $request->user()->id;
             $ft->quality_score = $qualityScore;
-            $ft->is_active    = true;
+            $ft->is_active     = true;
             $ft->setTemplate($result['embedding']);
             $ft->save();
 
-            // Register in FAISS index
-            $this->face->enrollToIndex($patient->id, $ft->id, $result['embedding']);
+            // 2. Enforce per-patient template cap — evict oldest if needed.
+            if ($activeTemplates->count() >= FaceService::MAX_TEMPLATES_PER_PATIENT) {
+                $oldest = $activeTemplates->first();
+                $oldest->update(['is_active' => false]);
+
+                // Rebuild the patient's FAISS vectors from the surviving templates.
+                // This is atomic relative to the DB transaction — if any FAISS call
+                // fails we throw and the whole transaction rolls back.
+                try {
+                    $this->face->removeFromIndex($patient->id);
+
+                    $activeTemplates->skip(1)->each(function (FaceTemplate $survivor) use ($patient) {
+                        try {
+                            $decoded = $survivor->getTemplate();
+                        } catch (\Exception $e) {
+                            Log::error("FaceTemplate {$survivor->id} decryption failed during re-enroll: {$e->getMessage()}");
+                            return;
+                        }
+                        if ($decoded && isset($decoded['embedding'])) {
+                            $this->face->enrollToIndex($patient->id, $survivor->id, $decoded['embedding']);
+                        }
+                    });
+                } catch (\RuntimeException $e) {
+                    throw $e; // propagate to roll back the DB transaction
+                }
+            }
+
+            // 3. Register the new template in FAISS.
+            try {
+                $this->face->enrollToIndex($patient->id, $ft->id, $result['embedding']);
+            } catch (\RuntimeException $e) {
+                throw $e; // propagate to roll back the DB transaction
+            }
 
             AuditLog::record($request, AuditLog::ACTION_FACE_ENROLL, $patient->id, null, null, [
                 'face_template_id' => $ft->id,
@@ -304,8 +322,14 @@ class FaceController extends Controller
             ->where('is_active', true)
             ->get()
             ->map(function (FaceTemplate $ft) {
-                $decoded = $ft->getTemplate();
+                try {
+                    $decoded = $ft->getTemplate();
+                } catch (\Exception $e) {
+                    Log::error("FaceTemplate {$ft->id} decryption failed during index rebuild: {$e->getMessage()}");
+                    return null;
+                }
                 if (! $decoded || empty($decoded['embedding'])) {
+                    Log::warning("FaceTemplate {$ft->id} has empty or missing embedding — skipped in rebuild.");
                     return null;
                 }
                 return [
@@ -328,6 +352,49 @@ class FaceController extends Controller
             'message'       => 'FAISS index rebuilt successfully.',
             'indexed_count' => $count,
         ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/face/verify-confirm
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Record a staff manual confirmation of a borderline face match.
+     *
+     * Called when a nurse selects "Confirm Manually" on the needs_review dialog.
+     * Creates an audit trail so the decision is traceable.
+     *
+     * Fields:
+     *   log_id      (int,    required) — verification_logs.id from the verify call
+     *   patient_id  (int,    required) — patient being confirmed
+     */
+    public function confirmReview(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'log_id'     => 'required|integer|exists:verification_logs,id',
+            'patient_id' => 'required|integer|exists:patients,id',
+        ]);
+
+        $log = VerificationLog::findOrFail($data['log_id']);
+
+        // Ensure the log belongs to this operator's hospital
+        if ($log->hospital_id !== $request->user()->hospital_id) {
+            return response()->json(['error' => 'Not found.'], 404);
+        }
+
+        if ($log->status !== 'needs_review') {
+            return response()->json(['error' => 'This log is not in needs_review status.'], 422);
+        }
+
+        $log->update(['status' => 'manually_confirmed']);
+
+        AuditLog::record($request, 'face_manual_confirm', $data['patient_id'], null, null, [
+            'log_id'     => $data['log_id'],
+            'score'      => $log->score,
+            'confirmed_by' => $request->user()->id,
+        ]);
+
+        return response()->json(['message' => 'Manual confirmation recorded.']);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

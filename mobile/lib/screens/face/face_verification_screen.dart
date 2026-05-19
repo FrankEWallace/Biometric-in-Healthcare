@@ -80,7 +80,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
 
       if (!mounted) return;
 
-      if (result.isMatch) {
+      if (result.isError) {
+        if (mounted) setState(() { _error = 'A server error occurred. Please try again.'; _isVerifying = false; });
+      } else if (result.isMatch) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -99,6 +101,19 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         final confirmed = await _showReviewDialog(result);
         if (!mounted) return;
         if (confirmed == true) {
+          // Record the manual confirmation before navigating away
+          try {
+            if (result.logId != null) {
+              await FaceService().confirmManualReview(
+                token:     token,
+                logId:     result.logId!,
+                patientId: result.patientId,
+              );
+            }
+          } catch (_) {
+            // Non-blocking — audit failure should not block patient care
+          }
+          if (!mounted) return;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(

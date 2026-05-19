@@ -2,6 +2,7 @@ import 'dart:async' show TimeoutException;
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 
 // ── Error kinds ───────────────────────────────────────────────────────────────
 
@@ -52,14 +53,16 @@ class FaceEnrollResult {
 }
 
 class FaceVerifyResult {
-  final String status;       // "matched" | "needs_review" | "no_match"
+  final String status;       // "matched" | "needs_review" | "no_match" | "error"
   final double score;        // cosine similarity 0–1
+  final int? logId;          // verification_logs.id — needed for confirmManualReview
   final Map<String, dynamic>? patient;
   final Map<String, dynamic>? ehr;
   final Map<String, dynamic>? insurance;
 
   bool get isMatch       => status == 'matched';
   bool get isNeedsReview => status == 'needs_review';
+  bool get isError       => status == 'error';
 
   String get patientName =>
       (patient?['full_name'] as String?) ?? 'Unknown';
@@ -69,6 +72,7 @@ class FaceVerifyResult {
   const FaceVerifyResult({
     required this.status,
     required this.score,
+    this.logId,
     this.patient,
     this.ehr,
     this.insurance,
@@ -77,6 +81,7 @@ class FaceVerifyResult {
   factory FaceVerifyResult.fromJson(Map<String, dynamic> json) => FaceVerifyResult(
         status:    json['status']    as String? ?? 'no_match',
         score:     (json['score'] as num?)?.toDouble() ?? 0.0,
+        logId:     json['log_id']    as int?,
         patient:   json['patient']   as Map<String, dynamic>?,
         ehr:       json['ehr']       as Map<String, dynamic>?,
         insurance: json['insurance'] as Map<String, dynamic>?,
@@ -86,7 +91,7 @@ class FaceVerifyResult {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class FaceService {
-  static const String _baseUrl = 'http://192.168.100.144:8000/api';
+  static const String _baseUrl = AppConfig.baseUrl;
 
   Map<String, String> _headers(String token) => {
         'Authorization': 'Bearer $token',
@@ -137,6 +142,27 @@ class FaceService {
 
     final msg = _message(json);
     throw FaceException(msg, statusCode: response.statusCode, kind: _kind(response.statusCode, msg));
+  }
+
+  // ── Manual review confirmation ────────────────────────────────────────────
+
+  /// Records a staff manual confirmation of a borderline face match.
+  /// Must be called before navigating away on needs_review decisions.
+  Future<void> confirmManualReview({
+    required String token,
+    required int logId,
+    required int patientId,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/face/verify-confirm');
+    final response = await _post(uri, token, {
+      'log_id':    logId,
+      'patient_id': patientId,
+    });
+    if (response.statusCode != 200) {
+      final json = _parseBody(response);
+      final msg  = _message(json);
+      throw FaceException(msg, statusCode: response.statusCode);
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

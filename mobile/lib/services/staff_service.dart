@@ -1,3 +1,4 @@
+import '../config/app_config.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
@@ -7,7 +8,7 @@ class StaffException implements Exception {
 }
 
 class StaffService {
-  static const String _baseUrl = 'http://192.168.100.144:8000/api';
+  static const String _baseUrl = AppConfig.baseUrl;
 
   Future<List<Map<String, dynamic>>> getStaff({required String token}) async {
     final res = await http.get(
