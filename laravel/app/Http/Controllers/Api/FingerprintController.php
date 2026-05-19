@@ -186,7 +186,7 @@ class FingerprintController extends Controller
             ], 422);
         }
 
-        $fingerPosition = $data['finger_position'] ?? 'right_hand';
+        $fingerPosition = $data['finger_position'] ?? 'right_index';
         $isPrimary      = (bool) ($data['is_primary'] ?? false);
 
         // ── Demote existing primary if needed ─────────────────────────────────
@@ -264,53 +264,56 @@ class FingerprintController extends Controller
             return response()->json(['error' => 'Patient not found.'], 404);
         }
 
-        // ── Load stored template (primary active fingerprint) ─────────────────
-        $storedFingerprint = Fingerprint::where('patient_id', $patient->id)
+        // ── Load ALL active fingerprints for the patient ──────────────────────
+        $enrolledFingerprints = Fingerprint::where('patient_id', $patient->id)
             ->where('is_active', true)
-            ->where('is_primary', true)
-            ->first();
+            ->get();
 
-        if (! $storedFingerprint) {
-            // Fall back to any active fingerprint if no primary is set
-            $storedFingerprint = Fingerprint::where('patient_id', $patient->id)
-                ->where('is_active', true)
-                ->first();
-        }
-
-        if (! $storedFingerprint) {
+        if ($enrolledFingerprints->isEmpty()) {
             return response()->json([
                 'error' => 'No enrolled fingerprint found for this patient.',
             ], 404);
         }
 
-        // ── Lock check ────────────────────────────────────────────────────────
-        if ($storedFingerprint->isLocked()) {
+        // Build candidate list, skipping locked or templateless records
+        $candidates      = [];
+        $fingerprintMap  = [];   // fingerprint_id → model instance
+
+        foreach ($enrolledFingerprints as $fp) {
+            if ($fp->isLocked()) {
+                continue;
+            }
+            $template = $fp->getTemplate();
+            if (empty($template)) {
+                continue;
+            }
+            $candidates[]              = ['fingerprint_id' => $fp->id, 'template' => $template];
+            $fingerprintMap[$fp->id]   = $fp;
+        }
+
+        if (empty($candidates)) {
+            // All fingerprints are either locked or corrupted
             return response()->json([
-                'error'     => 'This fingerprint record is locked due to repeated failed attempts. Contact an administrator to unlock.',
-                'locked_at' => $storedFingerprint->locked_at,
+                'error'     => 'All fingerprint records for this patient are locked or invalid. Contact an administrator.',
+                'locked_at' => $enrolledFingerprints->first()?->locked_at,
             ], 423);
         }
 
-        $storedTemplate = $storedFingerprint->getTemplate();
-
-        if (empty($storedTemplate)) {
-            return response()->json([
-                'error' => 'Stored fingerprint template is invalid or corrupted.',
-            ], 500);
-        }
-
-        // ── Process probe image + match against stored template ───────────────
+        // ── Match probe against every enrolled template ───────────────────────
         try {
-            $result = $this->fingerprint->verify(
+            $result = $this->fingerprint->verifyAgainstAll(
                 $request->file('fingerprint')->getRealPath(),
-                $storedTemplate,
-                $patient->id
+                $candidates
             );
         } catch (\RuntimeException $e) {
             return response()->json([
                 'error' => 'Fingerprint verification failed: ' . $e->getMessage(),
             ], 503);
         }
+
+        // Resolve which Fingerprint model was the best match
+        $matchedFpId       = $result['matched_fingerprint_id'];
+        $storedFingerprint = $fingerprintMap[$matchedFpId] ?? $enrolledFingerprints->first();
 
         // ── Track failures and lock if threshold reached ──────────────────────
         if ($result['verdict'] !== 'MATCH') {
@@ -335,7 +338,7 @@ class FingerprintController extends Controller
                 'failed_attempts' => $storedFingerprint->failed_attempts,
             ]);
         } else {
-            // Successful match — reset failure counters
+            // Successful match — reset failure counters on the matched finger
             $storedFingerprint->unlock();
         }
 
@@ -366,8 +369,11 @@ class FingerprintController extends Controller
         return response()->json([
             'verdict'              => $result['verdict'],
             'score'                => $result['score'],
+            'threshold'            => $result['threshold'],
+            'probe_minutiae'       => $result['probe_minutiae'],
             'probe_keypoints'      => $result['probe_keypoints'],
             'feature_status'       => $result['feature_status'],
+            'enrolled_count'       => count($candidates),
             'verification_log_id'  => $log->id,
             'patient'              => [
                 'id'        => $patient->id,
@@ -377,6 +383,48 @@ class FingerprintController extends Controller
             'ehr'             => $ehr,
             'insurance'       => $insurance,
         ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/fingerprint/liveness-check
+    // -------------------------------------------------------------------------
+
+    /**
+     * Optical-flow passive liveness check on a sequence of fingerprint frames.
+     *
+     * The mobile app captures several frames in quick succession before the
+     * final still photograph.  A live finger shows micro-movement from
+     * breathing / pulse (mean displacement 0.15–2.5 px).  A printed image or
+     * phone screen shows near-zero displacement.
+     *
+     * This endpoint does not touch patient data — no hospital-scope check
+     * is needed beyond the authenticated session.
+     *
+     * Fields:
+     *   frames[]  (string[], required, min:2, max:12) — base64-encoded JPEG/PNG
+     *             frames ordered from oldest to newest.
+     *
+     * Responses:
+     *   200  — verdict returned (check 'is_live' field)
+     *   422  — validation error (too few frames, empty strings)
+     *   503  — Python service unavailable
+     */
+    public function livenessCheck(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'frames'   => 'required|array|min:2|max:12',
+            'frames.*' => 'required|string|min:1',
+        ]);
+
+        try {
+            $result = $this->fingerprint->livenessCheck($data['frames']);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'error' => 'Liveness check failed: ' . $e->getMessage(),
+            ], 503);
+        }
+
+        return response()->json($result);
     }
 
     // -------------------------------------------------------------------------

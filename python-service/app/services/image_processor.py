@@ -44,9 +44,9 @@ def apply_gaussian_blur(image: np.ndarray, ksize: int = 5) -> np.ndarray:
     """
     Smooth the image with a Gaussian kernel to reduce sensor noise.
 
-    Args:
-        image: Grayscale uint8 image.
-        ksize: Kernel size (must be odd). Default 5×5.
+    5×5 kernel (instead of 3×3) is needed for phone camera images which have
+    more high-frequency noise than dedicated scanner images.  A stronger blur
+    here directly reduces false minutiae in the final skeleton.
     """
     if ksize % 2 == 0:
         ksize += 1
@@ -54,17 +54,21 @@ def apply_gaussian_blur(image: np.ndarray, ksize: int = 5) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — Histogram equalization
+# Step 3 — CLAHE (contrast-limited adaptive histogram equalization)
 # ---------------------------------------------------------------------------
 
 def equalize_histogram(image: np.ndarray) -> np.ndarray:
     """
-    Apply standard histogram equalization to enhance ridge/valley contrast.
+    Enhance local contrast using CLAHE.
 
-    Spreads intensity values across the full [0, 255] range so that
-    subsequent thresholding works more reliably across varied lighting.
+    Standard equalizeHist spreads the global histogram and often over-amplifies
+    noise in low-contrast areas of camera-captured fingerprints.  CLAHE works on
+    small tiles (8×8) and clips the redistribution, preserving ridge structure
+    while suppressing background noise.  This produces far fewer false minutiae
+    in the skeleton.
     """
-    return cv2.equalizeHist(image)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    return clahe.apply(image)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +119,51 @@ def apply_adaptive_threshold(
 # ---------------------------------------------------------------------------
 # Step 5 — Morphological thinning (skeletonization)
 # ---------------------------------------------------------------------------
+
+def gabor_enhance(image: np.ndarray, n_orientations: int = 8) -> np.ndarray:
+    """
+    Enhance ridges using a Gabor filter bank.
+
+    Applies n_orientations Gabor filters and keeps the maximum response at
+    each pixel.  This selectively amplifies the sinusoidal ridge pattern
+    (wavelength ~8 px, width ~4 px) while suppressing background noise —
+    far more discriminative than histogram equalisation alone and directly
+    reduces false minutiae in the skeleton.
+
+    Parameters tuned for 300–500 dpi equivalent phone camera captures:
+      sigma  = 4.0  — Gaussian envelope (≈ ridge half-width)
+      lambd  = 8.0  — sinusoid wavelength (≈ ridge period)
+      gamma  = 0.5  — aspect ratio
+      psi    = π/2  — phase (cosine gives bright ridges on dark background)
+    """
+    img_f   = image.astype(np.float32)
+    stacked = np.stack([
+        cv2.filter2D(
+            img_f, cv2.CV_32F,
+            cv2.getGaborKernel(
+                ksize=(21, 21),
+                sigma=4.0,
+                theta=i * np.pi / n_orientations,
+                lambd=8.0,
+                gamma=0.5,
+                psi=np.pi / 2,
+                ktype=cv2.CV_32F,
+            ),
+        )
+        for i in range(n_orientations)
+    ], axis=0)
+
+    enhanced = np.max(stacked, axis=0)
+    return cv2.normalize(enhanced, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+
+def clean_binary(binary_image: np.ndarray) -> np.ndarray:
+    """Remove small noise blobs from a binary image before skeletonisation."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    opened = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN,  kernel, iterations=2)
+    closed = cv2.morphologyEx(opened,       cv2.MORPH_CLOSE, kernel, iterations=1)
+    return closed
+
 
 def apply_thinning(binary_image: np.ndarray) -> np.ndarray:
     """
@@ -207,11 +256,13 @@ def preprocess_fingerprint(image: np.ndarray) -> dict:
         }
     """
     gray      = to_grayscale(image)
-    quality   = compute_quality_score(gray)   # measure before any blur
+    quality   = compute_quality_score(gray)   # measure before any processing
     blurred   = apply_gaussian_blur(gray)
-    equalized = equalize_histogram(blurred)
-    binary    = apply_adaptive_threshold(equalized)
-    skeleton  = apply_thinning(binary)
+    equalized = equalize_histogram(blurred)   # CLAHE — local contrast
+    enhanced  = gabor_enhance(equalized)      # Gabor ridge filter bank
+    binary    = apply_adaptive_threshold(enhanced)
+    cleaned   = clean_binary(binary)
+    skeleton  = apply_thinning(cleaned)
 
     _, buffer = cv2.imencode(".png", skeleton)
     b64 = base64.b64encode(buffer).decode("utf-8")
@@ -222,8 +273,10 @@ def preprocess_fingerprint(image: np.ndarray) -> dict:
         "steps": [
             "grayscale",
             "gaussian_blur",
-            "histogram_equalization",
+            "clahe",
+            "gabor_enhance",
             "adaptive_threshold",
+            "morphological_clean",
             "thinning",
         ],
     }

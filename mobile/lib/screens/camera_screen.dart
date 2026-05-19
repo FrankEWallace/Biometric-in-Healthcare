@@ -179,6 +179,22 @@ class _CameraScreenState extends State<CameraScreen>
 
     setState(() => _isCapturing = true);
     try {
+      // Lock focus and exposure before firing the shutter so the camera has
+      // finished autofocusing (critical for close-up fingerprint / face shots).
+      try {
+        final size = ctrl.value.previewSize;
+        if (size != null) {
+          final center = Offset(size.height / 2, size.width / 2);
+          await ctrl.setFocusPoint(center);
+          await ctrl.setExposurePoint(center);
+        }
+        await ctrl.setFocusMode(FocusMode.locked);
+      } catch (_) {
+        // Focus lock is best-effort — some devices/emulators don't support it.
+      }
+      // Brief settle delay so the lens reaches the locked position.
+      await Future.delayed(const Duration(milliseconds: 400));
+
       final file = await ctrl.takePicture();
 
       // Guard: verify the file was actually written to disk.
@@ -217,6 +233,8 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   void _retake() {
+    // Unlock focus so autofocus resumes on the live viewfinder.
+    _controller?.setFocusMode(FocusMode.auto).catchError((_) {});
     setState(() {
       _capturedImage = null;
       _stage = _Stage.live;

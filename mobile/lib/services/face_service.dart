@@ -52,13 +52,14 @@ class FaceEnrollResult {
 }
 
 class FaceVerifyResult {
-  final String status;       // "matched" | "no_match"
+  final String status;       // "matched" | "needs_review" | "no_match"
   final double score;        // cosine similarity 0–1
   final Map<String, dynamic>? patient;
   final Map<String, dynamic>? ehr;
   final Map<String, dynamic>? insurance;
 
-  bool get isMatch => status == 'matched';
+  bool get isMatch       => status == 'matched';
+  bool get isNeedsReview => status == 'needs_review';
 
   String get patientName =>
       (patient?['full_name'] as String?) ?? 'Unknown';
@@ -85,7 +86,7 @@ class FaceVerifyResult {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class FaceService {
-  static const String _baseUrl = 'http://localhost:8000/api';
+  static const String _baseUrl = 'http://192.168.100.144:8000/api';
 
   Map<String, String> _headers(String token) => {
         'Authorization': 'Bearer $token',
@@ -117,11 +118,19 @@ class FaceService {
   Future<FaceVerifyResult> verifyFace(
     File image, {
     required String token,
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
   }) async {
     final base64Image = base64Encode(await image.readAsBytes());
     final uri = Uri.parse('$_baseUrl/face/verify');
 
-    final response = await _post(uri, token, {'image': base64Image});
+    final body = <String, dynamic>{'image': base64Image};
+    if (gpsLatitude  != null) body['gps_latitude']  = gpsLatitude;
+    if (gpsLongitude != null) body['gps_longitude'] = gpsLongitude;
+    if (wifiSsid     != null) body['wifi_ssid']     = wifiSsid;
+
+    final response = await _post(uri, token, body);
     final json     = _parseBody(response);
 
     if (response.statusCode == 200) return FaceVerifyResult.fromJson(json);

@@ -11,13 +11,47 @@ class PatientException implements Exception {
 }
 
 class PatientService {
-  static const String _baseUrl = 'http://localhost:8000/api';
+  static const String _baseUrl = 'http://192.168.100.144:8000/api';
 
   Map<String, String> _headers(String token) => {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'Authorization': 'Bearer $token',
       };
+
+  /// GET /api/patients?search=...&per_page=10
+  ///
+  /// Returns up to 10 patients whose name, hospital ID, or NIDA starts with [query].
+  Future<List<PatientModel>> searchPatients({
+    required String token,
+    required String query,
+  }) async {
+    late http.Response response;
+
+    try {
+      final uri = Uri.parse('$_baseUrl/patients').replace(
+        queryParameters: {'search': query, 'per_page': '10'},
+      );
+      response = await http
+          .get(uri, headers: _headers(token))
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      throw const PatientException(
+          'Could not reach the server. Check your connection.');
+    }
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = body['data'] as List<dynamic>? ?? [];
+      return data
+          .cast<Map<String, dynamic>>()
+          .map(PatientModel.fromJson)
+          .toList();
+    }
+
+    throw PatientException(
+        'Failed to search patients (${response.statusCode}).');
+  }
 
   /// POST /api/patients
   ///

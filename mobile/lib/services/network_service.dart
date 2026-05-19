@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
 /// WiFi-based access restriction service.
@@ -24,10 +25,9 @@ class NetworkService {
   /// When null is returned on iOS the method returns `true` to avoid locking
   /// out real hospital staff — change this policy before production if needed.
   Future<bool> isConnectedToHospitalWifi() async {
-    // DEV BYPASS — remove before production
-    return true;
+    // DEBUG BYPASS — remove before final demo / production deployment
+    if (kDebugMode) return true;
 
-    // ignore: dead_code
     String? ssid;
     try {
       ssid = await _info.getWifiName();

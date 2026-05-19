@@ -8,7 +8,7 @@ import '../../services/fingerprint_service.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 import 'clerk_dashboard.dart';
 
 /// Clerk scans the patient's fingerprint to confirm identity, then opens a visit.
@@ -35,10 +35,7 @@ class _ClerkScanScreenState extends State<ClerkScanScreen> {
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => const CameraScreen(
-          title: 'Scan Fingerprint',
-          showFingerprintOverlay: true,
-          returnImageOnly: true,
+        builder: (_) => const FingerprintLivenessCameraScreen(
           isHandCapture: true,
         ),
       ),

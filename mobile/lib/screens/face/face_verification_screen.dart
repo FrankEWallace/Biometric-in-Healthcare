@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/face_service.dart';
+import '../../services/location_service.dart';
+import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import 'liveness_camera_screen.dart';
 import '../ehr_screen.dart';
 import '../result_screen.dart';
 
@@ -36,13 +38,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
 
     final XFile? result = await Navigator.push<XFile?>(
       context,
-      MaterialPageRoute(
-        builder: (_) => const CameraScreen(
-          title: 'Scan Face',
-          showFaceOverlay: true,
-          returnImageOnly: true,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const LivenessCameraScreen()),
     );
 
     if (result != null && mounted) {
@@ -71,9 +67,15 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
     });
 
     try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       final result = await FaceService().verifyFace(
         File(_capturedImage!.path),
-        token: token,
+        token:        token,
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
       );
 
       if (!mounted) return;
@@ -91,6 +93,27 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
             ),
           ),
         );
+      } else if (result.isNeedsReview) {
+        // Borderline score — ask staff to confirm manually
+        setState(() => _isVerifying = false);
+        final confirmed = await _showReviewDialog(result);
+        if (!mounted) return;
+        if (confirmed == true) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => EhrScreen(
+                patientName:   result.patientName,
+                score:         result.score * 100,
+                matchedFinger: 'face',
+                ehr:           result.ehr,
+                insurance:     result.insurance,
+              ),
+            ),
+          );
+        } else {
+          setState(() => _capturedImage = null);
+        }
       } else {
         await Navigator.push(
           context,
@@ -140,6 +163,61 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       default:
         return e.message;
     }
+  }
+
+  Future<bool?> _showReviewDialog(FaceVerifyResult result) {
+    final scoreLabel = '${(result.score * 100).toStringAsFixed(1)}%';
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 22),
+          SizedBox(width: 8),
+          Text('Manual Review Required'),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'The face match score is borderline. Please verify the patient\'s ID card before proceeding.',
+              style: TextStyle(fontSize: 14, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Candidate: ${result.patientName}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  const SizedBox(height: 4),
+                  Text('Similarity score: $scoreLabel',
+                      style: const TextStyle(fontSize: 13, color: Color(0xFF92400E))),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Try Again'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF59E0B)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirm Manually'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _retake() => setState(() { _capturedImage = null; _error = null; });
