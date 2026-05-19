@@ -18,7 +18,9 @@ from typing import Any
 import cv2
 import numpy as np
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+_EMBEDDING_DIM = 512
 
 from app.services.insightface_service import detect_and_embed
 from app.services import faiss_service
@@ -37,11 +39,25 @@ class IdentifyRequest(BaseModel):
     embedding: list[float]
     top_k: int = 5
 
+    @field_validator("embedding")
+    @classmethod
+    def check_dim(cls, v: list[float]) -> list[float]:
+        if len(v) != _EMBEDDING_DIM:
+            raise ValueError(f"embedding must be {_EMBEDDING_DIM}-dim, got {len(v)}")
+        return v
+
 
 class EnrollRequest(BaseModel):
     patient_id:  int
     template_id: int
     embedding:   list[float]
+
+    @field_validator("embedding")
+    @classmethod
+    def check_dim(cls, v: list[float]) -> list[float]:
+        if len(v) != _EMBEDDING_DIM:
+            raise ValueError(f"embedding must be {_EMBEDDING_DIM}-dim, got {len(v)}")
+        return v
 
 
 class RemoveRequest(BaseModel):
@@ -52,6 +68,13 @@ class RebuildItem(BaseModel):
     patient_id:  int
     template_id: int
     embedding:   list[float]
+
+    @field_validator("embedding")
+    @classmethod
+    def check_dim(cls, v: list[float]) -> list[float]:
+        if len(v) != _EMBEDDING_DIM:
+            raise ValueError(f"embedding must be {_EMBEDDING_DIM}-dim, got {len(v)}")
+        return v
 
 
 class RebuildRequest(BaseModel):

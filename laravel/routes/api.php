@@ -151,6 +151,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('verify', [FaceController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
 
+        // Record staff manual confirmation of a borderline match — nurse only
+        Route::post('verify-confirm', [FaceController::class, 'confirmReview'])
+             ->middleware(['role:nurse', 'throttle:30,1']);
+
         // Rebuild FAISS index from all active templates — admin only
         Route::post('rebuild-index', [FaceController::class, 'rebuildIndex'])
              ->middleware(['role:admin', 'throttle:5,1']);

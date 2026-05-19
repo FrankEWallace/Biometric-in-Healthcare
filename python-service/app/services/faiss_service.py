@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 from threading import Lock
 
@@ -67,10 +68,12 @@ def _normalise(vec: np.ndarray) -> np.ndarray:
 
 def _save() -> None:
     f = _faiss()
-    _INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    _INDEX_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
     f.write_index(_index, str(_INDEX_FILE))
     with open(_META_FILE, "w") as fh:
         json.dump({"id_map": _id_map, "deleted": list(_deleted)}, fh)
+    os.chmod(_INDEX_FILE, 0o640)
+    os.chmod(_META_FILE, 0o640)
 
 
 def _load_or_create() -> None:
@@ -91,7 +94,18 @@ def _load_or_create() -> None:
             )
             return
         except Exception as exc:
-            logger.warning("Could not load saved FAISS index (%s). Starting fresh.", exc)
+            # Back up corrupted files rather than silently discarding them.
+            # A rebuild via /face/rebuild-index is required after this.
+            quarantine = _INDEX_DIR / "quarantine"
+            quarantine.mkdir(parents=True, exist_ok=True)
+            for f_path in (_INDEX_FILE, _META_FILE):
+                if f_path.exists():
+                    shutil.move(str(f_path), str(quarantine / f_path.name))
+            logger.error(
+                "FAISS index corrupted (%s). Files moved to %s. "
+                "Call /face/rebuild-index to restore from the database.",
+                exc, quarantine,
+            )
 
     _index   = f.IndexFlatIP(EMBEDDING_DIM)
     _id_map  = []
@@ -218,22 +232,28 @@ def identify(embedding: list[float], top_k: int = 10) -> list[dict]:
 
     vec = _normalise(np.array(embedding, dtype=np.float32))
 
-    # Over-fetch to account for deleted vectors
+    # Expand fetch window until we have top_k distinct patients or exhaust the index.
     k = min(top_k * 4 + len(_deleted), _index.ntotal)
-    D, I = _index.search(vec, int(k))
-
     best: dict[int, dict] = {}
-    for score, pos in zip(D[0].tolist(), I[0].tolist()):
-        if pos < 0 or pos in _deleted:
-            continue
-        meta = _id_map[pos]
-        pid  = meta["patient_id"]
-        if pid not in best or score > best[pid]["score"]:
-            best[pid] = {
-                "patient_id":  pid,
-                "template_id": meta["template_id"],
-                "score":       round(float(score), 4),
-            }
+
+    while True:
+        D, I = _index.search(vec, int(k))
+        best = {}
+        for score, pos in zip(D[0].tolist(), I[0].tolist()):
+            if pos < 0 or pos in _deleted:
+                continue
+            meta = _id_map[pos]
+            pid  = meta["patient_id"]
+            if pid not in best or score > best[pid]["score"]:
+                best[pid] = {
+                    "patient_id":  pid,
+                    "template_id": meta["template_id"],
+                    "score":       round(float(score), 4),
+                }
+
+        if len(best) >= top_k or k >= _index.ntotal:
+            break
+        k = min(k * 2, _index.ntotal)
 
     return sorted(best.values(), key=lambda r: r["score"], reverse=True)[:top_k]
 

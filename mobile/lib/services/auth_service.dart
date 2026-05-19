@@ -1,3 +1,4 @@
+import '../config/app_config.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/user.dart';
@@ -11,7 +12,7 @@ class AuthException implements Exception {
 
 class AuthService {
   // Base URL — update to match your Laravel server
-  static const String _baseUrl = 'http://192.168.100.144:8000/api';
+  static const String _baseUrl = AppConfig.baseUrl;
 
   // In-memory token storage (replace with flutter_secure_storage later)
   String? _token;
