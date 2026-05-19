@@ -39,7 +39,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 _LOW_MINUTIAE_THRESHOLD: int = 10    # fewer than this → "low_quality"
-_MAX_MINUTIAE: int          = 80    # cap noisy camera skeletons; prefer border-distant points
+_MAX_MINUTIAE: int          = 50    # cap noisy camera skeletons; prefer border-distant points
 # After scale normalisation (RMS=1) a threshold of 0.15 is ~15% of spread —
 # generous enough to absorb pose variation from camera captures.
 _DISTANCE_THRESHOLD: float  = 0.15  # normalised units (post scale-norm)
