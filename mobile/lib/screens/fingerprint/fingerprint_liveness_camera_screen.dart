@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +53,15 @@ class _FingerprintLivenessCameraScreenState
   // A3: sharpness gate — variance of 0-255 grayscale values on a 320px thumbnail.
   // Below this value the image is too blurry to send for liveness check.
   static const double _sharpnessThreshold = 300.0;
+
+  // Auto-trigger: stream frames and fire when quality is good for 3 consecutive checks.
+  final bool _autoTriggerEnabled = true;
+  int _goodFrameStreak = 0;
+  static const int _goodFramesRequired = 3;
+  bool _streamChecking = false; // debounce: don't re-enter while checking quality
+
+  // Realtime quality indicator fed by the image stream (0.0–1.0).
+  double _liveQuality = 0.0;
 
   // Failure details
   String? _errorMessage;
@@ -130,6 +140,85 @@ class _FingerprintLivenessCameraScreenState
     }
 
     if (mounted) setState(() => _screenState = _ScreenState.ready);
+
+    if (_autoTriggerEnabled) {
+      ctrl.startImageStream(_onStreamFrame);
+    }
+  }
+
+  // ── Auto-trigger stream handler ───────────────────────────────────────────
+
+  Future<void> _onStreamFrame(CameraImage image) async {
+    // Only run while in the ready state and not already processing a frame.
+    if (_screenState != _ScreenState.ready || _streamChecking) return;
+    _streamChecking = true;
+
+    final quality = _quickQualityFromStream(image);
+    if (mounted) setState(() => _liveQuality = (quality / _sharpnessThreshold).clamp(0.0, 1.0));
+
+    if (quality >= _sharpnessThreshold) {
+      _goodFrameStreak++;
+      if (_goodFrameStreak >= _goodFramesRequired) {
+        // Stop the stream before taking still pictures.
+        await _controller?.stopImageStream();
+        if (mounted && _screenState == _ScreenState.ready) {
+          _startCapture();
+        }
+      }
+    } else {
+      _goodFrameStreak = 0;
+    }
+
+    _streamChecking = false;
+  }
+
+  /// Fast luma variance on a 1-in-8 pixel subsample.
+  ///
+  /// Android: YUV420/NV21 — plane 0 is the Y channel (1 byte per pixel).
+  /// iOS:     BGRA8888    — single plane, 4 bytes per pixel; luma = 0.299R+0.587G+0.114B.
+  double _quickQualityFromStream(CameraImage image) {
+    try {
+      final int w = image.width;
+      final int h = image.height;
+      final Uint8List bytes = image.planes[0].bytes;
+      final int stride = image.planes[0].bytesPerRow;
+
+      double sum = 0;
+      double sumSq = 0;
+      int n = 0;
+
+      if (Platform.isIOS) {
+        // BGRA8888: stride may be > w*4 on some devices.
+        for (int row = 0; row < h; row += 8) {
+          for (int col = 0; col < w; col += 8) {
+            final int i = row * stride + col * 4;
+            // BGRA order: bytes[i]=B, [i+1]=G, [i+2]=R, [i+3]=A
+            final double v = bytes[i + 2] * 0.299 +
+                             bytes[i + 1] * 0.587 +
+                             bytes[i]     * 0.114;
+            sum   += v;
+            sumSq += v * v;
+            n++;
+          }
+        }
+      } else {
+        // YUV420/NV21: plane 0 is Y, 1 byte per pixel.
+        for (int row = 0; row < h; row += 8) {
+          for (int col = 0; col < w; col += 8) {
+            final double v = bytes[row * stride + col].toDouble();
+            sum   += v;
+            sumSq += v * v;
+            n++;
+          }
+        }
+      }
+
+      if (n == 0) return 0;
+      final mean = sum / n;
+      return (sumSq / n) - (mean * mean); // variance
+    } catch (_) {
+      return 0;
+    }
   }
 
   // ── Capture ───────────────────────────────────────────────────────────────
@@ -244,12 +333,19 @@ class _FingerprintLivenessCameraScreenState
     }
   }
 
-  void _retry() => setState(() {
-        _screenState      = _ScreenState.ready;
-        _errorMessage     = null;
-        _meanDisplacement = null;
-        _capturedCount    = 0;
-      });
+  void _retry() {
+    setState(() {
+      _screenState      = _ScreenState.ready;
+      _errorMessage     = null;
+      _meanDisplacement = null;
+      _capturedCount    = 0;
+      _goodFrameStreak  = 0;
+      _liveQuality      = 0.0;
+    });
+    if (_autoTriggerEnabled) {
+      _controller?.startImageStream(_onStreamFrame).catchError((_) {});
+    }
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -383,6 +479,7 @@ class _FingerprintLivenessCameraScreenState
               isScanning:    _screenState == _ScreenState.capturing ||
                              _screenState == _ScreenState.checking,
               isHandCapture: widget.isHandCapture,
+              liveQuality:   _liveQuality,
             ),
           ),
 
@@ -412,8 +509,9 @@ class _FingerprintLivenessCameraScreenState
     switch (_screenState) {
       case _ScreenState.ready:
         return _ReadyBar(
-          onScan:   _startCapture,
-          onCancel: () => Navigator.pop(context, null),
+          onScan:            _autoTriggerEnabled ? null : _startCapture,
+          onCancel:          () => Navigator.pop(context, null),
+          autoTriggerActive: _autoTriggerEnabled,
         );
 
       case _ScreenState.capturing:
@@ -442,9 +540,16 @@ class _FingerprintLivenessCameraScreenState
 // ── Bottom-bar widgets ────────────────────────────────────────────────────────
 
 class _ReadyBar extends StatelessWidget {
-  final VoidCallback onScan;
+  /// null when auto-trigger is active — hides the manual Scan button.
+  final VoidCallback? onScan;
   final VoidCallback onCancel;
-  const _ReadyBar({required this.onScan, required this.onCancel});
+  final bool autoTriggerActive;
+
+  const _ReadyBar({
+    required this.onScan,
+    required this.onCancel,
+    this.autoTriggerActive = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -467,23 +572,25 @@ class _ReadyBar extends StatelessWidget {
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: ElevatedButton.icon(
-              onPressed: onScan,
-              icon: const Icon(Icons.fingerprint, size: 20),
-              label: const Text('Scan',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+          if (!autoTriggerActive) ...[
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton.icon(
+                onPressed: onScan,
+                icon: const Icon(Icons.fingerprint, size: 20),
+                label: const Text('Scan',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -681,7 +788,7 @@ class _InstructionBanner extends StatelessWidget {
           isHandCapture
               ? 'Place hand flat · Fingers spread · Fill the frame'
               : 'Place finger inside the frame',
-          'Good lighting · Steady hand',
+          'Hold steady — will scan automatically when ready',
         ),
     };
 
