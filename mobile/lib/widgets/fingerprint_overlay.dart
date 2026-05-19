@@ -7,11 +7,14 @@ import '../theme/app_theme.dart';
 ///                      so the frame scales to the actual viewport.
 /// [isScanning]       — activates scan animation and lighter border color.
 /// [isHandCapture]    — shows a hand icon instead of a single fingerprint.
+/// [liveQuality]      — 0.0–1.0 quality signal from image stream; tints border
+///                      red → amber → green as quality improves.
 class FingerprintOverlay extends StatefulWidget {
   final double width;
   final double height;
   final bool isScanning;
   final bool isHandCapture;
+  final double liveQuality;
 
   const FingerprintOverlay({
     super.key,
@@ -19,6 +22,7 @@ class FingerprintOverlay extends StatefulWidget {
     required this.height,
     this.isScanning = false,
     this.isHandCapture = false,
+    this.liveQuality = 0.0,
   });
 
   @override
@@ -52,8 +56,20 @@ class _FingerprintOverlayState extends State<FingerprintOverlay>
     const double bracketLen = 28.0;
     const double bracketW = 3.5;
 
-    final borderColor =
-        widget.isScanning ? AppColors.primaryLight : AppColors.primary;
+    // Quality-aware border: red → amber → green as liveQuality rises toward 1.0.
+    // Only active in the ready state (not scanning); scanning uses primaryLight.
+    final Color borderColor;
+    if (widget.isScanning) {
+      borderColor = AppColors.primaryLight;
+    } else if (widget.liveQuality <= 0.0) {
+      borderColor = AppColors.primary;
+    } else if (widget.liveQuality < 0.4) {
+      borderColor = const Color(0xFFE53935); // red
+    } else if (widget.liveQuality < 0.75) {
+      borderColor = const Color(0xFFFB8C00); // amber
+    } else {
+      borderColor = const Color(0xFF43A047); // green
+    }
 
     return SizedBox(
       width: w,
