@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -18,9 +19,10 @@ use RuntimeException;
  *   match()    → POST /match      probe template + candidates → best patient_id
  *
  *  New (used by FingerprintController — register + direct verify)
- *   register() → POST /process-fingerprint   multipart image → enhanced features
- *   verify()   → POST /process-fingerprint   probe image → features
- *               POST /match                  probe features + stored template → verdict
+ *   register()      → POST /process-fingerprint   multipart image → enhanced features
+ *   verify()        → POST /process-fingerprint   probe image → features
+ *                     POST /match                  probe features + stored template → verdict
+ *   livenessCheck() → POST /fingerprint/liveness-check   frame list → optical-flow verdict
  */
 class FingerprintService
 {
@@ -32,7 +34,7 @@ class FingerprintService
      * Raise toward 30–40 for higher-security deployments once you have
      * real enrolled data to measure against.
      */
-    private const MATCH_THRESHOLD = 20.0;
+    private const MATCH_THRESHOLD = 32.0;
 
     private string $baseUrl;
 
@@ -163,49 +165,119 @@ class FingerprintService
      * }
      * @throws RuntimeException  On HTTP errors.
      */
-    public function verify(string $filePath, array $storedTemplate, int $patientId): array
+    /**
+     * Verify a probe image against ALL enrolled fingerprints for a patient.
+     *
+     * Processes the probe image once, then sends every active template as a
+     * candidate to Python /match in a single HTTP call.  The Python service
+     * returns the best-scoring candidate (fingerprint_id used as the key).
+     * A MATCH is declared if that best score meets MATCH_THRESHOLD.
+     *
+     * @param  string $filePath    Absolute path to the probe JPEG/PNG.
+     * @param  array  $candidates  [['fingerprint_id' => int, 'template' => array], ...]
+     * @return array {
+     *     verdict: string,              // "MATCH" | "NO MATCH"
+     *     score: float,
+     *     threshold: float,
+     *     matched_fingerprint_id: int,  // ID of the best-matching Fingerprint row
+     *     probe_minutiae: int,
+     *     probe_keypoints: int,
+     *     feature_status: string
+     * }
+     */
+    public function verifyAgainstAll(string $filePath, array $candidates): array
     {
-        // ── Step 1: extract probe template via SourceAFIS ─────────────────────
+        // ── Step 1: extract probe template ───────────────────────────────────
         $probeData = $this->register($filePath);
 
-        $featureStatus  = $probeData['features']['status'] ?? 'no_features';
-        $probeMinutiae  = (int) ($probeData['features']['minutiae_count'] ?? 0);
+        $featureStatus = $probeData['features']['status'] ?? 'no_features';
+        $probeMinutiae = (int) ($probeData['features']['minutiae_count'] ?? 0);
 
-        // Short-circuit: no minutiae detected in probe image
         if ($featureStatus === 'no_features' || $probeMinutiae === 0) {
             return [
-                'verdict'        => 'NO MATCH',
-                'score'          => 0.0,
-                'probe_minutiae' => $probeMinutiae,
-                // keypoint_count alias kept for Flutter FingerprintVerifyResult
-                'probe_keypoints' => $probeMinutiae,
-                'feature_status' => $featureStatus,
+                'verdict'               => 'NO MATCH',
+                'score'                 => 0.0,
+                'threshold'             => self::MATCH_THRESHOLD,
+                'matched_fingerprint_id'=> 0,
+                'probe_minutiae'        => $probeMinutiae,
+                'probe_keypoints'       => $probeMinutiae,
+                'feature_status'        => $featureStatus,
             ];
         }
 
-        // ── Step 2: match probe template against stored SourceAFIS template ───
+        // ── Step 2: match probe against all candidates in one call ────────────
+        // Re-key candidates so patient_id in the Python response maps back to
+        // the fingerprint row ID (all candidates share the same real patient).
+        $pythonCandidates = array_map(fn ($c) => [
+            'patient_id' => $c['fingerprint_id'],
+            'template'   => $c['template'],
+        ], $candidates);
+
         $matchResponse = Http::timeout(30)->post("{$this->baseUrl}/match", [
             'probe'      => $probeData['features'],
-            'candidates' => [
-                ['patient_id' => $patientId, 'template' => $storedTemplate],
-            ],
+            'candidates' => $pythonCandidates,
         ]);
 
         if ($matchResponse->failed()) {
-            $detail = $matchResponse->json('detail') ?? $matchResponse->body();
-            throw new RuntimeException("Python /match failed: {$detail}");
+            throw new RuntimeException(
+                'Python /match failed: ' . ($matchResponse->json('detail') ?? $matchResponse->body())
+            );
         }
 
-        $matchResult = $matchResponse->json();
-        $score       = (float) ($matchResult['score'] ?? 0.0);
+        $matchResult          = $matchResponse->json();
+        $score                = (float) ($matchResult['score'] ?? 0.0);
+        $matchedFingerprintId = (int)   ($matchResult['patient_id'] ?? 0);
+
+        Log::debug('FingerprintService::verifyAgainstAll', [
+            'candidate_count'       => count($candidates),
+            'probe_minutiae'        => $probeMinutiae,
+            'score'                 => $score,
+            'matched_fingerprint_id'=> $matchedFingerprintId,
+            'threshold'             => self::MATCH_THRESHOLD,
+            'verdict'               => $score >= self::MATCH_THRESHOLD ? 'MATCH' : 'NO MATCH',
+        ]);
 
         return [
-            'verdict'         => $score >= self::MATCH_THRESHOLD ? 'MATCH' : 'NO MATCH',
-            'score'           => round($score, 2),
-            'probe_minutiae'  => $probeMinutiae,
-            // keypoint_count alias kept for Flutter FingerprintVerifyResult
-            'probe_keypoints' => $probeMinutiae,
-            'feature_status'  => $featureStatus,
+            'verdict'               => $score >= self::MATCH_THRESHOLD ? 'MATCH' : 'NO MATCH',
+            'score'                 => round($score, 2),
+            'threshold'             => self::MATCH_THRESHOLD,
+            'matched_fingerprint_id'=> $matchedFingerprintId,
+            'probe_minutiae'        => $probeMinutiae,
+            'probe_keypoints'       => $probeMinutiae,
+            'feature_status'        => $featureStatus,
         ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Fingerprint passive liveness check
+    // -------------------------------------------------------------------------
+
+    /**
+     * Send a sequence of base64-encoded frames to the Python optical-flow
+     * liveness endpoint and return the verdict.
+     *
+     * @param  string[] $base64Frames  Ordered list (oldest → newest), min 2.
+     * @return array {
+     *     is_live:           bool,
+     *     mean_displacement: float,  // average px displacement per frame pair
+     *     frame_count:       int,
+     *     reason:            string  // "ok" | "static_image" | "insufficient_frames" | "no_features"
+     * }
+     * @throws RuntimeException  On HTTP error or Python-side failure.
+     */
+    public function livenessCheck(array $base64Frames): array
+    {
+        $response = Http::timeout(30)->post("{$this->baseUrl}/fingerprint/liveness-check", [
+            'frames' => $base64Frames,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'Python /fingerprint/liveness-check failed: '
+                . ($response->json('detail') ?? $response->body())
+            );
+        }
+
+        return $response->json();
     }
 }

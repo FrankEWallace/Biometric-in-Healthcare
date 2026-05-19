@@ -7,7 +7,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/fingerprint_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 
 /// Captures and enrolls fingerprints for an already-registered patient
 /// who has no biometric on file.
@@ -39,11 +39,9 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => CameraScreen(
-          title: 'Enroll — ${_steps[_currentIndex].label}',
-          showFingerprintOverlay: true,
-          returnImageOnly: true,
+        builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
+          fingerLabel: _steps[_currentIndex].label,
         ),
       ),
     );

@@ -5,10 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/visit.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/location_service.dart';
+import '../../services/network_service.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import '../face/liveness_camera_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 
 enum _VerifyPhase { fingerprint, face, override }
 
@@ -50,16 +53,15 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
 
   Future<void> _openCamera() async {
     setState(() => _error = null);
-    final bool isFace = _phase == _VerifyPhase.face;
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => CameraScreen(
-          title: isFace ? 'Face Scan — $_stageLabel' : 'Scan — $_stageLabel',
-          showFingerprintOverlay: !isFace,
-          returnImageOnly: true,
-          isHandCapture: !isFace,
-        ),
+        builder: (_) => _phase == _VerifyPhase.face
+            ? const LivenessCameraScreen()
+            : FingerprintLivenessCameraScreen(
+                isHandCapture: true,
+                fingerLabel: _stageLabel,
+              ),
       ),
     );
     if (result != null && mounted) setState(() => _capturedImage = result);
@@ -77,12 +79,18 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
       final bytes       = await File(_capturedImage!.path).readAsBytes();
       final base64Image = base64Encode(bytes);
 
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       final result = await _visitService.verifyStage(
         token:            token,
         visitId:          widget.visit.id,
         stage:            widget.stageName,
         fingerprintImage: isFace ? '' : base64Image,
         faceImage:        isFace ? base64Image : null,
+        gpsLatitude:      position?.latitude,
+        gpsLongitude:     position?.longitude,
+        wifiSsid:         wifiSsid,
       );
 
       if (!mounted) return;

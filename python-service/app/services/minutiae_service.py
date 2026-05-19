@@ -39,10 +39,12 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 _LOW_MINUTIAE_THRESHOLD: int = 10    # fewer than this → "low_quality"
-_MAX_MINUTIAE: int          = 150   # cap noisy camera skeletons; prefer border-distant points
-_DISTANCE_THRESHOLD: float  = 20.0  # pixels — spatial matching tolerance
+_MAX_MINUTIAE: int          = 50    # cap noisy camera skeletons; prefer border-distant points
+# After scale normalisation (RMS=1) a threshold of 0.15 is ~15% of spread —
+# generous enough to absorb pose variation from camera captures.
+_DISTANCE_THRESHOLD: float  = 0.15  # normalised units (post scale-norm)
 _ANGLE_THRESHOLD: float     = math.pi / 6  # 30° — angle matching tolerance
-_ROTATION_STEPS: int        = 12    # 30° increments covering 360°
+_ROTATION_STEPS: int        = 24    # 15° increments covering 360° (finer than before)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +153,8 @@ def template_to_dict(minutiae: list[dict]) -> dict:
 
 def template_from_dict(template_dict: dict) -> list[dict]:
     """Deserialize the minutiae list from a stored template dict."""
-    return template_dict.get("minutiae", [])
+    # "data" was used as the key in early /process-fingerprint responses; support both
+    return template_dict.get("minutiae") or template_dict.get("data", [])
 
 
 # ---------------------------------------------------------------------------
@@ -217,15 +220,26 @@ def _count_matches(
 
 
 def _normalize_to_centroid(minutiae: list[dict]) -> list[dict]:
-    """Translate minutiae set so its centroid is at the origin."""
+    """
+    Translate minutiae to centroid and scale to unit RMS displacement.
+
+    Scale normalisation removes the effect of the finger being held at
+    different distances from the camera between enrollment and verification.
+    Without it, score is always 0 when captures differ in zoom level.
+    """
     if not minutiae:
         return minutiae
     cx = sum(m["x"] for m in minutiae) / len(minutiae)
     cy = sum(m["y"] for m in minutiae) / len(minutiae)
-    return [
-        {**m, "x": m["x"] - cx, "y": m["y"] - cy}
-        for m in minutiae
-    ]
+    centered = [{**m, "x": m["x"] - cx, "y": m["y"] - cy} for m in minutiae]
+
+    rms = math.sqrt(
+        sum(m["x"] ** 2 + m["y"] ** 2 for m in centered) / len(centered)
+    )
+    if rms < 1.0:
+        return centered
+
+    return [{**m, "x": m["x"] / rms, "y": m["y"] / rms} for m in centered]
 
 
 def match_minutiae(probe: list[dict], candidate: list[dict]) -> float:

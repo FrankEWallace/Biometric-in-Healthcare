@@ -7,7 +7,7 @@ import '../../services/face_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import 'liveness_camera_screen.dart';
 
 /// Enroll a face template for a patient.
 ///
@@ -68,13 +68,7 @@ class _FaceEnrollScreenState extends State<FaceEnrollScreen> {
 
     final XFile? result = await Navigator.push<XFile?>(
       context,
-      MaterialPageRoute(
-        builder: (_) => const CameraScreen(
-          title: 'Enroll Face',
-          showFaceOverlay: true,
-          returnImageOnly: true,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const LivenessCameraScreen()),
     );
 
     if (result != null && mounted) {

@@ -23,12 +23,26 @@ class PatientController extends Controller
     ) {}
 
     /**
-     * GET /api/patients?page=1&per_page=20
+     * GET /api/patients?search=Ali&page=1&per_page=20
+     *
+     * Optional ?search= matches full_name, hospital_patient_id, or nida
+     * (prefix match, case-insensitive). Returns at most per_page results.
      */
     public function index(Request $request): JsonResponse
     {
-        $patients = Patient::where('hospital_id', $request->user()->hospital_id)
-            ->where('is_active', true)
+        $query = Patient::where('hospital_id', $request->user()->hospital_id)
+            ->where('is_active', true);
+
+        if ($search = trim((string) $request->query('search', ''))) {
+            $like = $search . '%';
+            $query->where(function ($q) use ($like) {
+                $q->where('full_name', 'like', $like)
+                  ->orWhere('hospital_patient_id', 'like', $like)
+                  ->orWhere('nida', 'like', $like);
+            });
+        }
+
+        $patients = $query->orderBy('full_name')
             ->paginate($request->integer('per_page', 20));
 
         return response()->json($patients);

@@ -268,6 +268,12 @@ class VisitService
         }
 
         try {
+            // Passive liveness gate — reject spoofed images before embedding
+            $liveness = $this->face->liveness($base64Image);
+            if (! ($liveness['is_live'] ?? false)) {
+                return ['matched' => false, 'score' => 0.0];
+            }
+
             $probe      = $this->face->process($base64Image);
             $candidates = [['patient_id' => $patient->id, 'embedding' => $faceTemplate->getEmbedding()]];
             $result     = $this->face->match($probe, $candidates);

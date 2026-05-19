@@ -50,7 +50,8 @@ class _NurseDashboardState extends State<NurseDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final user = context.read<AuthProvider>().user!;
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return const SizedBox.shrink();
     final cs   = Theme.of(context).colorScheme;
 
     return Scaffold(

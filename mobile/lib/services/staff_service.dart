@@ -7,7 +7,7 @@ class StaffException implements Exception {
 }
 
 class StaffService {
-  static const String _baseUrl = 'http://localhost:8000/api';
+  static const String _baseUrl = 'http://192.168.100.144:8000/api';
 
   Future<List<Map<String, dynamic>>> getStaff({required String token}) async {
     final res = await http.get(
