@@ -20,10 +20,11 @@ description: How the three system components communicate
 │         │                                    │                 │
 │    GPS + WiFi                      Internal HTTP (port 5001)   │
 │    geofence                                  │                 │
-│                                   ┌──────────▼───────────────┐ │
-│                                   │  Python Fingerprint      │ │
+│   auto-trigger                    ┌──────────▼───────────────┐ │
+│   quality ring                    │  Python Biometric        │ │
 │                                   │  Service (FastAPI)       │ │
-│                                   │  OpenCV · ORB · BRIEF   │ │
+│                                   │  OpenCV · ORB · FAISS   │ │
+│                                   │  InsightFace · Liveness │ │
 │                                   └──────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -65,7 +66,7 @@ JSON response → Flutter displays result screen
 
 ```
 hospitals
-  id, name, address, wifi_ssid, lat, lng, radius_meters
+  id, name, address, wifi_ssid, lat, lng, radius_meters, face_recognition_enabled
 
 users (staff)
   id, hospital_id, name, username, email, role, is_active
@@ -79,8 +80,14 @@ fingerprints
   finger_position, quality_score, is_primary, is_active,
   failed_attempts, locked_at
 
+face_templates
+  id, patient_id, hospital_id, enrolled_by (user_id),
+  template (512-dim embedding, AES-256 at rest),
+  quality_score, created_at
+  — oldest row auto-evicted when per-patient cap is reached
+
 verification_logs
-  id, patient_id, hospital_id, staff_id, verdict, score, ip_address
+  id, patient_id, hospital_id, staff_id, verdict, score, modality (fingerprint|face), ip_address
 
 audit_logs
   id, staff_id, hospital_id, action, patient_id, ip_address, user_agent, meta (JSON)
@@ -99,6 +106,9 @@ audit_logs
 | Enroll fingerprint | ✓ | ✓ | | ✓ |
 | Verify fingerprint | | | | ✓ |
 | Unlock fingerprint | ✓ | ✓ | | |
+| Enroll face | ✓ | ✓ | | ✓ |
+| Identify by face | | | | ✓ |
+| Confirm manual face review | | | | ✓ |
 | Manage users | ✓ | ✓ | | |
 | View audit logs | ✓ | ✓ | ✓ | |
 | Manage hospitals | ✓ | | | |

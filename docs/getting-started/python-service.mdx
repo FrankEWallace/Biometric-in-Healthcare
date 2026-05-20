@@ -29,6 +29,7 @@ Core dependencies:
 | `uvicorn` | ASGI server |
 | `opencv-python` | Image preprocessing (CLAHE, Gabor, morphology) |
 | `numpy` | Array operations |
+| `faiss-cpu` | FAISS face index (enroll, identify, rebuild) |
 | `pydantic` | Request/response validation |
 
 ## 3. Run the service
@@ -60,15 +61,21 @@ Swagger UI and ReDoc are available during development:
 ```
 python-service/
 ├── run.py                          ← entry point (uvicorn launcher)
+├── quarantine/                     ← corrupt FAISS index backups (auto-created)
 └── app/
     ├── main.py                     ← FastAPI app, router registration
     ├── routes/
     │   ├── health.py               ← GET /health
-    │   └── fingerprint.py          ← POST /process, /match, /process-fingerprint, /match-fingerprint
+    │   ├── fingerprint.py          ← POST /process, /match, /process-fingerprint, /match-fingerprint
+    │   └── face.py                 ← POST /face/process, /face/match, /face/enroll, /face/identify
     └── services/
         ├── processor.py            ← build_template(), match_templates()
         ├── image_processor.py      ← preprocess_fingerprint() pipeline
-        └── feature_extractor.py   ← extract_features(), match_features()
+        ├── feature_extractor.py    ← extract_features(), match_features()
+        ├── faiss_service.py        ← FAISS index (enroll, identify with retry, rebuild, quarantine)
+        ├── liveness_service.py     ← anti-spoofing checks (env-configurable thresholds)
+        ├── minutiae_service.py     ← crossing-number minutiae algorithm
+        └── sourceafis_service.py   ← template extraction/matching API (wraps minutiae_service)
 ```
 
 ## Processing pipeline
