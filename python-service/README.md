@@ -87,14 +87,17 @@ python-service/
 │   ├── main.py              FastAPI app instance and router registration
 │   ├── routes/
 │   │   ├── fingerprint.py   Fingerprint processing and matching endpoints
-│   │   ├── face.py          Face detection and embedding endpoints
+│   │   ├── face.py          Face detection, embedding, and liveness endpoints
 │   │   └── health.py        Health check endpoint
 │   └── services/
 │       ├── image_processor.py    Preprocessing pipeline (grayscale → skeleton)
 │       ├── feature_extractor.py  ORB keypoint detection and BFMatcher
 │       ├── minutiae_service.py   Crossing-number minutiae algorithm
 │       ├── sourceafis_service.py Template extraction/matching API (wraps minutiae_service)
+│       ├── faiss_service.py      FAISS index management (enroll, identify, rebuild, quarantine)
+│       ├── liveness_service.py   Anti-spoofing checks (Moiré, texture, env-configurable thresholds)
 │       └── processor.py          Utility helpers
+├── quarantine/              Auto-created; holds backups of corrupted FAISS index files
 ├── requirements.txt
 └── run.py                   Entry point
 ```
@@ -304,9 +307,31 @@ These defaults are conservative starting points. Adjust after measuring false ac
 
 ---
 
+## FAISS Index Safety
+
+`faiss_service.py` manages the FAISS index used for face identification:
+
+- **Embedding validation** — `EnrollRequest`, `IdentifyRequest`, and `RebuildItem` all enforce a 512-dimension constraint. Malformed embeddings are rejected before they can corrupt the index.
+- **Retry on identify** — `identify()` doubles its candidate fetch window on each retry until at least `top_k` distinct patients are found, handling sparse or near-empty indexes gracefully.
+- **Quarantine on corruption** — If the index file cannot be loaded, the corrupt files are moved to `quarantine/` with a timestamp suffix instead of being silently discarded. This preserves evidence for debugging.
+- **Restrictive file permissions** — After every write, index and metadata files are set to `0o640` (owner read/write, group read, no others).
+
+## Liveness Thresholds
+
+`liveness_service.py` thresholds are configurable via environment variables so they can be tuned per deployment without code changes:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LIVENESS_MOIRE_THRESHOLD` | *(service default)* | Moiré pattern detection sensitivity |
+| `LIVENESS_TEXTURE_THRESHOLD` | *(service default)* | Texture liveness score cutoff |
+
+Set these in the shell or in a `.env` file loaded before starting the service.
+
+---
+
 ## Production Notes
 
 - Bind to `127.0.0.1` — this service has no authentication and must not be internet-accessible.
 - Set `reload=False` in `run.py` (already the default) in production.
-- The face embedding (LBP histogram) is lightweight and suitable for MVP use. Swap `_extract_embedding()` in `face.py` for DeepFace or InsightFace embeddings to improve accuracy when those dependencies become available.
 - Raw fingerprint images are never persisted here. Only the template dict (minutiae positions and orientations) leaves the service and is stored by Laravel — encrypted via Laravel `Crypt`.
+- Raw face images are also not persisted. Only the 512-dim embedding is stored.

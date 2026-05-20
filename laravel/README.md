@@ -144,6 +144,14 @@ All endpoints are prefixed with `/api` and require a Sanctum bearer token unless
 | POST | `/fingerprint/verify` | Direct patient verification |
 | POST | `/fingerprint/{id}/unlock` | Unlock locked fingerprint record |
 
+### Face
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/face/enroll` | Enroll a face embedding for a patient |
+| POST | `/face/identify` | Identify a patient by face via FAISS search |
+| POST | `/face/verify-confirm` | Record staff manual confirmation of a `needs_review` result (full audit trail) |
+
 ### Verification
 
 | Method | Endpoint | Description |
@@ -178,18 +186,24 @@ All endpoints are prefixed with `/api` and require a Sanctum bearer token unless
 | `users` | Staff accounts |
 | `patients` | Demographic records |
 | `fingerprints` | ORB feature templates linked to patients |
+| `face_templates` | Face embeddings linked to patients (max per patient enforced, oldest evicted) |
 | `verification_logs` | Every identification scan |
 | `patient_edit_requests` | Nurse-submitted demographic change requests |
 | `audit_logs` | Immutable action audit trail |
+
+> **Migration note**: A migration (`migrate_finger_position_legacy_values`) converts legacy `right_hand`/`left_hand` values in `finger_position` to canonical `right_index`/`left_index`. Run `php artisan migrate` to apply it on existing databases.
 
 ---
 
 ## Security Notes
 
-- Fingerprint **templates** are stored, not raw images (ORB descriptors via Python service).
+- Fingerprint and face **templates** are stored, not raw images.
 - All inputs validated via Laravel Form Requests before reaching business logic.
 - Failed fingerprint matches beyond the threshold automatically lock the record.
 - `AuditLogService` records actor, action, and affected resource for all sensitive operations.
+- Face enrollment uses a transaction that persists the new `FaceTemplate` row **before** evicting the oldest — prevents DB/FAISS desync if the process crashes mid-write.
+- FAISS calls inside the enrollment transaction are wrapped in try-catch so the DB rolls back if the Python service fails.
+- `FaceTemplate` decryption failures during index rebuilds are logged rather than silently skipped.
 - In production, serve over HTTPS and bind the Python microservice to `127.0.0.1` only.
 
 ---
