@@ -350,8 +350,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            onPressed: () {
-              context.read<AuthProvider>().logout();
+            onPressed: () async {
+              await context.read<AuthProvider>().logout();
+              if (!context.mounted) return;
               Navigator.pop(context);
               Navigator.pushNamedAndRemoveUntil(
                   context, '/login', (_) => false);
