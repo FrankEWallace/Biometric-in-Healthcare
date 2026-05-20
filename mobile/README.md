@@ -49,12 +49,17 @@ For physical device testing, the app must reach the Laravel API over the network
 
 ### API Base URL
 
-All HTTP calls go through the service classes in `lib/services/`. Find and update the base URL constant to point at your Laravel server:
+The base URL is centralised in `lib/config/app_config.dart` and set at build time via `--dart-define`:
 
-```dart
-// Example — replace with the actual host
-static const String baseUrl = 'http://192.168.1.100:8000/api';
+```bash
+# Development (uses the default 192.168.100.144:8000 if not specified)
+flutter run --dart-define=API_BASE_URL=http://192.168.1.100:8000/api
+
+# Production build
+flutter build apk --dart-define=API_BASE_URL=https://api.hospital.tz/api
 ```
+
+Do not edit service files directly — `AppConfig.baseUrl` is the single source of truth for all six service classes.
 
 ### Geofencing
 
@@ -76,7 +81,14 @@ Edit `lib/services/network_service.dart` to list the hospital's WiFi SSID(s):
 static const List<String> allowedSsids = ['Hospital_WiFi'];
 ```
 
-A `DEV BYPASS` is also active here — remove before production.
+The WiFi check bypass is controlled by a build flag — not `kDebugMode`:
+
+```bash
+flutter run --dart-define=BYPASS_WIFI=true   # dev only
+flutter build apk                             # bypass off by default in release
+```
+
+Remove `--dart-define=BYPASS_WIFI=true` before any production build.
 
 ---
 
@@ -99,6 +111,8 @@ shared_preferences: ^2.3.4 Persistent local storage (auth token, settings)
 ```
 mobile/lib/
 ├── main.dart                     App entry point, provider setup, routing
+├── config/
+│   └── app_config.dart           Centralised build-time config (API base URL, feature flags)
 ├── models/
 │   ├── patient.dart              Patient data model
 │   ├── user.dart                 Staff user model
@@ -188,10 +202,12 @@ Staff authenticate with email and password. The returned Sanctum token is stored
 The nurse fills a registration form, then is directed to `FingerprintCaptureScreen` to capture the patient's fingerprint via the device camera. The image is sent to the Laravel `/patients/{id}/enroll` endpoint, which forwards it to the Python service for template extraction. The resulting template is stored in the database — not the raw image.
 
 ### Fingerprint Verification
-`VerificationScreen` opens the camera and sends the captured image to `/api/verify`. Laravel calls the Python service to extract a probe template, matches it against all stored templates for the hospital, and returns the identified patient or a no-match result. The result is displayed on `ResultScreen`.
+`FingerprintLivenessCameraScreen` streams frames continuously via `startImageStream()`. Once three consecutive frames pass a sharpness quality gate, a six-frame burst is automatically captured and submitted — no manual button press required. The `FingerprintOverlay` widget displays a live quality ring that shifts red → amber → green as the sharpness signal improves. On iOS, the quality calculation reads BGRA8888 luma from the R/G/B channels instead of the YUV420 Y-plane used on Android.
+
+After capture, Laravel calls the Python service to extract a probe template, matches it against all stored templates for the hospital, and returns the identified patient or a no-match result. The result is displayed on `ResultScreen`.
 
 ### Face Enrollment and Verification
-`FaceEnrollScreen` and `FaceVerificationScreen` follow the same flow using the `/face` endpoints — face detection, LBP embedding extraction, and cosine similarity matching.
+`FaceEnrollScreen` and `FaceVerificationScreen` follow the same flow using the `/face` endpoints — face detection, embedding extraction, and FAISS similarity search. When the server returns `needs_review`, `FaceVerificationScreen` calls `confirmManualReview()` to create an audit trail entry before navigating, ensuring every manual review decision is logged.
 
 ### Visit Lifecycle (Clerk flow)
 Clerks search for patients (`PatientSearchScreen`), initiate visits (`ClerkScanScreen`), and progress them through clinical stages (`StageQueueScreen`, `StageVerifyScreen`). Each stage triggers a fingerprint or face verification before the patient advances.
@@ -278,10 +294,11 @@ flutter build ios --release
 ```
 
 Before building for production:
-1. Remove both `DEV BYPASS` returns in `location_service.dart` and `network_service.dart`.
+1. Remove the `DEV BYPASS` return in `location_service.dart`.
 2. Set the correct hospital GPS coordinates and allowed radius in `LocationService`.
 3. Set the correct WiFi SSID(s) in `NetworkService`.
-4. Update `baseUrl` in all service classes to the production API domain (HTTPS).
+4. Do **not** pass `--dart-define=BYPASS_WIFI=true` to the build command.
+5. Pass `--dart-define=API_BASE_URL=https://api.hospital.tz/api` with the production HTTPS domain.
 
 ---
 

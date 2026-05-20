@@ -8,13 +8,15 @@ description: Security model, threat mitigations, and operational guidelines
 ## Biometric data protection
 
 <Warning>
-  Raw fingerprint images are **never** stored on the server. Only the ORB feature template (keypoints + BRIEF descriptors as JSON) is persisted, and it is encrypted at rest.
+  Raw fingerprint and face images are **never** stored on the server. Only extracted templates (ORB descriptors for fingerprints; 512-dim embeddings for faces) are persisted, and both are encrypted at rest.
 </Warning>
 
 | Data | Storage | Encryption |
 |---|---|---|
 | Fingerprint image | Never stored | N/A |
+| Face image | Never stored | N/A |
 | ORB feature template | `fingerprints.template` (MySQL JSON column) | AES-256 at rest |
+| Face embedding (512-dim) | `face_templates.template` (MySQL JSON column) | AES-256 at rest |
 | Sanctum API token | `personal_access_tokens` (hashed) | SHA-256 hash |
 | Staff passwords | `users.password` | bcrypt |
 
@@ -42,13 +44,23 @@ To prevent brute-force matching attacks:
 - Only `admin` or `super_admin` can unlock a record via `POST /api/fingerprint/{id}/unlock`
 - A successful MATCH resets the counter
 
+## FAISS index integrity
+
+The FAISS face index is protected against corruption at multiple levels:
+
+- **Embedding validation** — `EnrollRequest`, `IdentifyRequest`, and `RebuildItem` all enforce a 512-dimension constraint. Malformed vectors are rejected before they can reach the index.
+- **Quarantine on corruption** — If the index file cannot be loaded at startup or rebuild time, the corrupt files are moved to `quarantine/` with a timestamp suffix rather than being silently discarded.
+- **Restrictive file permissions** — Index and metadata files are set to `0o640` after every write.
+- **Transactional enrollment** — The `face_templates` DB row is inserted **before** the oldest row is evicted. FAISS calls are wrapped inside the Laravel DB transaction so a Python-side failure rolls back the database, preventing DB/FAISS desync.
+
 ## Geofencing (mobile)
 
 The Flutter app enforces location restrictions before any capture screen is accessible:
 
 1. **GPS check** — device coordinates must be within `hospital.radius_meters` of the hospital's `lat/lng`
 2. **WiFi SSID check** — device must be connected to the hospital's registered SSID
-3. Both checks are re-validated at the backend via IP allowlisting (configurable)
+3. The WiFi bypass is controlled by `--dart-define=BYPASS_WIFI=true` at build time — it is **not** tied to `kDebugMode`. Release builds have the bypass off by default.
+4. Both checks are re-validated at the backend via IP allowlisting (configurable)
 
 ## Security headers
 
@@ -76,6 +88,9 @@ Every sensitive action is recorded in `audit_logs`:
 | `fingerprint_no_match` | Verification returned NO MATCH |
 | `fingerprint_lock` | Record locked after 5 failures |
 | `fingerprint_unlock` | Admin unlocked a record |
+| `face_enroll` | Face embedding stored for a patient |
+| `face_identify` | Hospital-wide face identification scan |
+| `face_verify_confirm` | Staff manually confirmed a `needs_review` face result |
 
 ## Input validation
 
@@ -91,4 +106,8 @@ Every sensitive action is recorded in `audit_logs`:
 - [ ] HTTPS enforced on the Laravel host (nginx / Caddy with valid TLS cert)
 - [ ] MySQL user has only `SELECT`, `INSERT`, `UPDATE`, `DELETE` (no `DROP`, `CREATE`)
 - [ ] Python service is NOT exposed to the public internet (firewall or Docker network isolation)
+- [ ] Python service bound to `127.0.0.1` in `run.py` (not `0.0.0.0`)
 - [ ] Sanctum `SANCTUM_STATEFUL_DOMAINS` lists only the admin web dashboard domain
+- [ ] Flutter build does **not** include `--dart-define=BYPASS_WIFI=true`
+- [ ] `--dart-define=API_BASE_URL=` points to the production HTTPS domain
+- [ ] Liveness env vars (`LIVENESS_MOIRE_THRESHOLD`, etc.) reviewed and set for the deployment environment

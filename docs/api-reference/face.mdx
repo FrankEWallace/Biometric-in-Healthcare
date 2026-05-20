@@ -66,6 +66,8 @@ Enroll a face template for a patient. Accepts a base64-encoded face image, extra
 
 <Note>
   Quality score is in [0, 1]. Captures below **0.20** are rejected. Ask the patient to face the camera directly in good lighting and avoid face coverings.
+
+  When a patient reaches the per-patient face template cap, the oldest `face_templates` row is automatically evicted **after** the new row is safely inserted. This preserves at least one valid template at all times, even if the process crashes during enrollment.
 </Note>
 
 ---
@@ -141,6 +143,51 @@ The match threshold is **0.75** cosine similarity (defined in `FaceService::MATC
 **Verification log**
 
 Every call writes a row to `verification_logs` with `modality = 'face'`. This means face and fingerprint scans are searchable and auditable through the same `GET /api/verify/logs` endpoint.
+
+---
+
+## POST /api/face/verify-confirm
+
+Record a staff member's manual confirmation of a `needs_review` face identification result. Every manual review decision must be confirmed through this endpoint before the Flutter app navigates to the result screen — this creates an immutable audit trail entry for the action.
+
+**Roles:** nurse — **Rate limit:** 30 req / min
+
+**Request** — `application/json`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `log_id` | integer | Yes | `log_id` returned by `POST /api/face/verify` |
+| `decision` | string | Yes | `confirmed_match` or `confirmed_no_match` |
+| `notes` | string | No | Optional freetext reason for the decision |
+
+**Response 200**
+
+```json
+{
+  "message": "Manual confirmation recorded.",
+  "audit_log_id": 314
+}
+```
+
+**Response 404 — log not found or belongs to a different hospital**
+
+```json
+{
+  "error": "Verification log not found."
+}
+```
+
+**Response 422 — invalid decision value**
+
+```json
+{
+  "error": "Decision must be confirmed_match or confirmed_no_match."
+}
+```
+
+<Note>
+  `FaceVerificationScreen` in the Flutter app calls this endpoint before navigating whenever the server returns `needs_review`. Skipping this call means the manual review is not audited.
+</Note>
 
 ---
 
