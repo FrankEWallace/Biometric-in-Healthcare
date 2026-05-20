@@ -12,6 +12,10 @@ The Python service is an internal microservice responsible for all biometric com
 1. **Image preprocessing** — convert raw camera captures into a clean ridge skeleton
 2. **Feature extraction** — run ORB to produce keypoints + BRIEF descriptors
 3. **Template matching** — BFMatcher with Lowe ratio test to score two templates
+4. **Face embedding** — extract 512-dim embeddings for face enrollment and identification
+5. **FAISS face index** — enroll embeddings into a FAISS index; identify with retry until `top_k` distinct patients are found
+6. **Liveness detection** — anti-spoofing checks with env-configurable thresholds
+7. **Index integrity** — quarantine corrupt index files; enforce 512-dim validation on all requests
 
 ## Technology choices
 
@@ -21,6 +25,7 @@ The Python service is an internal microservice responsible for all biometric com
 | **OpenCV** | Industry-standard image processing (CLAHE, Gabor, morphology) |
 | **ORB** | Patent-free, fast binary feature descriptor suitable for embedded use |
 | **BRIEF** | Compact binary descriptor, efficient Hamming distance matching |
+| **FAISS** | Facebook AI Similarity Search — efficient approximate nearest-neighbour lookup for face embeddings |
 
 ## Quality scoring
 
@@ -51,3 +56,18 @@ score = (good_matches / total_keypoints) × 100
 - Score **< 20** → `NO MATCH`
 
 This threshold was tuned empirically for smartphone camera captures of fingers (not dedicated optical fingerprint scanners).
+
+## FAISS identify retry
+
+`faiss_service.identify()` doubles its candidate fetch window on each retry until at least `top_k` distinct patients are found. This handles sparse indexes (few enrolled patients) gracefully without returning empty results.
+
+## Liveness thresholds
+
+Anti-spoofing thresholds are configurable via environment variables — no code change needed to tune for a new deployment environment:
+
+| Variable | Description |
+|---|---|
+| `LIVENESS_MOIRE_THRESHOLD` | Moiré pattern detection sensitivity |
+| `LIVENESS_TEXTURE_THRESHOLD` | Texture-based liveness score cutoff |
+
+Set these before starting the service. Unset variables fall back to the service defaults.

@@ -56,13 +56,30 @@ All screens read from `AuthProvider` via `context.read<AuthProvider>()`.
 | Error | Red `#EF4444` |
 | Text primary | Gray-900 `#111827` |
 
+## Configuration
+
+All build-time configuration lives in `lib/config/app_config.dart` and is injected via `--dart-define` flags at build time:
+
+| Flag | Default | Description |
+|---|---|---|
+| `API_BASE_URL` | `http://192.168.100.144:8000/api` | Laravel API base URL |
+| `BYPASS_WIFI` | `false` | Skip WiFi SSID check (dev only — never use in release) |
+
+## Auto-trigger fingerprint capture
+
+`FingerprintLivenessCameraScreen` streams camera frames continuously via `startImageStream()`. It fires a six-frame burst automatically once three consecutive frames pass a sharpness quality gate — no manual button press required.
+
+- The `FingerprintOverlay` widget shows a live quality ring that animates red → amber → green as the sharpness signal improves.
+- On **iOS**, the stream format is BGRA8888 — luma is computed from the R/G/B channels. On **Android**, the Y-plane of YUV420 is used.
+- The manual Scan button is hidden while auto-trigger is active.
+
 ## Role-aware UI
 
 The `HomeDashboard` conditionally renders cards based on the logged-in user's role:
 
 | Role | Available actions |
 |---|---|
-| nurse | Verify patient, Register patient, Submit edit request |
+| nurse | Verify patient, Register patient, Enroll face, Submit edit request |
 | doctor | View patients, View EHR |
-| admin | All nurse actions + user management |
+| admin | All nurse actions + user management + unlock fingerprint records |
 | super_admin | All admin actions + hospital management |

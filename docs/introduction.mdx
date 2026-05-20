@@ -14,10 +14,13 @@ A hospital-grade, multi-tenant system that registers and verifies patients using
     Nurses capture a fingerprint image with the mobile app. The image is processed by the Python service, and the ORB feature template is stored securely in the database.
   </Card>
   <Card title="Patient Verification" icon="fingerprint">
-    A live fingerprint capture is matched against stored templates in real time. A MATCH or NO MATCH verdict is returned within seconds.
+    A live fingerprint capture is matched against stored templates in real time. Auto-trigger fires the capture automatically once consecutive frames pass a sharpness gate — no manual button press required.
+  </Card>
+  <Card title="Facial Recognition" icon="face-viewfinder">
+    Optional face identification using FAISS-indexed embeddings. A probe face is scored against every enrolled template at the hospital; manual review decisions are recorded in the audit trail via the confirm endpoint.
   </Card>
   <Card title="Access Control" icon="location-dot">
-    GPS geofencing and WiFi SSID restrictions prevent the app from operating outside hospital premises.
+    GPS geofencing and WiFi SSID restrictions prevent the app from operating outside hospital premises. The WiFi bypass is a build-time flag, not a debug switch.
   </Card>
   <Card title="Role-Based Access" icon="shield-halved">
     Four roles — super_admin, admin, doctor, nurse — each with narrowly scoped permissions enforced at the API layer.
@@ -28,9 +31,9 @@ A hospital-grade, multi-tenant system that registers and verifies patients using
 
 | Component | Technology | Purpose |
 |---|---|---|
-| **Laravel Backend** | Laravel 11, MySQL, Sanctum | REST API, RBAC, audit logs |
-| **Flutter Mobile** | Flutter, Provider | Fingerprint capture UI, geofencing |
-| **Python Service** | FastAPI, OpenCV, ORB | Image preprocessing, feature extraction, matching |
+| **Laravel Backend** | Laravel 11, MySQL, Sanctum | REST API, RBAC, audit logs, face verify-confirm |
+| **Flutter Mobile** | Flutter, Provider | Auto-trigger capture, geofencing, `--dart-define` config |
+| **Python Service** | FastAPI, OpenCV, ORB, FAISS | Fingerprint processing, face embeddings, FAISS search, liveness |
 
 ## Key design principles
 

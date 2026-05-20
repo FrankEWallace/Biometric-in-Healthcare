@@ -211,7 +211,7 @@ Extract a face embedding from a base64-encoded image. Used by Laravel during bot
 }
 ```
 
-The embedding is a flat float array produced by a grid-based LBP histogram (8×8 grid × 256 bins = 16 384 values). Laravel encrypts this with AES-256 before storing it in `face_templates.template`.
+The embedding is a flat 512-dim float array. Laravel encrypts this with AES-256 before storing it in `face_templates.template`.
 
 **Errors**
 
@@ -220,17 +220,70 @@ The embedding is a flat float array produced by a grid-based LBP histogram (8×8
 | 400 | `image` is empty or invalid base64 |
 | 400 | Image bytes could not be decoded as JPEG/PNG |
 
-<Note>
-  **Upgrading the face algorithm.** The current implementation uses OpenCV Haar cascade detection + LBP histogram embedding — no extra dependencies, good for demos. To upgrade to a production-grade model:
+---
 
-  1. `pip install deepface` (or `pip install insightface`) and add to `requirements.txt`.
-  2. In `app/routes/face.py`, replace `_detect_face()` with your library's detection call.
-  3. Replace `_extract_embedding()` with the library's embedding extraction (e.g. `DeepFace.represent(img, model_name="ArcFace")`).
-  4. Re-tune `FaceService::MATCH_THRESHOLD` in Laravel (`app/Services/FaceService.php`) — DeepFace cosine scores sit in a different range than LBP cosine scores; start around **0.40** for ArcFace and adjust from there.
-  5. Re-enroll all patients, as old LBP embeddings are not compatible with the new model.
+## POST /face/enroll
 
-  The Laravel side (controller, model, routes, DB) requires no changes — it is fully algorithm-agnostic.
-</Note>
+Add a 512-dim face embedding to the FAISS index for a specific patient. Called by Laravel's `FaceController` after the embedding is extracted and stored in `face_templates`.
+
+**Request body**
+
+```json
+{
+  "patient_id": 42,
+  "embedding": [0.0023, 0.1145, ...]
+}
+```
+
+Embedding must be exactly **512 dimensions**. Requests with a different length are rejected with HTTP 422 to prevent silent FAISS index corruption.
+
+**Response 200**
+
+```json
+{
+  "enrolled": true,
+  "patient_id": 42
+}
+```
+
+---
+
+## POST /face/identify
+
+Search the FAISS index for the closest match to a probe embedding. Retries with a doubling fetch window until at least `top_k` distinct patients are returned.
+
+**Request body**
+
+```json
+{
+  "embedding": [0.0023, 0.1145, ...],
+  "top_k": 1
+}
+```
+
+**Response 200 — match found**
+
+```json
+{
+  "patient_id": 42,
+  "score": 0.8412
+}
+```
+
+**Response 200 — no match / empty index**
+
+```json
+{
+  "patient_id": null,
+  "score": 0.0
+}
+```
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 422 | `embedding` is not exactly 512 dimensions |
 
 ---
 
