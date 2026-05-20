@@ -55,9 +55,10 @@ Core capabilities:
 ```
 ┌─────────────────────────┐
 │   Flutter Mobile App    │  Staff-facing UI (Android / iOS)
-│  - Camera capture       │
+│  - Auto-trigger capture │
+│  - Live quality ring    │
 │  - GPS + WiFi gate      │
-│  - Provider state       │
+│  - --dart-define config │
 └────────────┬────────────┘
              │ HTTPS / JSON
              ▼
@@ -67,14 +68,16 @@ Core capabilities:
 │  - Role middleware       │
 │  - Hospital isolation   │
 │  - Audit log service    │
+│  - Face verify-confirm  │
 └────────────┬────────────┘
              │ Internal HTTP (localhost:5001)
              ▼
 ┌─────────────────────────┐
-│  FastAPI Microservice   │  Fingerprint processing (not public-facing)
-│  - OpenCV ORB extractor │
-│  - Template matching    │
-│  - Quality scoring      │
+│  FastAPI Microservice   │  Biometric processing (not public-facing)
+│  - OpenCV fingerprint   │
+│  - FAISS face search    │
+│  - Liveness detection   │
+│  - Index quarantine     │
 └─────────────────────────┘
              │
              ▼
@@ -114,10 +117,11 @@ BiH app/
 │       ├── theme/            Application theme
 │       └── widgets/          Reusable widget components
 │
-└── python-service/           FastAPI fingerprint microservice
+└── python-service/           FastAPI biometric microservice
     ├── app/
-    │   ├── routes/           HTTP route handlers (health, fingerprint)
-    │   └── services/         OpenCV processing and feature extraction
+    │   ├── routes/           HTTP route handlers (health, fingerprint, face)
+    │   └── services/         OpenCV processing, FAISS index, liveness detection
+    ├── quarantine/           Corrupt FAISS index backups (auto-created)
     ├── requirements.txt
     └── run.py
 ```
@@ -191,11 +195,11 @@ cd mobile
 # Fetch dependencies
 flutter pub get
 
-# Run on a connected device or emulator
-flutter run
+# Run on a connected device or emulator (override API URL if needed)
+flutter run --dart-define=API_BASE_URL=http://192.168.1.100:8000/api
 ```
 
-Ensure the `API_BASE_URL` in the mobile service configuration points to your Laravel server's address. For physical device testing, use the host machine's LAN IP rather than `localhost`.
+The API base URL and WiFi bypass are controlled by `--dart-define` flags — not hardcoded in service files. See `lib/config/app_config.dart` and `mobile/README.md` for details.
 
 ---
 
@@ -236,6 +240,7 @@ The database models the following primary entities:
 | `users` | Staff accounts with role and hospital assignment |
 | `patients` | Demographic records registered per hospital |
 | `fingerprints` | Processed ORB templates linked to patients; includes lock state |
+| `face_templates` | Face embeddings per patient; oldest evicted when per-patient cap is reached |
 | `verification_logs` | Timestamped record of every identification scan |
 | `patient_edit_requests` | Nurse-submitted requests for demographic corrections |
 | `audit_logs` | Immutable log of all sensitive system actions |
@@ -277,6 +282,14 @@ All API endpoints are prefixed with `/api`. Authentication uses Laravel Sanctum 
 | POST | `/api/fingerprint/register` | Enhanced enrollment pipeline | Nurse, Admin |
 | POST | `/api/fingerprint/verify` | Direct patient verification | Nurse |
 | POST | `/api/fingerprint/{id}/unlock` | Unlock locked record | Admin, Super Admin |
+
+### Face Pipeline
+
+| Method | Endpoint | Description | Minimum Role |
+|--------|----------|-------------|--------------|
+| POST | `/api/face/enroll` | Enroll face embedding for a patient | Nurse, Admin |
+| POST | `/api/face/identify` | Identify patient by face (FAISS search) | Nurse |
+| POST | `/api/face/verify-confirm` | Record manual staff confirmation with audit trail | Nurse |
 
 ### Verification
 
@@ -337,11 +350,13 @@ Client-side geofencing is a convenience control only. The Laravel backend indepe
 
 ## Security Considerations
 
-- **Fingerprint templates, not images** — The system stores ORB feature descriptors extracted by the Python service, not raw fingerprint photographs. This limits the exposure of biometric data.
+- **Biometric templates, not images** — The system stores ORB minutiae descriptors (fingerprint) and 512-dim embeddings (face), not raw photographs. This limits biometric data exposure.
 - **Token-based authentication** — Sanctum issues per-session tokens that are revoked on logout.
 - **Input validation** — All API inputs are validated using Laravel Form Requests before reaching business logic.
-- **Audit trail** — A dedicated `AuditLog` service records actor, action type, and affected resource for all sensitive operations.
+- **Audit trail** — A dedicated `AuditLog` service records actor, action type, and affected resource for all sensitive operations, including manual face review confirmations.
 - **Fingerprint locking** — Records that exceed a failed-match threshold are automatically locked and require administrator intervention to unlock.
+- **FAISS index integrity** — 512-dim embedding validation prevents silent index corruption; corrupted index files are quarantined with a timestamp backup rather than discarded.
+- **Transactional face enrollment** — The new face template row is persisted before the oldest is evicted, and FAISS calls are wrapped in the DB transaction so a Python-side failure rolls back the database.
 - **HTTPS** — The API must be served over HTTPS in production. The `.env` `APP_URL` and Sanctum `STATEFUL_DOMAINS` must reflect the production domain.
 
 ---
