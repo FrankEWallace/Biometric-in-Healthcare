@@ -53,10 +53,23 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  void logout() {
-    _authService.logout();
-    _user = null;
-    _status = AuthStatus.idle;
+  /// Attempts to restore a persisted session from disk.
+  /// Returns true if a saved token was found (skips login screen).
+  Future<bool> restoreSession() async {
+    final user = await _authService.restoreSession();
+    if (user != null) {
+      _user   = user;
+      _status = AuthStatus.authenticated;
+      notifyListeners();
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> logout() async {
+    await _authService.logout();
+    _user         = null;
+    _status       = AuthStatus.idle;
     _errorMessage = null;
     notifyListeners();
   }

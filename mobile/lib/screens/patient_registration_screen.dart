@@ -1,13 +1,16 @@
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/patient.dart';
 import '../providers/auth_provider.dart';
+import '../services/face_service.dart';
 import '../services/patient_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/custom_text_field.dart';
 import '../widgets/primary_button.dart';
 import 'camera_screen.dart';
+import 'face/liveness_camera_screen.dart';
 import 'result_screen.dart';
 
 // ── Finger scan steps (Selcom-style, sequential) ─────────────────────────────
@@ -47,7 +50,7 @@ class PatientRegistrationScreen extends StatefulWidget {
       _PatientRegistrationScreenState();
 }
 
-enum _RegistrationStep { form, creatingPatient, capturingFingerprint }
+enum _RegistrationStep { form, creatingPatient, capturingFingerprint, capturingFace }
 
 class _PatientRegistrationScreenState
     extends State<PatientRegistrationScreen> {
@@ -62,6 +65,8 @@ class _PatientRegistrationScreenState
   // State
   _RegistrationStep _step = _RegistrationStep.form;
   String? _apiError;
+  String? _faceError;
+  bool _faceEnrolling = false;
 
   // Multi-finger tracking
   PatientModel? _createdPatient;
@@ -148,22 +153,79 @@ class _PatientRegistrationScreenState
         setState(() => _currentFingerIndex = nextIndex);
         await _openCameraForCurrentFinger(patient);
       } else {
-        // All fingers captured — go to success screen
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ResultScreen(
-              isSuccess: true,
-              patientName: patient.fullName,
-              patientId: patient.displayId,
-              isRegistration: true,
-            ),
-          ),
-        );
+        // All fingers captured — move to face enrollment step
+        setState(() => _step = _RegistrationStep.capturingFace);
       }
     } else {
       // User cancelled — allow retry from the finger progress screen
       setState(() => _step = _RegistrationStep.capturingFingerprint);
+    }
+  }
+
+  // ── Step 3: capture face and enroll ──────────────────────────────────────
+
+  Future<void> _captureFace() async {
+    setState(() { _faceError = null; });
+
+    final XFile? file = await Navigator.push<XFile?>(
+      context,
+      MaterialPageRoute(builder: (_) => const LivenessCameraScreen()),
+    );
+
+    if (!mounted || file == null) return;
+
+    final token = context.read<AuthProvider>().user?.token ?? '';
+
+    setState(() => _faceEnrolling = true);
+
+    try {
+      await FaceService().enrollFace(
+        File(file.path),
+        token: token,
+        patientId: _createdPatient!.id.toString(),
+      );
+    } on FaceException catch (e) {
+      if (!mounted) return;
+      // Face recognition may be disabled for the hospital — treat as non-fatal
+      if (e.kind == FaceErrorKind.featureDisabled) {
+        _navigateToResult();
+        return;
+      }
+      setState(() { _faceError = _faceErrorMessage(e); _faceEnrolling = false; });
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() { _faceError = 'Face enrollment failed. You can skip and enroll later.'; _faceEnrolling = false; });
+      return;
+    }
+
+    if (!mounted) return;
+    _navigateToResult();
+  }
+
+  void _skipFaceEnroll() => _navigateToResult();
+
+  void _navigateToResult() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ResultScreen(
+          isSuccess: true,
+          patientName: _createdPatient!.fullName,
+          patientId: _createdPatient!.displayId,
+          isRegistration: true,
+        ),
+      ),
+    );
+  }
+
+  String _faceErrorMessage(FaceException e) {
+    switch (e.kind) {
+      case FaceErrorKind.network:          return 'No connection. Check your network and try again.';
+      case FaceErrorKind.noFaceDetected:   return 'No face detected. Look straight at the camera in good lighting.';
+      case FaceErrorKind.qualityTooLow:    return 'Image too blurry. Move to better lighting and retake.';
+      case FaceErrorKind.unauthorized:     return 'Session expired. Please log out and log in again.';
+      default:                             return e.message;
     }
   }
 
@@ -222,13 +284,24 @@ class _PatientRegistrationScreenState
       );
     }
 
+    if (_step == _RegistrationStep.capturingFace && _createdPatient != null) {
+      return _FaceCaptureView(
+        patient: _createdPatient!,
+        isEnrolling: _faceEnrolling,
+        error: _faceError,
+        onCapture: _captureFace,
+        onSkip: _skipFaceEnroll,
+        onDismissError: () => setState(() => _faceError = null),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _StepBar(
-            steps: const ['Patient Info', 'Fingerprint', 'Complete'],
+            steps: const ['Patient Info', 'Fingerprint', 'Face ID', 'Complete'],
             current: 0,
           ),
           const SizedBox(height: 28),
@@ -339,7 +412,7 @@ class _PatientRegistrationScreenState
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'After saving, you will photograph both hands (4 fingers each).',
+                    'After saving, you will photograph both hands (4 fingers each), then capture the patient\'s face.',
                     style: TextStyle(
                         color: AppColors.primary, fontSize: 13, height: 1.5),
                   ),
@@ -385,7 +458,7 @@ class _FingerProgressView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _StepBar(
-            steps: const ['Patient Info', 'Fingerprint', 'Complete'],
+            steps: const ['Patient Info', 'Fingerprint', 'Face ID', 'Complete'],
             current: 1,
           ),
           const SizedBox(height: 28),
@@ -527,6 +600,127 @@ class _FingerProgressView extends StatelessWidget {
             label: 'Photograph ${finger.label}',
             icon: Icons.camera_alt,
             onPressed: onRetry,
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Face capture step ─────────────────────────────────────────────────────────
+
+class _FaceCaptureView extends StatelessWidget {
+  final PatientModel patient;
+  final bool isEnrolling;
+  final String? error;
+  final VoidCallback onCapture;
+  final VoidCallback onSkip;
+  final VoidCallback onDismissError;
+
+  const _FaceCaptureView({
+    required this.patient,
+    required this.isEnrolling,
+    required this.onCapture,
+    required this.onSkip,
+    required this.onDismissError,
+    this.error,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isEnrolling) {
+      return const _LoadingView(message: 'Enrolling face template…');
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _StepBar(
+            steps: const ['Patient Info', 'Fingerprint', 'Face ID', 'Complete'],
+            current: 2,
+          ),
+          const SizedBox(height: 28),
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.secondary,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(children: [
+              const Icon(Icons.person, color: AppColors.primary, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '${patient.fullName}  ·  ${patient.displayId}',
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 28),
+
+          const Text(
+            'Face ID Enrollment',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Capture the patient\'s face for identity verification. The camera will guide you through a liveness check.',
+            style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.5),
+          ),
+          const SizedBox(height: 24),
+
+          if (error != null) ...[
+            _ErrorBanner(message: error!, onDismiss: onDismissError),
+            const SizedBox(height: 16),
+          ],
+
+          Container(
+            width: double.infinity,
+            height: 180,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F1923),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.3), width: 1.5),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.face_outlined, size: 52,
+                    color: AppColors.primary.withValues(alpha: 0.6)),
+                const SizedBox(height: 12),
+                const Text('Face not yet captured',
+                    style: TextStyle(color: Colors.white70, fontSize: 14)),
+              ],
+            ),
+          ),
+
+          const Spacer(),
+
+          PrimaryButton(
+            label: 'Open Camera',
+            icon: Icons.camera_alt,
+            onPressed: onCapture,
+          ),
+          const SizedBox(height: 12),
+          SecondaryButton(
+            label: 'Skip (Enroll Later)',
+            icon: Icons.skip_next,
+            onPressed: onSkip,
           ),
           const SizedBox(height: 16),
         ],

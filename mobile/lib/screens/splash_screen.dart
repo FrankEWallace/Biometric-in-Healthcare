@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import 'login_screen.dart';
+import 'shell/app_shell.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -29,17 +32,29 @@ class _SplashScreenState extends State<SplashScreen>
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _controller.forward();
-      Future.delayed(const Duration(seconds: 3), _navigate);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Run animation and session check concurrently; navigate when both finish.
+      bool hasSession = false;
+      try {
+        final results = await Future.wait([
+          _controller.forward().orCancel,
+          context.read<AuthProvider>().restoreSession(),
+        ]);
+        hasSession = results[1] as bool;
+      } catch (_) {
+        hasSession = false;
+      }
+      _navigate(hasSession);
     });
   }
 
-  void _navigate() {
+  void _navigate(bool hasSession) {
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      MaterialPageRoute(
+        builder: (_) => hasSession ? const AppShell() : const LoginScreen(),
+      ),
     );
   }
 
