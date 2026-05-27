@@ -1,9 +1,14 @@
 """
-Minutiae-based fingerprint template extraction and matching.
+Fingerprint template extraction and matching — SourceAFIS-compatible interface.
 
-`sourceafis` (the Java/Python port) requires Python ≤ 3.12 and is not
-available for Python 3.13+.  This module provides the same interface using
-a native OpenCV implementation of the crossing-number minutiae algorithm.
+SourceAFIS is a Java/.NET library (https://sourceafis.machinezoo.com/) with no
+official Python PyPI package.  This module exposes the same extract/match
+interface backed by our native OpenCV crossing-number minutiae algorithm.
+
+Pipeline summary:
+  image → orientation-guided Gabor enhancement (image_processor.py)
+        → crossing-number minutiae extraction
+        → centroid-normalised rotation-search matching
 
 See minutiae_service.py for the full algorithm documentation.
 """
