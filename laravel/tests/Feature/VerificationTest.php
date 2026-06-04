@@ -242,7 +242,7 @@ class VerificationTest extends TestCase
             ]);
             $mock->shouldReceive('match')->once()->andReturn([
                 'patient_id' => $fp->id,
-                'score'      => 0.90,   // well above threshold
+                'score'      => 90.0,   // well above threshold (0–100 scale)
             ]);
         });
 
@@ -278,7 +278,7 @@ class VerificationTest extends TestCase
             ]);
             $mock->shouldReceive('match')->once()->andReturn([
                 'patient_id' => $fp->id,
-                'score'      => 0.90,
+                'score'      => 90.0,
             ]);
         });
 
