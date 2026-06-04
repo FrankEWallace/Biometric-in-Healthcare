@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
+import 'package:image/image.dart' as img;
 
 // ── Error kind ────────────────────────────────────────────────────────────────
 
@@ -182,9 +184,7 @@ class FingerprintService {
       ..fields['finger_position'] = fingerPosition
       ..fields['is_primary']      = isPrimary ? '1' : '0';
 
-    request.files.add(
-      await http.MultipartFile.fromPath('fingerprint', image.path),
-    );
+    request.files.add(await _imageUploadPart(image));
 
     final streamed = await _send(request);
     final json     = await _parseJson(streamed);
@@ -222,9 +222,7 @@ class FingerprintService {
     if (gpsLongitude != null) request.fields['gps_longitude'] = gpsLongitude.toString();
     if (wifiSsid     != null) request.fields['wifi_ssid']     = wifiSsid;
 
-    request.files.add(
-      await http.MultipartFile.fromPath('fingerprint', image.path),
-    );
+    request.files.add(await _imageUploadPart(image));
 
     final streamed = await _send(request);
     final json     = await _parseJson(streamed);
@@ -316,6 +314,54 @@ class FingerprintService {
   }
 
   // ── Shared helpers ────────────────────────────────────────────────────────
+
+  /// Build the multipart part for a captured fingerprint image.
+  ///
+  /// The camera captures at high resolution and the raw JPEG can exceed the
+  /// server's PHP upload limit (`upload_max_filesize`), which makes the dev
+  /// server reset the connection mid-upload — surfacing to the user as a
+  /// generic "Could not reach the server". To avoid that we re-encode here:
+  /// downscale the longest edge to <= 1280 px (the processing pipeline
+  /// downsamples anyway, so ridge detail is preserved) and step the JPEG
+  /// quality down until the payload is comfortably under the limit.
+  ///
+  /// If the bytes can't be decoded we fall back to sending them unchanged.
+  Future<http.MultipartFile> _imageUploadPart(File image) async {
+    final raw = await image.readAsBytes();
+
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) {
+      return http.MultipartFile.fromBytes(
+        'fingerprint',
+        raw,
+        filename: 'fingerprint.jpg',
+        contentType: MediaType('image', 'jpeg'),
+      );
+    }
+
+    const maxEdge = 1280;
+    final resized = (decoded.width > maxEdge || decoded.height > maxEdge)
+        ? img.copyResize(
+            decoded,
+            width:  decoded.width >= decoded.height ? maxEdge : null,
+            height: decoded.height >  decoded.width  ? maxEdge : null,
+          )
+        : decoded;
+
+    var quality = 90;
+    var jpg = img.encodeJpg(resized, quality: quality);
+    while (jpg.length > 1500 * 1024 && quality > 60) {
+      quality -= 10;
+      jpg = img.encodeJpg(resized, quality: quality);
+    }
+
+    return http.MultipartFile.fromBytes(
+      'fingerprint',
+      jpg,
+      filename: 'fingerprint.jpg',
+      contentType: MediaType('image', 'jpeg'),
+    );
+  }
 
   /// Send a [MultipartRequest] and return the response.
   /// Distinguishes timeout, no-connection, and other transport errors.
