@@ -2,6 +2,7 @@ import 'dart:async' show TimeoutException;
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 import '../config/app_config.dart';
 
 // ── Error kinds ───────────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ class FaceService {
     required String token,
     required String patientId,
   }) async {
-    final base64Image = base64Encode(await image.readAsBytes());
+    final base64Image = await _compressedBase64(image);
     final uri = Uri.parse('$_baseUrl/face/enroll');
 
     final response = await _post(uri, token, {'image': base64Image, 'patient_id': int.parse(patientId)});
@@ -127,7 +128,7 @@ class FaceService {
     double? gpsLongitude,
     String? wifiSsid,
   }) async {
-    final base64Image = base64Encode(await image.readAsBytes());
+    final base64Image = await _compressedBase64(image);
     final uri = Uri.parse('$_baseUrl/face/verify');
 
     final body = <String, dynamic>{'image': base64Image};
@@ -163,6 +164,39 @@ class FaceService {
       final msg  = _message(json);
       throw FaceException(msg, statusCode: response.statusCode);
     }
+  }
+
+  /// Re-encode a captured image and return it as base64.
+  ///
+  /// The image is sent inside a JSON body, where base64 inflates the payload
+  /// by ~33%; a raw high-res capture can exceed the server's `post_max_size`
+  /// and make the dev server drop the connection ("Could not reach the
+  /// server"). We downscale the longest edge to <= 1280 px and step JPEG
+  /// quality down until the encoded bytes are comfortably small, then base64
+  /// the result. Falls back to the raw bytes if decoding fails.
+  Future<String> _compressedBase64(File image) async {
+    final raw = await image.readAsBytes();
+
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) return base64Encode(raw);
+
+    const maxEdge = 1280;
+    final resized = (decoded.width > maxEdge || decoded.height > maxEdge)
+        ? img.copyResize(
+            decoded,
+            width:  decoded.width >= decoded.height ? maxEdge : null,
+            height: decoded.height >  decoded.width  ? maxEdge : null,
+          )
+        : decoded;
+
+    var quality = 90;
+    var jpg = img.encodeJpg(resized, quality: quality);
+    while (jpg.length > 1500 * 1024 && quality > 60) {
+      quality -= 10;
+      jpg = img.encodeJpg(resized, quality: quality);
+    }
+
+    return base64Encode(jpg);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
