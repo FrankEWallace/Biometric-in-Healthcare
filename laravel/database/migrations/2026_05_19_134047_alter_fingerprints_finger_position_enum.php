@@ -7,6 +7,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         DB::statement("ALTER TABLE fingerprints MODIFY COLUMN finger_position ENUM(
             'right_thumb','right_index','right_middle','right_ring','right_little',
             'left_thumb','left_index','left_middle','left_ring','left_little',
@@ -16,6 +20,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         DB::statement("ALTER TABLE fingerprints MODIFY COLUMN finger_position ENUM(
             'right_thumb','right_index','right_middle','right_ring','right_little',
             'left_thumb','left_index','left_middle','left_ring','left_little'

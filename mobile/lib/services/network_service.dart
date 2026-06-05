@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:network_info_plus/network_info_plus.dart';
 
 /// WiFi-based access restriction service.
@@ -34,6 +35,11 @@ class NetworkService {
   /// out real hospital staff — change this policy before production if needed.
   Future<bool> isConnectedToHospitalWifi() async {
     if (_bypassWifi) return true;
+
+    // Web (Chrome) is a UI-demo target only and a browser can never read the
+    // WiFi SSID — and `Platform.isIOS` below is unsupported on web. Fail open
+    // so the dashboard's access checks don't hang on web.
+    if (kIsWeb) return true;
 
     String? ssid;
     try {

@@ -81,8 +81,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
               minimumSize: const Size(90, 42),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            onPressed: () {
-              context.read<AuthProvider>().logout();
+            onPressed: () async {
+              await context.read<AuthProvider>().logout();
+              if (!context.mounted) return;
               Navigator.pop(context);
               Navigator.pushReplacement(
                 context,

@@ -246,11 +246,16 @@ class VerificationController extends Controller
     /**
      * Load active fingerprints for a hospital directly by hospital_id
      * (no JOIN needed — hospital_id is denormalised onto fingerprints).
+     *
+     * Only gallery leads are loaded so 1:N identification stays
+     * one-template-per-finger — galleries of 3 are used for 1:1 verification
+     * only, avoiding FAR inflation and 3x match latency at hospital scale.
      */
     private function loadFingerprints(int $hospitalId, bool $primaryOnly): Collection
     {
         return Fingerprint::where('hospital_id', $hospitalId)
             ->where('is_active', true)
+            ->where('is_gallery_lead', true)
             ->when($primaryOnly, fn ($q) => $q->where('is_primary', true))
             ->with('patient:id,full_name,date_of_birth,nida,gender,phone')
             ->get();

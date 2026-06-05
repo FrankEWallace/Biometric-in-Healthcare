@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuditLogController;
+use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\Api\FingerprintController;
@@ -106,6 +107,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('register', [FingerprintController::class, 'register'])
              ->middleware(['role:nurse,admin', 'throttle:20,1']);
 
+        // Multi-capture gallery enrollment (up to 3 captures/finger) — nurse + admin
+        Route::post('enroll-gallery', [FingerprintController::class, 'enrollGallery'])
+             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+
         // Direct patient verification — nurse only
         Route::post('verify', [FingerprintController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
@@ -196,6 +201,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{override}/resolve',        [SupervisorOverrideController::class, 'resolve'])
              ->middleware('role:admin,doctor,nurse');
     });
+
+    // ── Hospitals ─────────────────────────────────────────────────────────────
+    // All roles: list active hospitals (used by Flutter for geofencing)
+    Route::get('/hospitals',            [HospitalController::class, 'index']);
+    Route::get('/hospitals/{hospital}', [HospitalController::class, 'show']);
+
+    // super_admin: full CRUD; admin: update own hospital GPS/WiFi only
+    Route::post('/hospitals',               [HospitalController::class, 'store'])
+         ->middleware('role:super_admin');
+    Route::put('/hospitals/{hospital}',     [HospitalController::class, 'update'])
+         ->middleware('role:super_admin,admin');
+    Route::delete('/hospitals/{hospital}',  [HospitalController::class, 'destroy'])
+         ->middleware('role:super_admin');
 
     // ── Audit Logs ────────────────────────────────────────────────────────────
     Route::get('/audit-logs', [AuditLogController::class, 'index'])
