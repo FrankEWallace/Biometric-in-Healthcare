@@ -87,6 +87,38 @@ class FingerprintRegisterResult {
   }
 }
 
+class FingerprintGalleryEnrollResult {
+  final String message;
+  final int gallerySize;       // number of captures actually stored (1–3)
+  final int requested;         // number of captures uploaded
+  final int? leadFingerprintId;
+  final double? leadQualityScore;
+  final bool isPrimary;
+  final bool needsReenrollment; // true when fewer than a full gallery landed
+
+  const FingerprintGalleryEnrollResult({
+    required this.message,
+    required this.gallerySize,
+    required this.requested,
+    required this.leadFingerprintId,
+    required this.leadQualityScore,
+    required this.isPrimary,
+    required this.needsReenrollment,
+  });
+
+  factory FingerprintGalleryEnrollResult.fromJson(Map<String, dynamic> json) {
+    return FingerprintGalleryEnrollResult(
+      message:           json['message']             as String? ?? 'Enrolled.',
+      gallerySize:       json['gallery_size']        as int?    ?? 0,
+      requested:         json['requested']           as int?    ?? 0,
+      leadFingerprintId: json['lead_fingerprint_id'] as int?,
+      leadQualityScore:  (json['lead_quality_score'] as num?)?.toDouble(),
+      isPrimary:         json['is_primary']          as bool?   ?? false,
+      needsReenrollment: json['needs_reenrollment']  as bool?   ?? false,
+    );
+  }
+}
+
 class FingerprintLivenessResult {
   final bool isLive;
   final double meanDisplacement;
@@ -198,6 +230,67 @@ class FingerprintService {
       msg,
       statusCode: streamed.statusCode,
       kind: _kindFromStatus(streamed.statusCode, msg),
+    );
+  }
+
+  // ── Gallery enrollment ──────────────────────────────────────────────────────
+
+  /// POST /api/fingerprint/enroll-gallery
+  ///
+  /// Uploads up to 3 captures of a single finger (the "gallery"), captured in
+  /// one auto-trigger session. The server keeps the usable captures, flags the
+  /// highest-quality one as the gallery lead (the 1:N representative), and
+  /// applies the floor-of-1 / needs_reenrollment rules.
+  ///
+  /// [livenessPassed] carries the once-per-session liveness verdict already
+  /// computed on-device; the server rejects the batch if it is false.
+  ///
+  /// Throws [FingerprintException] with kind [FingerprintErrorKind.noFeatures]
+  /// (server code `no_usable_capture`) when none of the captures were usable —
+  /// callers should fall back to face enrollment.
+  Future<FingerprintGalleryEnrollResult> enrollGallery(
+    List<File> captures, {
+    required String token,
+    required String patientId,
+    String fingerPosition = 'right_index',
+    bool isPrimary = false,
+    bool livenessPassed = true,
+  }) async {
+    if (captures.isEmpty) {
+      throw const FingerprintException(
+        'No captures to enroll.',
+        kind: FingerprintErrorKind.noFeatures,
+      );
+    }
+
+    final uri = Uri.parse('$_baseUrl/fingerprint/enroll-gallery');
+
+    final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll(_authHeaders(token))
+      ..fields['patient_id']      = patientId
+      ..fields['finger_position'] = fingerPosition
+      ..fields['is_primary']      = isPrimary ? '1' : '0'
+      ..fields['liveness_passed'] = livenessPassed ? '1' : '0';
+
+    for (final capture in captures) {
+      request.files.add(await _imageUploadPart(capture, field: 'captures[]'));
+    }
+
+    final streamed = await _send(request);
+    final json     = await _parseJson(streamed);
+
+    if (streamed.statusCode == 201) {
+      return FingerprintGalleryEnrollResult.fromJson(json);
+    }
+
+    final msg  = _extractMessage(json);
+    final code = json['code'] as String?;
+    throw FingerprintException(
+      msg,
+      statusCode: streamed.statusCode,
+      kind: code == 'no_usable_capture'
+          ? FingerprintErrorKind.noFeatures
+          : _kindFromStatus(streamed.statusCode, msg),
     );
   }
 
@@ -326,13 +419,19 @@ class FingerprintService {
   /// quality down until the payload is comfortably under the limit.
   ///
   /// If the bytes can't be decoded we fall back to sending them unchanged.
-  Future<http.MultipartFile> _imageUploadPart(File image) async {
+  ///
+  /// [field] is the multipart field name — defaults to `fingerprint` for the
+  /// single-capture endpoints; pass `captures[]` for the gallery endpoint.
+  Future<http.MultipartFile> _imageUploadPart(
+    File image, {
+    String field = 'fingerprint',
+  }) async {
     final raw = await image.readAsBytes();
 
     final decoded = img.decodeImage(raw);
     if (decoded == null) {
       return http.MultipartFile.fromBytes(
-        'fingerprint',
+        field,
         raw,
         filename: 'fingerprint.jpg',
         contentType: MediaType('image', 'jpeg'),
@@ -356,7 +455,7 @@ class FingerprintService {
     }
 
     return http.MultipartFile.fromBytes(
-      'fingerprint',
+      field,
       jpg,
       filename: 'fingerprint.jpg',
       contentType: MediaType('image', 'jpeg'),

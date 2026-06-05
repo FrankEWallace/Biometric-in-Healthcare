@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/patient.dart';
@@ -8,6 +7,7 @@ import '../../services/fingerprint_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
 import '../fingerprint/fingerprint_liveness_camera_screen.dart';
+import '../face/face_enroll_screen.dart';
 
 /// Captures and enrolls fingerprints for an already-registered patient
 /// who has no biometric on file.
@@ -36,12 +36,14 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
 
   Future<void> _openCamera() async {
     setState(() => _error = null);
-    final XFile? result = await Navigator.push<XFile?>(
+    final result = await Navigator.push<FingerprintGalleryResult?>(
       context,
       MaterialPageRoute(
         builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
           fingerLabel: _steps[_currentIndex].label,
+          galleryMode: true,
+          galleryTarget: 3,
         ),
       ),
     );
@@ -49,18 +51,31 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
     await _upload(result);
   }
 
-  Future<void> _upload(XFile image) async {
+  Future<void> _upload(FingerprintGalleryResult capture) async {
     setState(() { _uploading = true; _error = null; });
     try {
-      await _fpService.registerFingerprint(
-        File(image.path),
+      final res = await _fpService.enrollGallery(
+        capture.captures.map((x) => File(x.path)).toList(),
         token:          _token,
         patientId:      widget.patient.id.toString(),
         fingerPosition: _steps[_currentIndex].position,
         isPrimary:      _currentIndex == 0,
+        livenessPassed: capture.livenessPassed,
       );
 
       if (!mounted) return;
+
+      // Soft notice when the finger enrolled with degraded (< 3) coverage.
+      if (res.needsReenrollment) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                '${_steps[_currentIndex].label}: enrolled with '
+                '${res.gallerySize} of 3 captures — consider re-enrolling later.'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+      }
 
       final next = _currentIndex + 1;
       if (next < _steps.length) {
@@ -77,7 +92,13 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
         Navigator.pop(context);
       }
     } on FingerprintException catch (e) {
-      if (mounted) setState(() { _uploading = false; _error = e.message; });
+      if (!mounted) return;
+      // No usable capture for this hand → offer face enrollment as a fallback.
+      if (e.kind == FingerprintErrorKind.noFeatures) {
+        await _offerFaceFallback();
+      } else {
+        setState(() { _uploading = false; _error = e.message; });
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -85,6 +106,46 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
           _error     = 'Unexpected error. Please try again.';
         });
       }
+    }
+  }
+
+  /// When a finger yields no usable capture, offer to enroll the patient's face
+  /// instead (the multimodal fallback). The clerk can also retry the finger.
+  Future<void> _offerFaceFallback() async {
+    setState(() { _uploading = false; });
+
+    final goFace = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Fingerprint not captured'),
+        content: Text(
+          'We could not get a usable fingerprint for '
+          '${widget.patient.fullName}. You can enroll their face instead, '
+          'or try the fingerprint again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Try again'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Use face'),
+          ),
+        ],
+      ),
+    );
+
+    if (goFace == true && mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => FaceEnrollScreen(
+            patientId:   widget.patient.id.toString(),
+            patientName: widget.patient.fullName,
+          ),
+        ),
+      );
     }
   }
 
