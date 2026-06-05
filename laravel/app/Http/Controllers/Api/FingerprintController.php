@@ -11,11 +11,15 @@ use App\Services\FingerprintService;
 use App\Services\HomisService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class FingerprintController extends Controller
 {
     /** Minimum quality score for phone camera hand captures (Laplacian/300). */
     private const MIN_QUALITY_SCORE = 0.10;
+
+    /** Target number of captures per finger for a full gallery. */
+    private const GALLERY_SIZE = 3;
 
     public function __construct(
         private FingerprintService $fingerprint,
@@ -220,6 +224,185 @@ class FingerprintController extends Controller
             'feature_status'  => $featureStatus,
             'steps_applied'   => $result['steps_applied'] ?? [],
             'is_primary'      => $fp->is_primary,
+        ], 201);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/fingerprint/enroll-gallery
+    // -------------------------------------------------------------------------
+
+    /**
+     * Enroll a "gallery" of up to 3 captures for a single finger in one request.
+     *
+     * The mobile app auto-triggers 3 captures of the same finger in one session
+     * (different angles / ridge coverage) and runs liveness ONCE for the session.
+     * This endpoint processes each capture, keeps the usable ones, stores them as
+     * a gallery, and atomically flags the highest-quality capture as the gallery
+     * lead — the single template used for 1:N identification. 1:1 verification
+     * matches a probe against the whole gallery (Max-Rule).
+     *
+     * Floor of 1: as long as one capture is usable the patient is enrolled; if
+     * fewer than 3 land, the gallery is flagged needs_reenrollment. If NONE are
+     * usable, returns 422 (code: no_usable_capture) so the client can fall back
+     * to face enrollment.
+     *
+     * Decisions: .claude/grill-sessions/2026-06-05-multi-capture-fingerprint-enrollment.md
+     *
+     * Fields:
+     *   patient_id       (int,    required)  – must belong to staff's hospital
+     *   captures[]       (file[], required, 1–3) – JPEG/PNG, max 5 MB each
+     *   finger_position  (str,    optional)  – defaults to right_index
+     *   is_primary       (bool,   optional)  – marks this finger as the 1:N primary
+     *   liveness_passed  (bool,   optional)  – session liveness verdict; false rejects
+     *
+     * Responses:
+     *   201  – gallery enrolled (see gallery_size / needs_reenrollment)
+     *   404  – patient not in staff's hospital
+     *   422  – liveness failed, or no usable capture
+     *   503  – Python service unavailable
+     */
+    public function enrollGallery(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'patient_id'      => 'required|integer|exists:patients,id',
+            'finger_position' => [
+                'nullable',
+                'in:right_thumb,right_index,right_middle,right_ring,right_little,'
+                  . 'left_thumb,left_index,left_middle,left_ring,left_little,'
+                  . 'right_hand,left_hand',
+            ],
+            'is_primary'      => 'nullable|boolean',
+            'liveness_passed' => 'nullable|boolean',
+            'captures'        => 'required|array|min:1|max:' . self::GALLERY_SIZE,
+            'captures.*'      => 'required|file|mimes:jpeg,jpg,png|max:5120',
+        ]);
+
+        // ── Scope check ───────────────────────────────────────────────────────
+        $patient = Patient::findOrFail($data['patient_id']);
+
+        if ($patient->hospital_id !== $request->user()->hospital_id) {
+            return response()->json(['error' => 'Patient not found.'], 404);
+        }
+
+        // ── Session liveness gate ─────────────────────────────────────────────
+        // Liveness is run once per capture session on the device (and validated
+        // via /liveness-check). A failed verdict rejects the whole batch.
+        if (array_key_exists('liveness_passed', $data) && $data['liveness_passed'] === false) {
+            return response()->json([
+                'error' => 'Liveness check did not pass for this capture session. Please recapture.',
+                'code'  => 'liveness_failed',
+            ], 422);
+        }
+
+        // ── Process every capture, keep only usable templates ─────────────────
+        $accepted = [];   // [['quality' => float, 'features' => array, 'keypoints' => int], ...]
+        $rejected = [];   // [['index' => int, 'reason' => str, ...], ...]
+
+        foreach (array_values($request->file('captures')) as $i => $file) {
+            try {
+                $result = $this->fingerprint->register($file->getRealPath());
+            } catch (\RuntimeException $e) {
+                $rejected[] = ['index' => $i, 'reason' => 'processing_failed', 'detail' => $e->getMessage()];
+                continue;
+            }
+
+            $quality = (float) ($result['quality_score'] ?? 0.0);
+            $status  = $result['features']['status'] ?? 'no_features';
+
+            if ($status === 'no_features') {
+                $rejected[] = ['index' => $i, 'reason' => 'no_features', 'quality_score' => $quality];
+                continue;
+            }
+            if ($quality < self::MIN_QUALITY_SCORE) {
+                $rejected[] = ['index' => $i, 'reason' => 'low_quality', 'quality_score' => $quality];
+                continue;
+            }
+
+            $accepted[] = [
+                'quality'   => $quality,
+                'features'  => $result['features'],
+                'keypoints' => $result['features']['keypoint_count'] ?? 0,
+            ];
+        }
+
+        // ── Floor of 1: at least one usable capture is required ───────────────
+        if (empty($accepted)) {
+            return response()->json([
+                'error'    => 'No usable fingerprint could be captured. Fall back to face enrollment.',
+                'code'     => 'no_usable_capture',
+                'rejected' => $rejected,
+            ], 422);
+        }
+
+        $fingerPosition = $data['finger_position'] ?? 'right_index';
+        $isPrimary      = (bool) ($data['is_primary'] ?? false);
+
+        // Degraded coverage when fewer than a full gallery's worth landed.
+        $needsReenrollment = count($accepted) < self::GALLERY_SIZE;
+
+        // Lead = highest-quality accepted capture (the 1:N representative).
+        $leadIndex = 0;
+        foreach ($accepted as $idx => $cap) {
+            if ($cap['quality'] > $accepted[$leadIndex]['quality']) {
+                $leadIndex = $idx;
+            }
+        }
+
+        // ── Persist the gallery atomically ────────────────────────────────────
+        $created = DB::transaction(function () use (
+            $patient, $request, $fingerPosition, $isPrimary,
+            $accepted, $leadIndex, $needsReenrollment
+        ) {
+            // Re-enrolling a finger replaces its previous gallery entirely.
+            Fingerprint::where('patient_id', $patient->id)
+                ->where('finger_position', $fingerPosition)
+                ->delete();
+
+            // Only the lead of the primary finger carries is_primary, so the 1:N
+            // primary pass stays one-template-per-finger. Demote any prior primary.
+            if ($isPrimary) {
+                Fingerprint::where('patient_id', $patient->id)
+                    ->where('is_primary', true)
+                    ->update(['is_primary' => false]);
+            }
+
+            $rows = [];
+            foreach ($accepted as $idx => $cap) {
+                $isLead = $idx === $leadIndex;
+
+                $fp = new Fingerprint([
+                    'patient_id'         => $patient->id,
+                    'hospital_id'        => $patient->hospital_id,
+                    'enrolled_by'        => $request->user()->id,
+                    'finger_position'    => $fingerPosition,
+                    'quality_score'      => $cap['quality'],
+                    'is_primary'         => $isPrimary && $isLead,
+                    'is_gallery_lead'    => $isLead,
+                    'needs_reenrollment' => $needsReenrollment,
+                    'is_active'          => true,
+                ]);
+                $fp->setTemplate($cap['features']);
+                $fp->save();
+
+                $rows[] = $fp;
+            }
+
+            return $rows;
+        });
+
+        $lead = collect($created)->firstWhere('is_gallery_lead', true);
+
+        return response()->json([
+            'message'             => 'Fingerprint gallery enrolled successfully.',
+            'patient_id'          => $patient->id,
+            'finger_position'     => $fingerPosition,
+            'gallery_size'        => count($created),
+            'requested'           => count($request->file('captures')),
+            'lead_fingerprint_id' => $lead?->id,
+            'lead_quality_score'  => $lead?->quality_score,
+            'is_primary'          => $isPrimary,
+            'needs_reenrollment'  => $needsReenrollment,
+            'rejected'            => $rejected,
         ], 201);
     }
 

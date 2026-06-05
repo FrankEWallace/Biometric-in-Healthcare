@@ -107,6 +107,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('register', [FingerprintController::class, 'register'])
              ->middleware(['role:nurse,admin', 'throttle:20,1']);
 
+        // Multi-capture gallery enrollment (up to 3 captures/finger) — nurse + admin
+        Route::post('enroll-gallery', [FingerprintController::class, 'enrollGallery'])
+             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+
         // Direct patient verification — nurse only
         Route::post('verify', [FingerprintController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
