@@ -3,16 +3,15 @@ import 'package:geolocator/geolocator.dart';
 
 /// GPS-based geofencing service.
 ///
-/// Set [hospitalLat], [hospitalLng], and [allowedRadiusMeters] to your demo /
-/// deployment venue before going live.  The kDebugMode bypass below keeps
-/// development unblocked — remove it before the final demo.
+/// Call [isWithinAnyHospital] at login/access-check time, passing the list of
+/// hospitals fetched from the API so the check is always up to date.
+/// Falls back to [isWithinHospitalRange] (hardcoded fallback) when the API
+/// list is unavailable.
 class LocationService {
-  // ── Hospital anchor point ──────────────────────────────────────────────────
-  // Updated to Dar es Salaam (development location) — replace with real
-  // hospital coordinates before deployment.
-  static const double hospitalLat         = -6.827;
-  static const double hospitalLng         = 39.2675;
-  static const double allowedRadiusMeters = 500.0;
+  // ── Fallback anchor (used only when API hospital list cannot be fetched) ───
+  static const double _fallbackLat         = -6.827;
+  static const double _fallbackLng         = 39.2675;
+  static const double _fallbackRadiusMeters = 500.0;
 
   /// Returns the current [Position], or `null` if permission is denied,
   /// services are off, or the fix times out.
@@ -39,28 +38,53 @@ class LocationService {
     }
   }
 
-  /// Returns `true` when the device is within [allowedRadiusMeters] of the
-  /// hospital location.
+  /// Check whether the device is within range of ANY hospital in [hospitals].
   ///
-  /// Returns `false` if:
-  ///   - Location permission is denied.
-  ///   - Location services are disabled on the device.
-  ///   - Any other error occurs while fetching the position.
-  Future<bool> isWithinHospitalRange() async {
-    // DEBUG BYPASS — remove before final demo / production deployment
+  /// Each entry must have numeric [gps_latitude], [gps_longitude], and
+  /// [gps_radius_meters] fields (as returned by GET /api/hospitals).
+  /// Returns `true` in debug mode (development bypass).
+  Future<bool> isWithinAnyHospital(List<Map<String, dynamic>> hospitals) async {
     if (kDebugMode) return true;
 
     final position = await getCurrentPosition();
     if (position == null) return false;
 
-    final distanceMeters = Geolocator.distanceBetween(
+    for (final h in hospitals) {
+      final lat    = (h['gps_latitude']    as num?)?.toDouble();
+      final lng    = (h['gps_longitude']   as num?)?.toDouble();
+      final radius = (h['gps_radius_meters'] as num?)?.toDouble() ?? 200.0;
+
+      if (lat == null || lng == null) continue;
+
+      final distance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        lat,
+        lng,
+      );
+
+      if (distance <= radius) return true;
+    }
+
+    return false;
+  }
+
+  /// Legacy single-anchor check — kept as fallback when the hospital list
+  /// cannot be fetched from the API (e.g. no network at login time).
+  Future<bool> isWithinHospitalRange() async {
+    if (kDebugMode) return true;
+
+    final position = await getCurrentPosition();
+    if (position == null) return false;
+
+    final distance = Geolocator.distanceBetween(
       position.latitude,
       position.longitude,
-      hospitalLat,
-      hospitalLng,
+      _fallbackLat,
+      _fallbackLng,
     );
 
-    return distanceMeters <= allowedRadiusMeters;
+    return distance <= _fallbackRadiusMeters;
   }
 
   /// Returns the raw [LocationPermission] status without triggering a request.

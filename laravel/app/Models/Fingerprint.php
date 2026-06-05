@@ -22,6 +22,8 @@ class Fingerprint extends Model
         'template_format',
         'quality_score',
         'is_primary',
+        'is_gallery_lead',
+        'needs_reenrollment',
         'is_active',
         'failed_attempts',
         'locked_at',
@@ -31,6 +33,8 @@ class Fingerprint extends Model
     protected $casts = [
         'quality_score'         => 'float',
         'is_primary'            => 'boolean',
+        'is_gallery_lead'       => 'boolean',
+        'needs_reenrollment'    => 'boolean',
         'is_active'             => 'boolean',
         'locked_at'             => 'datetime',
         'attempts_window_start' => 'datetime',
