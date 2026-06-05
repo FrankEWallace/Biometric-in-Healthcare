@@ -5,11 +5,12 @@ import 'package:provider/provider.dart';
 import '../models/patient.dart';
 import '../providers/auth_provider.dart';
 import '../services/face_service.dart';
+import '../services/fingerprint_service.dart';
 import '../services/patient_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/custom_text_field.dart';
 import '../widgets/primary_button.dart';
-import 'camera_screen.dart';
+import 'fingerprint/fingerprint_liveness_camera_screen.dart';
 import 'face/liveness_camera_screen.dart';
 import 'result_screen.dart';
 
@@ -71,6 +72,8 @@ class _PatientRegistrationScreenState
   // Multi-finger tracking
   PatientModel? _createdPatient;
   int _currentFingerIndex = 0;
+  bool _primaryAssigned = false; // first usable finger becomes the 1:N primary
+  bool _fingerUploading = false; // saving a finger's gallery to the server
 
   @override
   void dispose() {
@@ -111,6 +114,7 @@ class _PatientRegistrationScreenState
       setState(() {
         _createdPatient = patient;
         _currentFingerIndex = 0;
+        _primaryAssigned = false;
         _step = _RegistrationStep.capturingFingerprint;
       });
 
@@ -128,37 +132,103 @@ class _PatientRegistrationScreenState
   Future<void> _openCameraForCurrentFinger(PatientModel patient) async {
     final finger = _fingerSteps[_currentFingerIndex];
 
-    final XFile? result = await Navigator.push<XFile?>(
+    final result = await Navigator.push<FingerprintGalleryResult?>(
       context,
       MaterialPageRoute(
-        builder: (_) => CameraScreen(
-          title:
-              'Scan Hand ${_currentFingerIndex + 1} of ${_fingerSteps.length}',
-          showFingerprintOverlay: true,
-          patientId: patient.id.toString(),
-          fingerPosition: finger.position,
-          fingerLabel: finger.label,
+        builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: finger.isHandCapture,
+          fingerLabel: finger.label,
+          galleryMode: true,
+          galleryTarget: 3,
         ),
       ),
     );
 
     if (!mounted) return;
 
-    if (result != null) {
-      final nextIndex = _currentFingerIndex + 1;
-
-      if (nextIndex < _fingerSteps.length) {
-        // More fingers remain — advance and open camera again
-        setState(() => _currentFingerIndex = nextIndex);
-        await _openCameraForCurrentFinger(patient);
-      } else {
-        // All fingers captured — move to face enrollment step
-        setState(() => _step = _RegistrationStep.capturingFace);
-      }
-    } else {
-      // User cancelled — allow retry from the finger progress screen
+    if (result == null) {
+      // User cancelled — allow retry from the finger progress screen.
       setState(() => _step = _RegistrationStep.capturingFingerprint);
+      return;
+    }
+
+    await _enrollFingerGallery(patient, finger, result);
+  }
+
+  /// Upload a finger's gallery, then advance to the next hand or the face step.
+  ///
+  /// A hand that yields no usable capture is skipped with a notice — face
+  /// enrollment is the next step and serves as the multimodal fallback, so a
+  /// patient is never blocked. The first successfully enrolled finger becomes
+  /// the 1:N primary.
+  Future<void> _enrollFingerGallery(
+    PatientModel patient,
+    _FingerStep finger,
+    FingerprintGalleryResult capture,
+  ) async {
+    setState(() {
+      _fingerUploading = true;
+      _apiError = null;
+    });
+
+    final token = context.read<AuthProvider>().user?.token ?? '';
+    String? notice;
+
+    try {
+      final res = await FingerprintService().enrollGallery(
+        capture.captures.map((x) => File(x.path)).toList(),
+        token:          token,
+        patientId:      patient.id.toString(),
+        fingerPosition: finger.position,
+        isPrimary:      !_primaryAssigned,
+        livenessPassed: capture.livenessPassed,
+      );
+
+      _primaryAssigned = true; // a finger is now enrolled
+      if (res.needsReenrollment) {
+        notice = '${finger.label}: enrolled with ${res.gallerySize} of 3 captures.';
+      }
+    } on FingerprintException catch (e) {
+      if (e.kind == FingerprintErrorKind.noFeatures) {
+        // No usable capture for this hand — skip it; Face ID is captured next.
+        notice = '${finger.label}: no usable fingerprint — Face ID can be used instead.';
+      } else {
+        if (mounted) {
+          setState(() {
+            _fingerUploading = false;
+            _apiError        = e.message;
+            _step            = _RegistrationStep.capturingFingerprint;
+          });
+        }
+        return;
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _fingerUploading = false;
+          _apiError        = 'Unexpected error saving fingerprint. Please try again.';
+          _step            = _RegistrationStep.capturingFingerprint;
+        });
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _fingerUploading = false);
+
+    if (notice != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(notice), backgroundColor: AppColors.warning),
+      );
+    }
+
+    final nextIndex = _currentFingerIndex + 1;
+    if (nextIndex < _fingerSteps.length) {
+      setState(() => _currentFingerIndex = nextIndex);
+      await _openCameraForCurrentFinger(patient);
+    } else {
+      // All hands processed — move to face enrollment.
+      setState(() => _step = _RegistrationStep.capturingFace);
     }
   }
 
@@ -272,6 +342,10 @@ class _PatientRegistrationScreenState
   Widget _buildBody() {
     if (_step == _RegistrationStep.creatingPatient) {
       return const _LoadingView(message: 'Creating patient record…');
+    }
+
+    if (_fingerUploading) {
+      return const _LoadingView(message: 'Saving fingerprint…');
     }
 
     if (_step == _RegistrationStep.capturingFingerprint &&
