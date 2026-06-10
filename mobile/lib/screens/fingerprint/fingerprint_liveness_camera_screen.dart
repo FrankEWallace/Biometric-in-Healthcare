@@ -44,14 +44,14 @@ class FingerprintLivenessCameraScreen extends StatefulWidget {
 }
 
 /// Result of a gallery-mode capture session: the captured stills (1–N) plus the
-/// once-per-session liveness verdict.
+/// single-use server token proving the session passed liveness.
 class FingerprintGalleryResult {
   final List<XFile> captures;
-  final bool livenessPassed;
+  final String livenessToken;
 
   const FingerprintGalleryResult({
     required this.captures,
-    required this.livenessPassed,
+    required this.livenessToken,
   });
 }
 
@@ -490,7 +490,10 @@ class _FingerprintLivenessCameraScreenState
       if (result.isLive) {
         Navigator.pop(
           context,
-          FingerprintGalleryResult(captures: gallery, livenessPassed: true),
+          FingerprintGalleryResult(
+            captures: gallery,
+            livenessToken: result.livenessToken ?? '',
+          ),
         );
       } else {
         setState(() {

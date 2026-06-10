@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -43,6 +44,21 @@ class FingerprintService
         $this->baseUrl = rtrim(config('services.fingerprint.url', 'http://127.0.0.1:5001'), '/');
     }
 
+    /**
+     * Pending request carrying the internal API key the Python service
+     * requires (X-Internal-Api-Key, matching its INTERNAL_API_KEY env).
+     */
+    private function http(int $timeout): PendingRequest
+    {
+        $request = Http::timeout($timeout);
+
+        if ($key = config('services.fingerprint.key')) {
+            $request = $request->withHeaders(['X-Internal-Api-Key' => $key]);
+        }
+
+        return $request;
+    }
+
     // -------------------------------------------------------------------------
     // Legacy methods (keep for VerificationController compatibility)
     // -------------------------------------------------------------------------
@@ -56,7 +72,7 @@ class FingerprintService
      */
     public function process(string $base64Image): array
     {
-        $response = Http::timeout(15)->post("{$this->baseUrl}/process", [
+        $response = $this->http(15)->post("{$this->baseUrl}/process", [
             'image' => $base64Image,
         ]);
 
@@ -79,7 +95,7 @@ class FingerprintService
      */
     public function match(array $probe, array $candidates): array
     {
-        $response = Http::timeout(30)->post("{$this->baseUrl}/match", [
+        $response = $this->http(30)->post("{$this->baseUrl}/match", [
             'probe'      => $probe,
             'candidates' => $candidates,
         ]);
@@ -124,7 +140,7 @@ class FingerprintService
         $fileName = basename($filePath);
         $mimeType = mime_content_type($filePath) ?: 'image/jpeg';
 
-        $response = Http::timeout(20)
+        $response = $this->http(20)
             ->attach('file', file_get_contents($filePath), $fileName, ['Content-Type' => $mimeType])
             ->post("{$this->baseUrl}/process-fingerprint");
 
@@ -213,7 +229,7 @@ class FingerprintService
             'template'   => $c['template'],
         ], $candidates);
 
-        $matchResponse = Http::timeout(30)->post("{$this->baseUrl}/match", [
+        $matchResponse = $this->http(30)->post("{$this->baseUrl}/match", [
             'probe'      => $probeData['features'],
             'candidates' => $pythonCandidates,
         ]);
@@ -267,7 +283,7 @@ class FingerprintService
      */
     public function livenessCheck(array $base64Frames): array
     {
-        $response = Http::timeout(30)->post("{$this->baseUrl}/fingerprint/liveness-check", [
+        $response = $this->http(30)->post("{$this->baseUrl}/fingerprint/liveness-check", [
             'frames' => $base64Frames,
         ]);
 

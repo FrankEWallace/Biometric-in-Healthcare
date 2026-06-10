@@ -125,11 +125,16 @@ class FingerprintLivenessResult {
   final int frameCount;
   final String reason;
 
+  /// Single-use server token proving this session passed liveness.
+  /// Present only when [isLive] is true; required by enroll-gallery.
+  final String? livenessToken;
+
   const FingerprintLivenessResult({
     required this.isLive,
     required this.meanDisplacement,
     required this.frameCount,
     required this.reason,
+    this.livenessToken,
   });
 
   factory FingerprintLivenessResult.fromJson(Map<String, dynamic> json) {
@@ -138,6 +143,7 @@ class FingerprintLivenessResult {
       meanDisplacement:(json['mean_displacement'] as num?)?.toDouble() ?? 0.0,
       frameCount:      json['frame_count']        as int?    ?? 0,
       reason:          json['reason']             as String? ?? 'unknown',
+      livenessToken:   json['liveness_token']     as String?,
     );
   }
 }
@@ -242,8 +248,9 @@ class FingerprintService {
   /// highest-quality one as the gallery lead (the 1:N representative), and
   /// applies the floor-of-1 / needs_reenrollment rules.
   ///
-  /// [livenessPassed] carries the once-per-session liveness verdict already
-  /// computed on-device; the server rejects the batch if it is false.
+  /// [livenessToken] is the single-use token returned by the server's
+  /// liveness check for this capture session; the server rejects the batch
+  /// when it is missing, expired, or already used.
   ///
   /// Throws [FingerprintException] with kind [FingerprintErrorKind.noFeatures]
   /// (server code `no_usable_capture`) when none of the captures were usable —
@@ -252,9 +259,12 @@ class FingerprintService {
     List<File> captures, {
     required String token,
     required String patientId,
+    required String livenessToken,
     String fingerPosition = 'right_index',
     bool isPrimary = false,
-    bool livenessPassed = true,
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
   }) async {
     if (captures.isEmpty) {
       throw const FingerprintException(
@@ -270,7 +280,11 @@ class FingerprintService {
       ..fields['patient_id']      = patientId
       ..fields['finger_position'] = fingerPosition
       ..fields['is_primary']      = isPrimary ? '1' : '0'
-      ..fields['liveness_passed'] = livenessPassed ? '1' : '0';
+      ..fields['liveness_token']  = livenessToken;
+
+    if (gpsLatitude  != null) request.fields['gps_latitude']  = gpsLatitude.toString();
+    if (gpsLongitude != null) request.fields['gps_longitude'] = gpsLongitude.toString();
+    if (wifiSsid     != null) request.fields['wifi_ssid']     = wifiSsid;
 
     for (final capture in captures) {
       request.files.add(await _imageUploadPart(capture, field: 'captures[]'));
