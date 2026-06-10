@@ -54,6 +54,22 @@ class GeofenceServiceTest extends TestCase
         );
     }
 
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function denies_unconfigured_hospital_when_fail_open_is_disabled(): void
+    {
+        config(['services.geofence.fail_open' => false]);
+
+        $hospital = Hospital::factory()->create([
+            'wifi_ssid'    => null,
+            'gps_latitude' => null,
+            'gps_longitude'=> null,
+        ]);
+
+        $this->assertFalse(
+            $this->service->isWithinHospital($hospital, null, null, null)
+        );
+    }
+
     // ── GPS-only restrictions ─────────────────────────────────────────────────
 
     #[\PHPUnit\Framework\Attributes\Test]

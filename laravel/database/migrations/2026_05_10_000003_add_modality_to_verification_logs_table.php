@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('verification_logs', function (Blueprint $table) {
-            $table->enum('modality', ['fingerprint', 'face'])
+            $table->enum('modality', ['fingerprint', 'face', 'multimodal'])
                   ->default('fingerprint')
                   ->after('status');
         });

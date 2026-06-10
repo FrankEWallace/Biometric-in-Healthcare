@@ -22,15 +22,20 @@ Interactive docs: http://localhost:5001/docs
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.routes.face import router as face_router
 from app.routes.fingerprint import router as fingerprint_router
 from app.routes.health import router as health_router
+from app.security import require_internal_key
 
 logger = logging.getLogger(__name__)
+
+# Interactive docs are a recon surface — keep them out of production.
+_IS_PRODUCTION = os.environ.get("ENVIRONMENT", "").lower() == "production"
 
 
 @asynccontextmanager
@@ -59,11 +64,13 @@ app = FastAPI(
         "and minutiae-based contactless fingerprint verification."
     ),
     version="3.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc",
     lifespan=lifespan,
 )
 
+# /health stays open for platform probes; everything else requires the
+# shared internal key when INTERNAL_API_KEY is configured.
 app.include_router(health_router)
-app.include_router(fingerprint_router)
-app.include_router(face_router)
+app.include_router(fingerprint_router, dependencies=[Depends(require_internal_key)])
+app.include_router(face_router, dependencies=[Depends(require_internal_key)])

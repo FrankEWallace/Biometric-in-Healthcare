@@ -6,6 +6,8 @@ import '../models/patient.dart';
 import '../providers/auth_provider.dart';
 import '../services/face_service.dart';
 import '../services/fingerprint_service.dart';
+import '../services/location_service.dart';
+import '../services/network_service.dart';
 import '../services/patient_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/custom_text_field.dart';
@@ -175,13 +177,19 @@ class _PatientRegistrationScreenState
     String? notice;
 
     try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       final res = await FingerprintService().enrollGallery(
         capture.captures.map((x) => File(x.path)).toList(),
         token:          token,
         patientId:      patient.id.toString(),
         fingerPosition: finger.position,
         isPrimary:      !_primaryAssigned,
-        livenessPassed: capture.livenessPassed,
+        livenessToken:  capture.livenessToken,
+        gpsLatitude:    position?.latitude,
+        gpsLongitude:   position?.longitude,
+        wifiSsid:       wifiSsid,
       );
 
       _primaryAssigned = true; // a finger is now enrolled
@@ -249,10 +257,16 @@ class _PatientRegistrationScreenState
     setState(() => _faceEnrolling = true);
 
     try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       await FaceService().enrollFace(
         File(file.path),
         token: token,
         patientId: _createdPatient!.id.toString(),
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
       );
     } on FaceException catch (e) {
       if (!mounted) return;
