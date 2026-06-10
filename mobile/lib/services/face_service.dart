@@ -106,11 +106,19 @@ class FaceService {
     File image, {
     required String token,
     required String patientId,
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
   }) async {
     final base64Image = await _compressedBase64(image);
     final uri = Uri.parse('$_baseUrl/face/enroll');
 
-    final response = await _post(uri, token, {'image': base64Image, 'patient_id': int.parse(patientId)});
+    final body = <String, dynamic>{'image': base64Image, 'patient_id': int.parse(patientId)};
+    if (gpsLatitude  != null) body['gps_latitude']  = gpsLatitude;
+    if (gpsLongitude != null) body['gps_longitude'] = gpsLongitude;
+    if (wifiSsid     != null) body['wifi_ssid']     = wifiSsid;
+
+    final response = await _post(uri, token, body);
     final json     = _parseBody(response);
 
     if (response.statusCode == 201) return FaceEnrollResult.fromJson(json);

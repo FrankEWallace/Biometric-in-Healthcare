@@ -34,8 +34,13 @@ return new class extends Migration
             // Match score [0.0000–1.0000] from Python /match
             $table->decimal('score', 5, 4)->nullable();
 
-            $table->enum('status', ['matched', 'no_match', 'error'])
-                  ->default('no_match');
+            // Full superset of statuses: later MODIFY-enum migrations are
+            // MySQL-only, so SQLite (tests) builds its CHECK from this list.
+            // needs_review / manually_confirmed are written by the face and
+            // multimodal verification flows.
+            $table->enum('status', [
+                'matched', 'no_match', 'error', 'needs_review', 'manually_confirmed',
+            ])->default('no_match');
 
             // Device location at time of verification
             $table->decimal('gps_latitude',  10, 7)->nullable();

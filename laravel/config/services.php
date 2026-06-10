@@ -16,12 +16,30 @@ return [
     |--------------------------------------------------------------------------
     | Python OpenCV Fingerprint Microservice
     |--------------------------------------------------------------------------
-    | Set PYTHON_SERVICE_URL in .env to point at the running Flask service.
+    | Set PYTHON_SERVICE_URL in .env to point at the running FastAPI service.
     | Example: PYTHON_SERVICE_URL=http://127.0.0.1:5001
+    |
+    | PYTHON_SERVICE_API_KEY must match INTERNAL_API_KEY on the Python side.
+    | Required in production — the microservice rejects unauthenticated
+    | requests when its key is configured.
     */
 
     'fingerprint' => [
         'url' => env('PYTHON_SERVICE_URL', 'http://127.0.0.1:5001'),
+        'key' => env('PYTHON_SERVICE_API_KEY', ''),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Geofence Policy
+    |--------------------------------------------------------------------------
+    | When a hospital has configured neither GPS coordinates nor a WiFi
+    | SSID, fail_open=true (default) lets requests through. Set
+    | GEOFENCE_FAIL_OPEN=false in production to deny instead.
+    */
+
+    'geofence' => [
+        'fail_open' => env('GEOFENCE_FAIL_OPEN', true),
     ],
 
     /*

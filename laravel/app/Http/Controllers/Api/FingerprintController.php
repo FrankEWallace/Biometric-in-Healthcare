@@ -11,7 +11,9 @@ use App\Services\FingerprintService;
 use App\Services\HomisService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class FingerprintController extends Controller
 {
@@ -20,6 +22,15 @@ class FingerprintController extends Controller
 
     /** Target number of captures per finger for a full gallery. */
     private const GALLERY_SIZE = 3;
+
+    /**
+     * Single-use liveness tokens issued by livenessCheck() and consumed by
+     * enrollGallery(). The token — not a client-asserted boolean — is the
+     * proof that this user's capture session passed the server-side
+     * optical-flow check within the TTL.
+     */
+    private const LIVENESS_TOKEN_PREFIX      = 'fp_liveness_token:';
+    private const LIVENESS_TOKEN_TTL_MINUTES = 10;
 
     public function __construct(
         private FingerprintService $fingerprint,
@@ -253,12 +264,13 @@ class FingerprintController extends Controller
      *   captures[]       (file[], required, 1–3) – JPEG/PNG, max 5 MB each
      *   finger_position  (str,    optional)  – defaults to right_index
      *   is_primary       (bool,   optional)  – marks this finger as the 1:N primary
-     *   liveness_passed  (bool,   optional)  – session liveness verdict; false rejects
+     *   liveness_token   (str,    required)  – single-use token issued by
+     *                                          /fingerprint/liveness-check on a pass
      *
      * Responses:
      *   201  – gallery enrolled (see gallery_size / needs_reenrollment)
      *   404  – patient not in staff's hospital
-     *   422  – liveness failed, or no usable capture
+     *   422  – liveness token missing/expired/reused, or no usable capture
      *   503  – Python service unavailable
      */
     public function enrollGallery(Request $request): JsonResponse
@@ -272,7 +284,7 @@ class FingerprintController extends Controller
                   . 'right_hand,left_hand',
             ],
             'is_primary'      => 'nullable|boolean',
-            'liveness_passed' => 'nullable|boolean',
+            'liveness_token'  => 'required|string',
             'captures'        => 'required|array|min:1|max:' . self::GALLERY_SIZE,
             'captures.*'      => 'required|file|mimes:jpeg,jpg,png|max:5120',
         ]);
@@ -285,12 +297,15 @@ class FingerprintController extends Controller
         }
 
         // ── Session liveness gate ─────────────────────────────────────────────
-        // Liveness is run once per capture session on the device (and validated
-        // via /liveness-check). A failed verdict rejects the whole batch.
-        if (array_key_exists('liveness_passed', $data) && $data['liveness_passed'] === false) {
+        // The token is minted by /fingerprint/liveness-check only when the
+        // server-side optical-flow check passed. Pull = single use; it must
+        // belong to the same staff user and be inside its TTL.
+        $tokenOwner = Cache::pull(self::LIVENESS_TOKEN_PREFIX . $data['liveness_token']);
+
+        if ($tokenOwner !== $request->user()->id) {
             return response()->json([
                 'error' => 'Liveness check did not pass for this capture session. Please recapture.',
-                'code'  => 'liveness_failed',
+                'code'  => 'liveness_required',
             ], 422);
         }
 
@@ -605,6 +620,18 @@ class FingerprintController extends Controller
             return response()->json([
                 'error' => 'Liveness check failed: ' . $e->getMessage(),
             ], 503);
+        }
+
+        // A passing check earns a single-use token that enroll-gallery requires.
+        // The verdict therefore never travels through the client as a boolean.
+        if ($result['is_live'] ?? false) {
+            $token = Str::random(48);
+            Cache::put(
+                self::LIVENESS_TOKEN_PREFIX . $token,
+                $request->user()->id,
+                now()->addMinutes(self::LIVENESS_TOKEN_TTL_MINUTES),
+            );
+            $result['liveness_token'] = $token;
         }
 
         return response()->json($result);

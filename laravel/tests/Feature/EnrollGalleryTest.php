@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Services\FingerprintService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -21,7 +23,7 @@ use Tests\TestCase;
  *   - is_primary applied only to the lead of the primary finger
  *   - Floor of 1: ≥1 usable capture enrolls; 0 usable → 422 no_usable_capture
  *   - Fewer than 3 usable → needs_reenrollment flag set
- *   - Session liveness verdict gates the whole batch
+ *   - A single-use server-issued liveness token gates the whole batch
  *   - Re-enrolling a finger replaces its previous gallery (no accumulation)
  *
  * See .claude/grill-sessions/2026-06-05-multi-capture-fingerprint-enrollment.md
@@ -80,6 +82,22 @@ class EnrollGalleryTest extends TestCase
             ->all();
     }
 
+    /**
+     * Mint a liveness token the way livenessCheck() does — cached, single
+     * use, bound to the user who passed the optical-flow check.
+     */
+    private function livenessToken(?User $user = null): string
+    {
+        $token = Str::random(48);
+        Cache::put(
+            'fp_liveness_token:' . $token,
+            ($user ?? $this->nurse)->id,
+            now()->addMinutes(10),
+        );
+
+        return $token;
+    }
+
     // ── Happy path + lead selection ─────────────────────────────────────────────
 
     #[\PHPUnit\Framework\Attributes\Test]
@@ -99,6 +117,7 @@ class EnrollGalleryTest extends TestCase
                 'patient_id'      => $this->patient->id,
                 'finger_position' => 'right_index',
                 'captures'        => $this->fakeCaptures(3),
+                'liveness_token'  => $this->livenessToken(),
             ])
             ->assertStatus(201)
             ->assertJsonPath('gallery_size', 3)
@@ -130,8 +149,9 @@ class EnrollGalleryTest extends TestCase
 
         $this->actingAs($this->nurse)
             ->post(self::URL, [
-                'patient_id' => $this->patient->id,
-                'captures'   => $this->fakeCaptures(3),
+                'patient_id'     => $this->patient->id,
+                'captures'       => $this->fakeCaptures(3),
+                'liveness_token' => $this->livenessToken(),
             ])
             ->assertStatus(201)
             ->assertJsonPath('gallery_size', 2)
@@ -154,8 +174,9 @@ class EnrollGalleryTest extends TestCase
 
         $this->actingAs($this->nurse)
             ->post(self::URL, [
-                'patient_id' => $this->patient->id,
-                'captures'   => $this->fakeCaptures(1),
+                'patient_id'     => $this->patient->id,
+                'captures'       => $this->fakeCaptures(1),
+                'liveness_token' => $this->livenessToken(),
             ])
             ->assertStatus(201)
             ->assertJsonPath('gallery_size', 1)
@@ -182,8 +203,9 @@ class EnrollGalleryTest extends TestCase
 
         $this->actingAs($this->nurse)
             ->post(self::URL, [
-                'patient_id' => $this->patient->id,
-                'captures'   => $this->fakeCaptures(2),
+                'patient_id'     => $this->patient->id,
+                'captures'       => $this->fakeCaptures(2),
+                'liveness_token' => $this->livenessToken(),
             ])
             ->assertStatus(422)
             ->assertJsonPath('code', 'no_usable_capture')
@@ -195,23 +217,133 @@ class EnrollGalleryTest extends TestCase
     // ── Liveness gate ───────────────────────────────────────────────────────────
 
     #[\PHPUnit\Framework\Attributes\Test]
-    public function failed_session_liveness_rejects_the_whole_batch(): void
+    public function missing_liveness_token_fails_validation(): void
     {
-        // register must never be called when liveness failed.
+        $this->mock(FingerprintService::class, function ($mock) {
+            $mock->shouldReceive('register')->never();
+        });
+
+        $this->actingAs($this->nurse)
+            ->postJson(self::URL, [
+                'patient_id' => $this->patient->id,
+                'captures'   => $this->fakeCaptures(3),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['liveness_token']);
+
+        $this->assertDatabaseCount('fingerprints', 0);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function forged_liveness_token_rejects_the_whole_batch(): void
+    {
+        // register must never be called when the token is not server-issued.
         $this->mock(FingerprintService::class, function ($mock) {
             $mock->shouldReceive('register')->never();
         });
 
         $this->actingAs($this->nurse)
             ->post(self::URL, [
-                'patient_id'      => $this->patient->id,
-                'captures'        => $this->fakeCaptures(3),
-                'liveness_passed' => false,
+                'patient_id'     => $this->patient->id,
+                'captures'       => $this->fakeCaptures(3),
+                'liveness_token' => 'not-a-real-token',
             ])
             ->assertStatus(422)
-            ->assertJsonPath('code', 'liveness_failed');
+            ->assertJsonPath('code', 'liveness_required');
 
         $this->assertDatabaseCount('fingerprints', 0);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function liveness_token_issued_to_another_user_is_rejected(): void
+    {
+        $otherNurse = User::factory()->nurse()->create(['hospital_id' => $this->hospital->id]);
+
+        $this->mock(FingerprintService::class, function ($mock) {
+            $mock->shouldReceive('register')->never();
+        });
+
+        $this->actingAs($this->nurse)
+            ->post(self::URL, [
+                'patient_id'     => $this->patient->id,
+                'captures'       => $this->fakeCaptures(1),
+                'liveness_token' => $this->livenessToken($otherNurse),
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'liveness_required');
+
+        $this->assertDatabaseCount('fingerprints', 0);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function liveness_token_is_single_use(): void
+    {
+        $this->mock(FingerprintService::class, function ($mock) {
+            $mock->shouldReceive('register')->once()->andReturn($this->okResult(0.70));
+        });
+
+        $token   = $this->livenessToken();
+        $payload = [
+            'patient_id'     => $this->patient->id,
+            'captures'       => $this->fakeCaptures(1),
+            'liveness_token' => $token,
+        ];
+
+        $this->actingAs($this->nurse)->post(self::URL, $payload)->assertStatus(201);
+
+        // Replaying the same token must fail — it was consumed above.
+        $payload['captures'] = $this->fakeCaptures(1);
+        $this->actingAs($this->nurse)
+            ->post(self::URL, $payload)
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'liveness_required');
+
+        $this->assertDatabaseCount('fingerprints', 1);
+    }
+
+    // ── Geofence gate ───────────────────────────────────────────────────────────
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function enrollment_is_denied_outside_the_hospital_geofence(): void
+    {
+        $this->hospital->update(['wifi_ssid' => 'HOSPITAL-STAFF']);
+
+        $this->mock(FingerprintService::class, function ($mock) {
+            $mock->shouldReceive('register')->never();
+        });
+
+        $this->actingAs($this->nurse)
+            ->post(self::URL, [
+                'patient_id'     => $this->patient->id,
+                'captures'       => $this->fakeCaptures(1),
+                'liveness_token' => $this->livenessToken(),
+                'wifi_ssid'      => 'PUBLIC-WIFI',
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'geofence_denied');
+
+        $this->assertDatabaseCount('fingerprints', 0);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function enrollment_is_allowed_inside_the_hospital_geofence(): void
+    {
+        $this->hospital->update(['wifi_ssid' => 'HOSPITAL-STAFF']);
+
+        $this->mock(FingerprintService::class, function ($mock) {
+            $mock->shouldReceive('register')->once()->andReturn($this->okResult(0.70));
+        });
+
+        $this->actingAs($this->nurse)
+            ->post(self::URL, [
+                'patient_id'     => $this->patient->id,
+                'captures'       => $this->fakeCaptures(1),
+                'liveness_token' => $this->livenessToken(),
+                'wifi_ssid'      => 'HOSPITAL-STAFF',
+            ])
+            ->assertStatus(201);
+
+        $this->assertDatabaseCount('fingerprints', 1);
     }
 
     // ── Primary flag ────────────────────────────────────────────────────────────
@@ -243,6 +375,7 @@ class EnrollGalleryTest extends TestCase
                 'finger_position' => 'right_index',
                 'is_primary'      => true,
                 'captures'        => $this->fakeCaptures(3),
+                'liveness_token'  => $this->livenessToken(),
             ])
             ->assertStatus(201)
             ->assertJsonPath('is_primary', true);
@@ -279,6 +412,7 @@ class EnrollGalleryTest extends TestCase
             'patient_id'      => $this->patient->id,
             'finger_position' => 'right_index',
             'captures'        => $this->fakeCaptures($n),
+            'liveness_token'  => $this->livenessToken(),
         ];
 
         $this->actingAs($this->nurse)->post(self::URL, $payload(3))->assertStatus(201);
@@ -342,8 +476,9 @@ class EnrollGalleryTest extends TestCase
 
         $this->actingAs($this->nurse)
             ->post(self::URL, [
-                'patient_id' => $foreignPatient->id,
-                'captures'   => $this->fakeCaptures(1),
+                'patient_id'     => $foreignPatient->id,
+                'captures'       => $this->fakeCaptures(1),
+                'liveness_token' => $this->livenessToken(),
             ])
             ->assertStatus(404);
 

@@ -11,8 +11,10 @@ use App\Models\Hospital;
  *   2. WiFi SSID match
  *
  * Both signals are optional — if the hospital has not configured a
- * value, that check is skipped. If neither is configured, access is
- * allowed (fail-open per policy decision; tighten in production).
+ * value, that check is skipped. When neither is configured the outcome
+ * is governed by GEOFENCE_FAIL_OPEN (services.geofence.fail_open):
+ * true (default) allows access for unconfigured hospitals; set it to
+ * false in production so unconfigured hospitals are denied.
  */
 class GeofenceService
 {
@@ -25,9 +27,9 @@ class GeofenceService
         $gpsConfigured  = $hospital->gps_latitude !== null && $hospital->gps_longitude !== null;
         $wifiConfigured = $hospital->wifi_ssid !== null;
 
-        // No restrictions configured — allow
+        // No restrictions configured — policy flag decides
         if (! $gpsConfigured && ! $wifiConfigured) {
-            return true;
+            return (bool) config('services.geofence.fail_open', true);
         }
 
         $gpsOk  = ! $gpsConfigured || $this->isWithinRadius($hospital, $latitude, $longitude);

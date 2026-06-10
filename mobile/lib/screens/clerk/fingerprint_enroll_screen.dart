@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../models/patient.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/fingerprint_service.dart';
+import '../../services/location_service.dart';
+import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
 import '../fingerprint/fingerprint_liveness_camera_screen.dart';
@@ -54,13 +56,19 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
   Future<void> _upload(FingerprintGalleryResult capture) async {
     setState(() { _uploading = true; _error = null; });
     try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       final res = await _fpService.enrollGallery(
         capture.captures.map((x) => File(x.path)).toList(),
         token:          _token,
         patientId:      widget.patient.id.toString(),
         fingerPosition: _steps[_currentIndex].position,
         isPrimary:      _currentIndex == 0,
-        livenessPassed: capture.livenessPassed,
+        livenessToken:  capture.livenessToken,
+        gpsLatitude:    position?.latitude,
+        gpsLongitude:   position?.longitude,
+        wifiSsid:       wifiSsid,
       );
 
       if (!mounted) return;

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -46,6 +47,21 @@ class FaceService
         $this->baseUrl = rtrim(config('services.fingerprint.url', 'http://127.0.0.1:5001'), '/');
     }
 
+    /**
+     * Pending request carrying the internal API key the Python service
+     * requires (X-Internal-Api-Key, matching its INTERNAL_API_KEY env).
+     */
+    private function http(int $timeout): PendingRequest
+    {
+        $request = Http::timeout($timeout);
+
+        if ($key = config('services.fingerprint.key')) {
+            $request = $request->withHeaders(['X-Internal-Api-Key' => $key]);
+        }
+
+        return $request;
+    }
+
     // ── Core biometric operations ─────────────────────────────────────────────
 
     /**
@@ -57,7 +73,7 @@ class FaceService
      */
     public function process(string $base64Image): array
     {
-        $response = Http::timeout(15)->post("{$this->baseUrl}/face/process", [
+        $response = $this->http(15)->post("{$this->baseUrl}/face/process", [
             'image' => $base64Image,
         ]);
 
@@ -89,7 +105,7 @@ class FaceService
      */
     public function identify(array $embedding, int $topK = 5): array
     {
-        $response = Http::timeout(15)->post("{$this->baseUrl}/face/identify", [
+        $response = $this->http(15)->post("{$this->baseUrl}/face/identify", [
             'embedding' => $embedding,
             'top_k'     => $topK,
         ]);
@@ -116,7 +132,7 @@ class FaceService
      */
     public function enrollToIndex(int $patientId, int $templateId, array $embedding): void
     {
-        $response = Http::timeout(15)->post("{$this->baseUrl}/face/enroll", [
+        $response = $this->http(15)->post("{$this->baseUrl}/face/enroll", [
             'patient_id'  => $patientId,
             'template_id' => $templateId,
             'embedding'   => $embedding,
@@ -139,7 +155,7 @@ class FaceService
      */
     public function removeFromIndex(int $patientId): void
     {
-        $response = Http::timeout(10)->post("{$this->baseUrl}/face/remove", [
+        $response = $this->http(10)->post("{$this->baseUrl}/face/remove", [
             'patient_id' => $patientId,
         ]);
 
@@ -162,7 +178,7 @@ class FaceService
      */
     public function rebuildIndex(array $templates): int
     {
-        $response = Http::timeout(120)->post("{$this->baseUrl}/face/rebuild", [
+        $response = $this->http(120)->post("{$this->baseUrl}/face/rebuild", [
             'templates' => $templates,
         ]);
 
@@ -186,7 +202,7 @@ class FaceService
      */
     public function liveness(string $base64Image): array
     {
-        $response = Http::timeout(15)->post("{$this->baseUrl}/face/liveness", [
+        $response = $this->http(15)->post("{$this->baseUrl}/face/liveness", [
             'image' => $base64Image,
         ]);
 
@@ -211,7 +227,7 @@ class FaceService
      */
     public function match(array $probe, array $candidates): array
     {
-        $response = Http::timeout(30)->post("{$this->baseUrl}/face/match", [
+        $response = $this->http(30)->post("{$this->baseUrl}/face/match", [
             'probe'      => $probe,
             'candidates' => $candidates,
         ]);

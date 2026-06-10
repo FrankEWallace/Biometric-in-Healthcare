@@ -69,7 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Nurse + admin (emergency): fingerprint enrollment
         Route::post('/{patient}/enroll', [PatientController::class, 'enroll'])
-             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+             ->middleware(['role:nurse,admin', 'geofence', 'throttle:20,1']);
 
         // Admin/super_admin: remove a fingerprint record
         Route::delete('/{patient}/fingerprints/{fingerprint}', [PatientController::class, 'removeFingerprint'])
@@ -101,15 +101,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Legacy base64 pipeline — nurse + admin (emergency)
         Route::post('upload', [FingerprintController::class, 'upload'])
-             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+             ->middleware(['role:nurse,admin', 'geofence', 'throttle:20,1']);
 
         // Enhanced pipeline — nurse + admin (emergency)
         Route::post('register', [FingerprintController::class, 'register'])
-             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+             ->middleware(['role:nurse,admin', 'geofence', 'throttle:20,1']);
 
         // Multi-capture gallery enrollment (up to 3 captures/finger) — nurse + admin
         Route::post('enroll-gallery', [FingerprintController::class, 'enrollGallery'])
-             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+             ->middleware(['role:nurse,admin', 'geofence', 'throttle:20,1']);
 
         // Direct patient verification — nurse only
         Route::post('verify', [FingerprintController::class, 'verify'])
@@ -131,6 +131,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [VerificationController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
 
+        // Multi-modal identification (face shortlist → fingerprint confirm) — nurse only
+        Route::post('/multimodal', [VerificationController::class, 'verifyMultimodal'])
+             ->middleware(['role:nurse', 'throttle:30,1']);
+
         // Logs — all roles; nurse sees own only, doctor sees patient-centric
         Route::get('/logs',       [VerificationController::class, 'logs']);
         Route::get('/logs/{log}', [VerificationController::class, 'showLog']);
@@ -150,7 +154,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Enroll a face template — nurse + admin (emergency)
         Route::post('enroll', [FaceController::class, 'enroll'])
-             ->middleware(['role:nurse,admin', 'throttle:20,1']);
+             ->middleware(['role:nurse,admin', 'geofence', 'throttle:20,1']);
 
         // Hospital-wide face identification — nurse only
         Route::post('verify', [FaceController::class, 'verify'])
