@@ -35,6 +35,7 @@ class AuditLog extends Model
     public const ACTION_FACE_ENROLL                = 'face_enroll';
     public const ACTION_FACE_MATCH                 = 'face_match';
     public const ACTION_FACE_NO_MATCH              = 'face_no_match';
+    public const ACTION_FACE_MANUAL_CONFIRM        = 'face_manual_confirm';
     public const ACTION_VISIT_OPEN                 = 'visit_open';
     public const ACTION_VISIT_CLOSE                = 'visit_close';
     public const ACTION_VISIT_REOPEN               = 'visit_reopen';

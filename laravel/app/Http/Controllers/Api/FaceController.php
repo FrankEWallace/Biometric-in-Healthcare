@@ -256,6 +256,22 @@ class FaceController extends Controller
             return response()->json(['error' => 'Identification failed: ' . $e->getMessage()], 500);
         }
 
+        // ── Self-heal a lost index ────────────────────────────────────────────
+        // Zero candidates while active templates exist in the DB means the
+        // on-disk FAISS index was lost (e.g. ephemeral-disk redeploy).
+        // Rebuild it from the encrypted templates and retry once.
+        if (empty($candidates) && FaceTemplate::where('is_active', true)->exists()) {
+            try {
+                Log::warning('FAISS returned no candidates while active face templates exist — rebuilding index.');
+                $this->face->rebuildIndex($this->activeTemplatePayload());
+
+                $faissResult = $this->face->identify($probeEmbedding, topK: 5);
+                $candidates  = $faissResult['candidates'] ?? [];
+            } catch (\RuntimeException $e) {
+                Log::error('FAISS self-heal rebuild failed: ' . $e->getMessage());
+            }
+        }
+
         if (empty($candidates)) {
             $log = $this->writeLog($operator->id, $hospital->id, null, 0.0, 'no_match', $data);
             return response()->json(['status' => 'no_match', 'score' => 0.0, 'patient' => null, 'log_id' => $log->id]);
@@ -316,10 +332,28 @@ class FaceController extends Controller
      */
     public function rebuildIndex(Request $request): JsonResponse
     {
-        $hospital = $request->user()->hospital;
+        try {
+            $count = $this->face->rebuildIndex($this->activeTemplatePayload());
+        } catch (\RuntimeException $e) {
+            return response()->json(['error' => 'Index rebuild failed: ' . $e->getMessage()], 500);
+        }
 
-        $templates = FaceTemplate::where('hospital_id', $hospital->id)
-            ->where('is_active', true)
+        return response()->json([
+            'message'       => 'FAISS index rebuilt successfully.',
+            'indexed_count' => $count,
+        ]);
+    }
+
+    /**
+     * Decrypted [patient_id, template_id, embedding] payload for every active
+     * face template, ready for FaceService::rebuildIndex(). The FAISS index
+     * is global (one per Python service), so the rebuild always covers all
+     * hospitals — per-hospital scoping happens at match time in
+     * interpretCandidate().
+     */
+    private function activeTemplatePayload(): array
+    {
+        return FaceTemplate::where('is_active', true)
             ->get()
             ->map(function (FaceTemplate $ft) {
                 try {
@@ -341,17 +375,6 @@ class FaceController extends Controller
             ->filter()
             ->values()
             ->all();
-
-        try {
-            $count = $this->face->rebuildIndex($templates);
-        } catch (\RuntimeException $e) {
-            return response()->json(['error' => 'Index rebuild failed: ' . $e->getMessage()], 500);
-        }
-
-        return response()->json([
-            'message'       => 'FAISS index rebuilt successfully.',
-            'indexed_count' => $count,
-        ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -388,7 +411,7 @@ class FaceController extends Controller
 
         $log->update(['status' => 'manually_confirmed']);
 
-        AuditLog::record($request, 'face_manual_confirm', $data['patient_id'], null, null, [
+        AuditLog::record($request, AuditLog::ACTION_FACE_MANUAL_CONFIRM, $data['patient_id'], null, null, [
             'log_id'     => $data['log_id'],
             'score'      => $log->score,
             'confirmed_by' => $request->user()->id,

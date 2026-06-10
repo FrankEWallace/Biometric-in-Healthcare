@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/face_service.dart';
+import '../../services/location_service.dart';
+import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/custom_text_field.dart';
 import '../../widgets/primary_button.dart';
@@ -94,10 +96,16 @@ class _FaceEnrollScreenState extends State<FaceEnrollScreen> {
     setState(() { _isEnrolling = true; _error = null; });
 
     try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
       await FaceService().enrollFace(
         File(_capturedImage!.path),
         token: token,
         patientId: _patientIdCtrl.text.trim(),
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
       );
 
       if (mounted) setState(() { _isEnrolling = false; _success = true; });

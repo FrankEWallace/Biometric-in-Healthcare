@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\CheckHospitalAccess;
+use App\Http\Middleware\EnforceGeofence;
 use App\Http\Middleware\EnsureActiveUser;
 use App\Http\Middleware\RequireRole;
 use App\Http\Middleware\SecurityHeaders;
@@ -35,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'hospital.access' => CheckHospitalAccess::class,
             'role'            => RequireRole::class,
+            'geofence'        => EnforceGeofence::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

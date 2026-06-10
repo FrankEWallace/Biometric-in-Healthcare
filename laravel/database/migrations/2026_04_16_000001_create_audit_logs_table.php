@@ -24,7 +24,10 @@ return new class extends Migration
                   ->constrained('hospitals')
                   ->cascadeOnDelete();
 
-            // What was accessed — PDPA 2023 requires logging every access type
+            // What was accessed — PDPA 2023 requires logging every access type.
+            // Full superset of actions: later MODIFY-enum migrations are
+            // MySQL-only, so SQLite (the test database) builds its CHECK
+            // constraint from this list alone.
             $table->enum('action', [
                 'ehr_access',
                 'insurance_check',
@@ -48,6 +51,16 @@ return new class extends Migration
                 'user_deactivated',
                 'hospital_created',
                 'hospital_deactivated',
+                'face_enroll',
+                'face_match',
+                'face_no_match',
+                'face_manual_confirm',
+                'visit_open',
+                'visit_close',
+                'visit_reopen',
+                'stage_verified',
+                'stage_override_requested',
+                'stage_override_resolved',
             ]);
 
             // Which GoT-HoMIS module was queried (null for local-only actions)
