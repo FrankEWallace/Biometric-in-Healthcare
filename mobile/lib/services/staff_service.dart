@@ -10,10 +10,16 @@ class StaffException implements Exception {
 class StaffService {
   static const String _baseUrl = AppConfig.baseUrl;
 
+  Map<String, String> _headers(String token) => {
+        ...AppConfig.defaultHeaders,
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
   Future<List<Map<String, dynamic>>> getStaff({required String token}) async {
     final res = await http.get(
       Uri.parse('$_baseUrl/users'),
-      headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
+      headers: _headers(token),
     ).timeout(const Duration(seconds: 15));
 
     if (res.statusCode == 200) {
@@ -34,11 +40,7 @@ class StaffService {
   }) async {
     final res = await http.post(
       Uri.parse('$_baseUrl/users'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers: _headers(token),
       body: jsonEncode({
         'hospital_id': hospitalId,
         'name': name,
@@ -79,11 +81,7 @@ class StaffService {
 
     final res = await http.put(
       Uri.parse('$_baseUrl/users/$userId'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers: _headers(token),
       body: jsonEncode(payload),
     ).timeout(const Duration(seconds: 15));
 
@@ -104,11 +102,7 @@ class StaffService {
   }) async {
     final res = await http.put(
       Uri.parse('$_baseUrl/users/$userId'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers: _headers(token),
       body: jsonEncode({'is_active': isActive}),
     ).timeout(const Duration(seconds: 15));
 

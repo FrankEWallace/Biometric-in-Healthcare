@@ -46,8 +46,8 @@ class AuthService {
           .post(
             Uri.parse('$_baseUrl/auth/login'),
             headers: {
+              ...AppConfig.defaultHeaders,
               'Content-Type': 'application/json',
-              'Accept': 'application/json',
             },
             body: jsonEncode({'username': username, 'password': password}),
           )
@@ -119,8 +119,8 @@ class AuthService {
   }
 
   Map<String, String> get authHeaders => {
+        ...AppConfig.defaultHeaders,
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
         if (_token != null) 'Authorization': 'Bearer $_token',
       };
 

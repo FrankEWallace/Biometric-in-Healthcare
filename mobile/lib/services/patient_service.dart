@@ -15,8 +15,8 @@ class PatientService {
   static const String _baseUrl = AppConfig.baseUrl;
 
   Map<String, String> _headers(String token) => {
+        ...AppConfig.defaultHeaders,
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
         'Authorization': 'Bearer $token',
       };
 

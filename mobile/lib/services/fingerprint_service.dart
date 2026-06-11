@@ -200,8 +200,8 @@ class FingerprintService {
   static const String _baseUrl = AppConfig.baseUrl;
 
   Map<String, String> _authHeaders(String token) => {
+        ...AppConfig.defaultHeaders,
         'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
       };
 
   // ── Register ──────────────────────────────────────────────────────────────
