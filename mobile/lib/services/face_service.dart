@@ -95,9 +95,9 @@ class FaceService {
   static const String _baseUrl = AppConfig.baseUrl;
 
   Map<String, String> _headers(String token) => {
-        'Authorization': 'Bearer $token',
+        ...AppConfig.defaultHeaders,
         'Content-Type':  'application/json',
-        'Accept':        'application/json',
+        'Authorization': 'Bearer $token',
       };
 
   // ── Enroll ────────────────────────────────────────────────────────────────
