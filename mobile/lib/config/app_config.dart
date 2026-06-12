@@ -10,4 +10,11 @@ class AppConfig {
     'API_BASE_URL',
     defaultValue: 'http://192.168.1.106:8000/api',
   );
+
+  // Added to bypass ngrok's browser-interstitial page when tunnelling.
+  // Safe to include in production (unknown headers are ignored).
+  static const Map<String, String> defaultHeaders = {
+    'Accept': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+  };
 }

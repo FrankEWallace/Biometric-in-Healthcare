@@ -10,7 +10,7 @@ class HospitalException implements Exception {
 class HospitalService {
   static const String _baseUrl = AppConfig.baseUrl;
 
-  static const _headers = {'Accept': 'application/json'};
+  static const _headers = AppConfig.defaultHeaders;
 
   Map<String, String> _auth(String token) => {
         ..._headers,
