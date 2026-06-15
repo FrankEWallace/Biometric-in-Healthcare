@@ -31,7 +31,27 @@ class VerificationController extends Controller
     ) {}
 
     /**
-     * POST /api/verify
+     * RFC-8594 deprecation headers advertising the multimodal successor.
+     * Applied to every response from the legacy 1:N {@see self::verify()} flow.
+     *
+     * @return array<string, string>
+     */
+    private function deprecationHeaders(): array
+    {
+        return [
+            'Deprecation' => 'true',
+            'Link'        => '</api/verify/multimodal>; rel="successor-version"',
+            'Warning'     => '299 - "POST /api/verify is deprecated; use POST /api/verify/multimodal"',
+        ];
+    }
+
+    /**
+     * POST /api/verify   — DEPRECATED
+     *
+     * Superseded by {@see self::verifyMultimodal()}. This hospital-wide 1:N
+     * fingerprint search lets false-accept risk grow with the size of the
+     * patient database; the multimodal flow bounds it via a face shortlist.
+     * Retained for backward compatibility and emits deprecation headers.
      *
      * Two-pass matching strategy:
      *   Pass 1 — probe vs. primary fingerprints only (fast, typical case).
@@ -64,7 +84,7 @@ class VerificationController extends Controller
         )) {
             return response()->json([
                 'error' => 'Access denied: device is not within hospital premises.',
-            ], 403);
+            ], 403)->withHeaders($this->deprecationHeaders());
         }
 
         // ------------------------------------------------------------------
@@ -75,7 +95,8 @@ class VerificationController extends Controller
             $probeTemplate = $result['template'];
         } catch (\Throwable $e) {
             $this->writeLog($operator->id, $hospital->id, null, null, null, 'error', $data, $e->getMessage());
-            return response()->json(['error' => 'Feature extraction failed: ' . $e->getMessage()], 500);
+            return response()->json(['error' => 'Feature extraction failed: ' . $e->getMessage()], 500)
+                ->withHeaders($this->deprecationHeaders());
         }
 
         // ------------------------------------------------------------------
@@ -173,7 +194,7 @@ class VerificationController extends Controller
             'log_id'    => $log->id,
             'ehr'       => $ehr,
             'insurance' => $insurance,
-        ]);
+        ])->withHeaders($this->deprecationHeaders());
     }
 
     /**
