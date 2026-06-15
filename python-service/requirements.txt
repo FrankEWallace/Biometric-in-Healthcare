@@ -8,3 +8,4 @@ insightface>=0.7.3
 onnxruntime>=1.19
 faiss-cpu>=1.8
 scipy>=1.13
+matplotlib>=3.8  # optional — only used by tools/calibrate_far_frr.py for plots

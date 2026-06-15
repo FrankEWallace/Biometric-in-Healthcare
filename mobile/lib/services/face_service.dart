@@ -89,6 +89,45 @@ class FaceVerifyResult {
       );
 }
 
+/// Result of the face-first → fingerprint-confirm decision-matrix flow
+/// (`POST /api/verify/multimodal`).
+class MultimodalVerifyResult {
+  final String status;            // "matched" | "needs_review" | "no_match"
+  final double faceScore;         // cosine similarity 0–1 of the top candidate
+  final double fingerprintScore;  // minutiae score 0–100 (0 when fp stage skipped/failed)
+  final int? logId;               // verification_logs.id — for confirmManualReview
+  final Map<String, dynamic>? patient;
+  final Map<String, dynamic>? ehr;
+  final Map<String, dynamic>? insurance;
+
+  bool get isMatch       => status == 'matched';
+  bool get isNeedsReview => status == 'needs_review';
+
+  String get patientName => (patient?['full_name'] as String?) ?? 'Unknown';
+  int    get patientId   => (patient?['id'] as int?) ?? 0;
+
+  const MultimodalVerifyResult({
+    required this.status,
+    required this.faceScore,
+    required this.fingerprintScore,
+    this.logId,
+    this.patient,
+    this.ehr,
+    this.insurance,
+  });
+
+  factory MultimodalVerifyResult.fromJson(Map<String, dynamic> json) =>
+      MultimodalVerifyResult(
+        status:           json['status'] as String? ?? 'no_match',
+        faceScore:        (json['face_score'] as num?)?.toDouble() ?? 0.0,
+        fingerprintScore: (json['fingerprint_score'] as num?)?.toDouble() ?? 0.0,
+        logId:            json['log_id'] as int?,
+        patient:          json['patient']   as Map<String, dynamic>?,
+        ehr:              json['ehr']       as Map<String, dynamic>?,
+        insurance:        json['insurance'] as Map<String, dynamic>?,
+      );
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class FaceService {
@@ -153,6 +192,45 @@ class FaceService {
     throw FaceException(msg, statusCode: response.statusCode, kind: _kind(response.statusCode, msg));
   }
 
+  // ── Multimodal verify (face shortlist → fingerprint confirm) ──────────────
+
+  /// POST /api/verify/multimodal
+  ///
+  /// Sends a live face photo and a fingerprint photo in one request. The
+  /// server runs face liveness + FAISS shortlist, then confirms with a 1:few
+  /// fingerprint match. Returns one of: matched / needs_review / no_match.
+  ///
+  /// A longer timeout is used than the single-modality calls because the
+  /// server performs two pipelines (face + fingerprint) in sequence.
+  Future<MultimodalVerifyResult> verifyMultimodal({
+    required File faceImage,
+    required File fingerprintImage,
+    required String token,
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
+  }) async {
+    final faceB64 = await _compressedBase64(faceImage);
+    final fpB64   = await _compressedBase64(fingerprintImage);
+    final uri     = Uri.parse('$_baseUrl/verify/multimodal');
+
+    final body = <String, dynamic>{
+      'face_image':        faceB64,
+      'fingerprint_image': fpB64,
+    };
+    if (gpsLatitude  != null) body['gps_latitude']  = gpsLatitude;
+    if (gpsLongitude != null) body['gps_longitude'] = gpsLongitude;
+    if (wifiSsid     != null) body['wifi_ssid']     = wifiSsid;
+
+    final response = await _post(uri, token, body, timeout: const Duration(seconds: 60));
+    final json     = _parseBody(response);
+
+    if (response.statusCode == 200) return MultimodalVerifyResult.fromJson(json);
+
+    final msg = _message(json);
+    throw FaceException(msg, statusCode: response.statusCode, kind: _kind(response.statusCode, msg));
+  }
+
   // ── Manual review confirmation ────────────────────────────────────────────
 
   /// Records a staff manual confirmation of a borderline face match.
@@ -209,11 +287,16 @@ class FaceService {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  Future<http.Response> _post(Uri uri, String token, Map<String, dynamic> body) async {
+  Future<http.Response> _post(
+    Uri uri,
+    String token,
+    Map<String, dynamic> body, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
     try {
       return await http
           .post(uri, headers: _headers(token), body: jsonEncode(body))
-          .timeout(const Duration(seconds: 30));
+          .timeout(timeout);
     } on TimeoutException {
       throw const FaceException('Request timed out. Please try again.',
           kind: FaceErrorKind.network);
