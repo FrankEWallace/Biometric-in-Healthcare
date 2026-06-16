@@ -17,18 +17,24 @@ use Illuminate\Http\Request;
 
 class VerificationController extends Controller
 {
-    /** Minutiae match score threshold (0–100 scale, 20 recommended starting point). */
-    private const MATCH_THRESHOLD = 20.0;
-
     /** How many face candidates the multimodal shortlist may contain. */
     private const SHORTLIST_SIZE = 5;
+
+    /**
+     * Minutiae match score threshold (0–100 scale). Single source of truth:
+     * services.fingerprint.match_threshold (FINGERPRINT_MATCH_THRESHOLD, default 32.0)
+     * — shared with {@see FingerprintService} and the Python service.
+     */
+    private float $matchThreshold;
 
     public function __construct(
         private FingerprintService $fingerprint,
         private FaceService        $face,
         private GeofenceService    $geofence,
         private HomisService       $homis,
-    ) {}
+    ) {
+        $this->matchThreshold = (float) config('services.fingerprint.match_threshold', 32.0);
+    }
 
     /**
      * RFC-8594 deprecation headers advertising the multimodal successor.
@@ -111,7 +117,7 @@ class VerificationController extends Controller
         // 4. Pass 2 — fallback to non-primary fingerprints if pass-1 missed
         //    Uses ix_fp_hospital_active index: (hospital_id, is_active)
         // ------------------------------------------------------------------
-        if ($score < self::MATCH_THRESHOLD) {
+        if ($score < $this->matchThreshold) {
             $nonPrimaryFingerprints = $this->loadFingerprints($hospital->id, primaryOnly: false)
                 ->whereNotIn('id', $primaryFingerprints->pluck('id'));
 
@@ -127,7 +133,7 @@ class VerificationController extends Controller
         // ------------------------------------------------------------------
         // 5. Resolve result and write verification audit log
         // ------------------------------------------------------------------
-        $matched        = $score >= self::MATCH_THRESHOLD && $matchedFp !== null;
+        $matched        = $score >= $this->matchThreshold && $matchedFp !== null;
         $matchedPatient = $matched ? $matchedFp->patient : null;
         $status         = $matched ? 'matched' : 'no_match';
 
@@ -308,7 +314,7 @@ class VerificationController extends Controller
         }
 
         // ── 3. Decision ───────────────────────────────────────────────────────
-        $matched = $fpScore >= self::MATCH_THRESHOLD && $matchedFp !== null;
+        $matched = $fpScore >= $this->matchThreshold && $matchedFp !== null;
 
         if ($matched) {
             $patient = $matchedFp->patient;

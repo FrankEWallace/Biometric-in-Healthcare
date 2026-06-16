@@ -109,7 +109,7 @@ def discover_images(root: Path) -> dict[str, list[Path]]:
 # Template extraction — production pipeline
 # ===========================================================================
 
-def image_to_template(path: Path) -> tuple[dict, float]:
+def image_to_template(path: Path, enhance: bool = True) -> tuple[dict, float]:
     """Decode an image and run the same pipeline the /process endpoint uses."""
     import cv2  # imported lazily so --self-test works without OpenCV/numpy stack
     import numpy as np
@@ -120,7 +120,7 @@ def image_to_template(path: Path) -> tuple[dict, float]:
     if img is None:
         raise ValueError(f"could not decode image: {path}")
 
-    result = preprocess_fingerprint(img)
+    result = preprocess_fingerprint(img, enhance=enhance)
     skeleton_bytes = base64.b64decode(result["processed_image"])
     skeleton = cv2.imdecode(np.frombuffer(skeleton_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
     if skeleton is None:
@@ -130,7 +130,7 @@ def image_to_template(path: Path) -> tuple[dict, float]:
     return template, float(result.get("quality_score", 0.0))
 
 
-def build_templates(groups: dict[str, list[Path]]) -> tuple[dict[str, list[tuple[Path, dict]]], int]:
+def build_templates(groups: dict[str, list[Path]], enhance: bool = True) -> tuple[dict[str, list[tuple[Path, dict]]], int]:
     """
     Extract a template for every image. Drops images whose template has no
     usable features. Returns ({identity: [(path, template)]}, dropped_count).
@@ -144,7 +144,7 @@ def build_templates(groups: dict[str, list[Path]]) -> tuple[dict[str, list[tuple
         for path in paths:
             done += 1
             try:
-                template, _ = image_to_template(path)
+                template, _ = image_to_template(path, enhance=enhance)
             except Exception as exc:  # noqa: BLE001 - report and skip bad files
                 print(f"  ! skip {path.name}: {exc}", file=sys.stderr)
                 dropped += 1
@@ -321,9 +321,9 @@ def print_summary(m: Metrics) -> None:
         print(f"    {tgt*100:9.2f}% | {v['threshold']:9.2f} | "
               f"{v['far']*100:9.2f}% | {v['frr']*100:6.2f}%")
     print(line)
-    print("  Set VerificationController::MATCH_THRESHOLD (and the Python")
-    print("  MATCH_THRESHOLD docs) to the threshold whose FAR your deployment")
-    print("  tolerates. Lower threshold = fewer false rejects, more false accepts.")
+    print("  Set FINGERPRINT_MATCH_THRESHOLD (in laravel/.env and python-service/.env)")
+    print("  to the threshold whose FAR your deployment tolerates.")
+    print("  Lower threshold = fewer false rejects, more false accepts.")
     print(f"{line}\n")
 
 
@@ -431,6 +431,9 @@ def main() -> int:
     ap.add_argument("--step", type=float, default=0.5, help="Threshold grid step (default 0.5)")
     ap.add_argument("--far-targets", type=float, nargs="+", default=[0.01, 0.001],
                     help="Target FARs to report operating thresholds for (default 0.01 0.001)")
+    ap.add_argument("--no-enhance", action="store_true",
+                    help="Skip the phone-tuned CLAHE+Gabor stages (isolate the "
+                         "matcher; use for clean contact-sensor sets like SOCOFing/FVC)")
     ap.add_argument("--self-test", action="store_true",
                     help="Validate the metric math on synthetic data and exit")
     args = ap.parse_args()
@@ -450,8 +453,9 @@ def main() -> int:
     if n_imgs == 0:
         ap.error("no images found — check the directory and file extensions")
 
-    print("Extracting templates (production pipeline) ...")
-    templates, dropped = build_templates(groups)
+    enhance = not args.no_enhance
+    print(f"Extracting templates ({'full pipeline' if enhance else 'matcher-only, --no-enhance'}) ...")
+    templates, dropped = build_templates(groups, enhance=enhance)
 
     usable_ids = len(templates)
     genuine_capable = sum(1 for v in templates.values() if len(v) >= 2)
@@ -482,6 +486,7 @@ def main() -> int:
         "seed": args.seed,
         "step": args.step,
         "far_targets": args.far_targets,
+        "enhance": enhance,
     }
     write_outputs(args.out, pairs, m, meta)
     return 0
