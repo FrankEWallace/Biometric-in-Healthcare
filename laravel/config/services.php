@@ -22,11 +22,17 @@ return [
     | PYTHON_SERVICE_API_KEY must match INTERNAL_API_KEY on the Python side.
     | Required in production — the microservice rejects unauthenticated
     | requests when its key is configured.
+    |
+    | match_threshold is the SINGLE SOURCE OF TRUTH for the fingerprint
+    | accept/reject decision. Keep FINGERPRINT_MATCH_THRESHOLD in sync with
+    | the Python service's env var. Set it to the operating point produced by
+    | tools/calibrate_far_frr.py (EER, or the threshold at your target FAR).
     */
 
     'fingerprint' => [
-        'url' => env('PYTHON_SERVICE_URL', 'http://127.0.0.1:5001'),
-        'key' => env('PYTHON_SERVICE_API_KEY', ''),
+        'url'             => env('PYTHON_SERVICE_URL', 'http://127.0.0.1:5001'),
+        'key'             => env('PYTHON_SERVICE_API_KEY', ''),
+        'match_threshold' => (float) env('FINGERPRINT_MATCH_THRESHOLD', 32.0),
     ],
 
     /*
