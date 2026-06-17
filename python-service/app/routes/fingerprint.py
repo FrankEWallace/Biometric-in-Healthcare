@@ -11,6 +11,7 @@ POST /fingerprint/liveness-check — base64 frame list → optical-flow liveness
 from __future__ import annotations
 
 import base64
+import os
 from typing import Any
 
 import cv2
@@ -23,6 +24,11 @@ from app.services.sourceafis_service import extract_template, match_templates
 from app.services.liveness_service import fingerprint_liveness_check
 
 router = APIRouter(tags=["fingerprint"])
+
+# Single source of truth for the accept/reject decision, shared with the
+# Laravel side (services.fingerprint.match_threshold). Keep FINGERPRINT_MATCH_THRESHOLD
+# in sync across both .env files; set it from tools/calibrate_far_frr.py output.
+MATCH_THRESHOLD = float(os.environ.get("FINGERPRINT_MATCH_THRESHOLD", "32.0"))
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +157,9 @@ def match(body: MatchRequest) -> MatchResponse:
     Runs SourceAFIS minutiae matching between the probe and every candidate.
     Returns the patient_id with the highest score.
 
-    Score scale: SourceAFIS raw float (typically 0–200+).
-    Recommended threshold: 40.  Calibrate based on FAR/FRR measurements.
+    Score scale: SourceAFIS raw float (typically 0–200+). This endpoint does
+    not apply a verdict — the caller (Laravel) compares against the shared
+    FINGERPRINT_MATCH_THRESHOLD. Calibrate it with tools/calibrate_far_frr.py.
     """
     if not body.candidates:
         raise HTTPException(status_code=400, detail="'candidates' list is empty.")
@@ -254,10 +261,9 @@ async def match_fingerprint(
       3. Extract SourceAFIS minutiae template from each skeleton.
       4. Match templates with SourceAFIS and return score + verdict.
 
-    Verdict threshold: score ≥ 40 → MATCH.
+    Verdict threshold: score ≥ MATCH_THRESHOLD → MATCH
+    (FINGERPRINT_MATCH_THRESHOLD env, default 32.0).
     """
-    _MATCH_THRESHOLD = 40.0
-
     for field_name, upload in [("image1", image1), ("image2", image2)]:
         if upload.content_type not in _ALLOWED_TYPES:
             raise HTTPException(
@@ -285,7 +291,7 @@ async def match_fingerprint(
     score = match_templates(t1, t2)
 
     return {
-        "verdict":       "MATCH" if score >= _MATCH_THRESHOLD else "NO MATCH",
+        "verdict":       "MATCH" if score >= MATCH_THRESHOLD else "NO MATCH",
         "score":         round(score, 2),
         "image1": {
             "filename":       image1.filename,
