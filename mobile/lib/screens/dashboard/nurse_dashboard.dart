@@ -6,6 +6,7 @@ import '../../services/network_service.dart';
 import '../../screens/edit_request_screen.dart';
 import '../../screens/shell/app_shell.dart';
 import '../../screens/verification_screen.dart';
+import '../../screens/verify/multimodal_verification_screen.dart';
 import '../../screens/patient_registration_screen.dart';
 import '../../screens/profile/profile_screen.dart';
 import '../../theme/app_theme.dart';
@@ -160,6 +161,14 @@ class _NurseDashboardState extends State<NurseDashboard> {
 
                   Text('Actions', style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 12),
+                  _ActionCard(
+                    icon: Icons.verified_user_rounded,
+                    title: 'Identify Patient',
+                    subtitle: 'Face + fingerprint — no ID needed',
+                    color: AppColors.primary,
+                    onTap: () => _pushGated(context, const MultimodalVerificationScreen()),
+                  ),
+                  const SizedBox(height: 10),
                   _ActionCard(
                     icon: Icons.fingerprint,
                     title: 'Verify Patient',

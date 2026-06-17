@@ -30,18 +30,19 @@ class FingerprintService
     /**
      * Minimum minutiae match score to declare a positive match.
      * Scale: 0–100 (2 × matched_pairs / total_minutiae × 100).
-     * 20 is the recommended starting point; calibrate using FAR/FRR
-     * measurements on your actual hardware and patient population.
-     * Raise toward 30–40 for higher-security deployments once you have
-     * real enrolled data to measure against.
+     *
+     * Single source of truth: services.fingerprint.match_threshold
+     * (FINGERPRINT_MATCH_THRESHOLD in .env, default 32.0). Calibrate with
+     * tools/calibrate_far_frr.py and keep the Python service's env var in sync.
      */
-    private const MATCH_THRESHOLD = 32.0;
-
     private string $baseUrl;
+
+    private float $matchThreshold;
 
     public function __construct()
     {
         $this->baseUrl = rtrim(config('services.fingerprint.url', 'http://127.0.0.1:5001'), '/');
+        $this->matchThreshold = (float) config('services.fingerprint.match_threshold', 32.0);
     }
 
     /**
@@ -213,7 +214,7 @@ class FingerprintService
             return [
                 'verdict'               => 'NO MATCH',
                 'score'                 => 0.0,
-                'threshold'             => self::MATCH_THRESHOLD,
+                'threshold'             => $this->matchThreshold,
                 'matched_fingerprint_id'=> 0,
                 'probe_minutiae'        => $probeMinutiae,
                 'probe_keypoints'       => $probeMinutiae,
@@ -249,14 +250,14 @@ class FingerprintService
             'probe_minutiae'        => $probeMinutiae,
             'score'                 => $score,
             'matched_fingerprint_id'=> $matchedFingerprintId,
-            'threshold'             => self::MATCH_THRESHOLD,
-            'verdict'               => $score >= self::MATCH_THRESHOLD ? 'MATCH' : 'NO MATCH',
+            'threshold'             => $this->matchThreshold,
+            'verdict'               => $score >= $this->matchThreshold ? 'MATCH' : 'NO MATCH',
         ]);
 
         return [
-            'verdict'               => $score >= self::MATCH_THRESHOLD ? 'MATCH' : 'NO MATCH',
+            'verdict'               => $score >= $this->matchThreshold ? 'MATCH' : 'NO MATCH',
             'score'                 => round($score, 2),
-            'threshold'             => self::MATCH_THRESHOLD,
+            'threshold'             => $this->matchThreshold,
             'matched_fingerprint_id'=> $matchedFingerprintId,
             'probe_minutiae'        => $probeMinutiae,
             'probe_keypoints'       => $probeMinutiae,

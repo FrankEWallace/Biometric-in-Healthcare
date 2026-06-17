@@ -329,6 +329,47 @@ Set these in the shell or in a `.env` file loaded before starting the service.
 
 ---
 
+## FAR / FRR Calibration
+
+`tools/calibrate_far_frr.py` measures the matcher's accuracy on real captures
+and tells you which `MATCH_THRESHOLD` to use. It runs the **production
+pipeline** (`preprocess_fingerprint → extract_template → match_templates`), so
+its numbers match what the live service produces — re-run it whenever the
+matching algorithm changes.
+
+**Dataset layout** — one *identity* (physical finger) per group, multiple
+impressions per identity:
+
+```
+captures/
+  subject01/right_index_1.jpg   ┐ identity "subject01/right_index"
+  subject01/right_index_2.jpg   ┘
+  subject01/right_thumb_1.jpg     identity "subject01/right_thumb"
+  subject02/right_index_1.jpg     identity "subject02/right_index"
+```
+
+A flat FVC-style layout works too (`101_1.tif`, `101_2.tif`, `102_1.tif` →
+identities `101`, `102`). Aim for **N ≥ 50 fingers with ≥ 2 impressions each**
+for a defensible result.
+
+```bash
+# Verify the metric math (no dataset / no OpenCV needed):
+venv/bin/python tools/calibrate_far_frr.py --self-test
+
+# Run a real calibration:
+venv/bin/python tools/calibrate_far_frr.py --data captures/ --out reports/
+```
+
+Outputs in `--out`: `scores.csv` (every pair + score), `roc.csv`
+(threshold/FAR/FRR), `calibration_report.json` (summary), and — if
+`matplotlib` is installed (`pip install matplotlib`) — `far_frr.png` /
+`roc.png`. The summary prints the **EER** and the threshold for each target
+FAR (1%, 0.1% by default; override with `--far-targets`); set
+`VerificationController::MATCH_THRESHOLD` to the threshold whose false-accept
+rate your deployment tolerates.
+
+---
+
 ## Production Notes
 
 - Bind to `127.0.0.1` — this service has no authentication and must not be internet-accessible.

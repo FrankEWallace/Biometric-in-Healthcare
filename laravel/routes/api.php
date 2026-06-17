@@ -127,7 +127,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Hospital-wide Verification ────────────────────────────────────────────
     Route::prefix('verify')->middleware('hospital.access')->group(function () {
 
-        // Identification scan — nurse only
+        // DEPRECATED: hospital-wide 1:N fingerprint identification.
+        // Superseded by POST /api/verify/multimodal (face shortlist →
+        // fingerprint confirm), which keeps false-accept risk from growing
+        // with the patient database size. Kept temporarily for backward
+        // compatibility; emits RFC-8594 deprecation headers. Nurse only.
         Route::post('/', [VerificationController::class, 'verify'])
              ->middleware(['role:nurse', 'throttle:30,1']);
 

@@ -226,41 +226,55 @@ def compute_quality_score(image: np.ndarray) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
-def preprocess_fingerprint(image: np.ndarray) -> dict:
+def preprocess_fingerprint(image: np.ndarray, enhance: bool = True) -> dict:
     """
     Run the full preprocessing pipeline on a raw BGR or grayscale image.
 
     Steps applied in order:
       1. Grayscale conversion
       2. Gaussian blur              — noise reduction
-      3. Histogram equalization     — contrast enhancement
-      4. Adaptive thresholding      — binarization
-      5. Morphological thinning     — ridge skeletonization
+      3. CLAHE                      — local contrast enhancement   (enhance only)
+      4. Gabor filter bank          — ridge enhancement            (enhance only)
+      5. Adaptive thresholding      — binarization
+      6. Morphological clean        — noise-blob removal
+      7. Morphological thinning     — ridge skeletonization
 
-    The quality score is computed on the equalized (pre-binary) image so
-    that the Laplacian variance reflects actual ridge sharpness rather than
-    the high-frequency edges introduced by binarization.
+    The quality score is computed on the raw grayscale image so that the
+    Laplacian variance reflects actual capture sharpness.
+
+    ``enhance`` (default ``True``) keeps the full phone-tuned pipeline. Pass
+    ``enhance=False`` to skip the CLAHE + Gabor stages — used to isolate the
+    matcher on clean contact-sensor sets (SOCOFing/FVC), whose ridges do not
+    need the phone-photo enhancement and are degraded by it.
 
     Returns::
 
         {
             "processed_image": "<base64-encoded PNG of skeleton>",
             "quality_score": 0.742,
-            "steps": [
-                "grayscale",
-                "gaussian_blur",
-                "histogram_equalization",
-                "adaptive_threshold",
-                "thinning"
-            ]
+            "enhance": true,
+            "steps": ["grayscale", "gaussian_blur", ...]
         }
     """
     gray      = to_grayscale(image)
     quality   = compute_quality_score(gray)   # measure before any processing
     blurred   = apply_gaussian_blur(gray)
-    equalized = equalize_histogram(blurred)   # CLAHE — local contrast
-    enhanced  = gabor_enhance(equalized)      # Gabor ridge filter bank
-    binary    = apply_adaptive_threshold(enhanced)
+
+    if enhance:
+        equalized = equalize_histogram(blurred)   # CLAHE — local contrast
+        prepared  = gabor_enhance(equalized)      # Gabor ridge filter bank
+        steps = [
+            "grayscale", "gaussian_blur", "clahe", "gabor_enhance",
+            "adaptive_threshold", "morphological_clean", "thinning",
+        ]
+    else:
+        prepared = blurred                        # skip CLAHE + Gabor
+        steps = [
+            "grayscale", "gaussian_blur",
+            "adaptive_threshold", "morphological_clean", "thinning",
+        ]
+
+    binary    = apply_adaptive_threshold(prepared)
     cleaned   = clean_binary(binary)
     skeleton  = apply_thinning(cleaned)
 
@@ -270,13 +284,6 @@ def preprocess_fingerprint(image: np.ndarray) -> dict:
     return {
         "processed_image": b64,
         "quality_score": quality,
-        "steps": [
-            "grayscale",
-            "gaussian_blur",
-            "clahe",
-            "gabor_enhance",
-            "adaptive_threshold",
-            "morphological_clean",
-            "thinning",
-        ],
+        "enhance": enhance,
+        "steps": steps,
     }
