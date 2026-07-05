@@ -81,9 +81,14 @@ def test_fusion_helpers() -> None:
 def test_domain_routing() -> None:
     print("domain routing")
     check(get_matcher("contact").name == "minutiae-crossing-number", "contact -> minutiae")
-    # No embedding model installed -> contactless falls back to minutiae.
-    check(get_matcher("contactless").name == "minutiae-crossing-number",
-          "contactless -> minutiae fallback (no model)")
+    # Contactless routes to the embedding matcher when its model is installed,
+    # else falls back to minutiae. Assert the correct branch for this machine.
+    from app.services.embedding_service import EmbeddingMatcher
+    cl = get_matcher("contactless").name
+    if EmbeddingMatcher.from_env().available:
+        check(cl == "onnx-contactless-embedding", "contactless -> embedding (model present)")
+    else:
+        check(cl == "minutiae-crossing-number", "contactless -> minutiae fallback (no model)")
 
 
 def test_segmentation() -> None:
@@ -140,14 +145,36 @@ def test_real_selfmatch() -> None:
     fm = full[list(full)[0]]
     hand = {RIGHT_HAND_FINGERS[i]: mt.extract(cv2.imread(str(p)), enhance=True)
             for i, p in fm.items()}
+    # Minutiae templates -> verify on the contact path (embedding path would be
+    # a format mismatch). Validates fusion/scoring, not the contactless matcher.
     m = match_hand(MatchHandRequest(
         probe=hand, candidates=[CandidateHand(patient_id=1, fingers=hand)],
-        domain="contactless"))
+        domain="contact"))
     check(m.score > 99, f"self-match on real ridges ~100 (got {m.score})")
+
+
+def test_embedding_path() -> None:
+    print("embedding matcher (needs ONNX model)")
+    from app.services.embedding_service import EmbeddingMatcher
+    em = EmbeddingMatcher.from_env()
+    if not em.available:
+        print("  ⚠ no ONNX model — skipping embedding checks")
+        return
+    full = real_right_hands()
+    if not full:
+        print("  ⚠ RidgeBase not present — skipping")
+        return
+    p = next(iter(full.values()))[0]
+    img = cv2.imread(str(p))
+    t1 = em.extract(img, hand="right")
+    check(t1["format"] == "embedding" and t1["dim"] == 1024, "embedding is 1024-d")
+    # Same image twice -> cosine 1.0 -> score ~100.
+    check(em.score(t1, em.extract(img, hand="right")) > 99.9, "embedding self-match ~100")
 
 
 if __name__ == "__main__":
     for t in (test_fusion_helpers, test_domain_routing, test_segmentation,
-              test_match_hands_guard, test_endpoints_synthetic, test_real_selfmatch):
+              test_match_hands_guard, test_endpoints_synthetic, test_real_selfmatch,
+              test_embedding_path):
         t()
     print(f"\n{_passed} checks passed.")

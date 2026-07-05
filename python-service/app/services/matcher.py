@@ -95,8 +95,15 @@ class Matcher(ABC):
         return True
 
     @abstractmethod
-    def extract(self, image_bgr: np.ndarray, *, enhance: bool = True) -> dict[str, Any]:
-        """Build a template from a single-finger BGR image."""
+    def extract(
+        self, image_bgr: np.ndarray, *, enhance: bool = True, hand: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Build a template from a single-finger BGR image.
+
+        ``hand`` ("right"|"left"|None) lets domain matchers apply pose
+        normalisation; matchers that don't need it ignore the argument.
+        """
 
     @abstractmethod
     def score(self, probe: dict[str, Any], candidate: dict[str, Any]) -> float:
@@ -125,7 +132,11 @@ class MinutiaeMatcher(Matcher):
     domain = "contact"
     template_format = "minutiae_v1"  # matches minutiae_service.template_to_dict
 
-    def extract(self, image_bgr: np.ndarray, *, enhance: bool = True) -> dict[str, Any]:
+    def extract(
+        self, image_bgr: np.ndarray, *, enhance: bool = True, hand: str | None = None
+    ) -> dict[str, Any]:
+        # hand is irrelevant to minutiae (rotation-searched at match time); accept
+        # it for interface parity with the embedding matcher and ignore.
         pre = preprocess_fingerprint(image_bgr, enhance=enhance)
         skeleton_bytes = base64.b64decode(pre["processed_image"])
         skeleton = cv2.imdecode(

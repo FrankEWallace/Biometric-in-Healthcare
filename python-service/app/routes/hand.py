@@ -111,7 +111,7 @@ def process_hand(body: ProcessHandRequest) -> ProcessHandResponse:
     enhance = body.domain != "contact"
     fingers: list[FingerTemplate] = []
     for crop in crops:
-        template = matcher.extract(crop.image, enhance=enhance)
+        template = matcher.extract(crop.image, enhance=enhance, hand=body.hand)
         fingers.append(
             FingerTemplate(
                 finger_position=crop.finger_position or f"finger_{crop.order}",

@@ -44,8 +44,34 @@ the contactless path to an embedding rather than trying to fix minutiae.
 ## Implication for the build
 
 This retires the last risk on the contactless roadmap: the embedding path is not
-just theoretically better, it works on *our* dataset. Remaining Phase-3 work is
-integration only — export this encoder to ONNX, load it in
-`python-service/app/services/embedding_service.py` (matching the preprocessing
-above: grayscale-3ch, resize 224, no mean/std, hand-orientation normalisation),
-then re-run `tools/ridgebase_eval.py` to set the contactless accept threshold.
+just theoretically better, it works on *our* dataset.
+
+## ONNX export + service integration (DONE 2026-07-05)
+
+The encoder is now exported and wired into the production `EmbeddingMatcher`.
+
+- **Export** (`third_party/ridgeformer/export_onnx.py`, gitignored): wraps
+  `get_embeddings(x,"contactless")` + L2-norm and exports to ONNX opset 17 with a
+  dynamic batch axis. The shared-encoder design (`swin_cb is swin_cl`, both use
+  `linear_cl`) means **one ONNX model embeds both contact and contactless** — so
+  the same matcher does CL2CL *and* C2CL. Output goes to the gitignored
+  `python-service/models/contactless_embedding.onnx` (~1.1 GB).
+  Command: `PRETRAINED=0 .venv/bin/python export_onnx.py <out.onnx>`.
+- **Parity**: ONNX vs torch on the same input — `max_abs_diff 8.5e-7`,
+  `cosine 1.000000`; dynamic batch verified.
+- **Preprocessing reconciliation**: `EmbeddingMatcher._preprocess` now matches the
+  training transform (grayscale→3ch with torchvision RGB weights on cv2 BGR
+  channels, resize 224 via **INTER_AREA**, /255, no mean/std, optional
+  hand-orientation rotate/flip). Verified vs the torch reference transform at
+  **cosine ≥0.997** (INTER_AREA; plain INTER_LINEAR was only ~0.987).
+- **Routing**: with the model present, `get_matcher("contactless")` returns the
+  embedding matcher; absent, it falls back to minutiae. Set `EMBEDDING_MODEL_PATH`
+  to relocate the model.
+- **Validation harness**: `python-service/tools/validate_embedding_ridgebase.py`
+  runs the whole SERVICE path (ONNX + our preprocessing + our fusion scoring)
+  over RidgeBase Test to reproduce CL2CL EER and derive the contactless threshold.
+
+## Remaining
+Set `services.fingerprint.contactless_match_threshold` from the validation
+harness's EER/FAR output (flips `verify-hand` from advisory to deciding), and
+build the Flutter hand-capture screen (toolchain not installed).
