@@ -1,7 +1,8 @@
 # Contactless Four-Finger Fingerprint — Implementation Roadmap
 
-Status: planning (2026-07-05). Owning context: `docs/calibration/ridgebase/README.md`
-(evidence) and the memory notes on four-finger architecture.
+Status: **Phases 1–2 built (minutiae placeholder), Phase 3 scaffolded** (2026-07-05).
+Owning context: `docs/calibration/ridgebase/README.md` (evidence) and the memory
+notes on four-finger architecture. Implementation status at the bottom.
 
 ## Why this roadmap exists
 
@@ -63,9 +64,17 @@ away what already works.
 
 ### Phase 3 — Learned contactless embedding  (accuracy)
 - **Goal:** replace the contactless-path matcher with an embedding; hit usable EER.
+- **Spike result (2026-07-05, DONE):** Ridgeformer weights **are publicly released**
+  (github.com/KNITPhoenix/Ridgeformer — Google Drive + HuggingFace). Framework **PyTorch**;
+  licence **CC-BY-NC 4.0** (academic/non-commercial — fine for the FYP, a constraint for
+  commercial deployment). Chosen serving path: **export the encoder to ONNX and run via
+  `onnxruntime`** (exactly how InsightFace already runs here — CPU, no torch at serve time).
+  → The ~7.6% CL2CL / 5.25% C2CL ceiling is reachable in principle; Phase 3 is viable.
+  Integration point is already coded: `app/services/embedding_service.py::EmbeddingMatcher`.
 - **Tasks:**
-  - Evaluate Ridgeformer (arXiv:2506.01806) / a C2CL model: released weights, license, and
-    whether it runs on CPU via ONNX (InsightFace precedent says plausible) or needs GPU.
+  - ~~Evaluate Ridgeformer: released weights, licence, CPU/ONNX vs GPU.~~ **Done (above).**
+  - Export the encoder to ONNX (opset ≥17, L2-normalised embedding out); reconcile the
+    input size / normalisation in `EmbeddingMatcher` with its training transform.
   - Slot it behind the Phase-2 interface as the `contactless` implementation; store embeddings
     and index with **FAISS** (already used for face → helps 1:N scaling).
   - Re-run the FAR/FRR + rank-1 harness (`ridgebase_eval.py`) on RidgeBase to confirm we
@@ -102,3 +111,33 @@ away what already works.
 Start **Phase 1 + the Phase-2 interface** (functionality-first, demoable, nothing wasted).
 Run **Phase 3 evaluation** (can Ridgeformer weights load & run?) in parallel as a spike, since
 its answer determines the accuracy ceiling. Hold Phase 4 until 2–3 land.
+
+## Implementation status (2026-07-05)
+
+Built end-to-end on the **minutiae placeholder** — the pipeline runs today; accuracy waits
+on Phase 3. Functionality-first, exactly as CLAUDE.md directs.
+
+| Area | Status | Where |
+|---|---|---|
+| Matcher interface (domain-routed, swappable) | ✅ built + tested | `python-service/app/services/matcher.py` |
+| Four-finger fusion + min-fingers guard | ✅ built + tested | `matcher.py::match_hands`, `fuse_scores` |
+| Hand segmentation (classical, 4 crops) | ✅ built + tested | `app/services/hand_segmentation.py` |
+| Hand endpoints `/process-hand`, `/match-hand` | ✅ built + tested | `app/routes/hand.py` |
+| Embedding matcher (ONNX, guarded) | ✅ scaffolded, inactive | `app/services/embedding_service.py` |
+| Laravel enroll-hand + verify-hand (placeholder-safe) | ✅ wired + validated | `PatientController`, `VerificationController` |
+| Ridgeformer spike (weights/licence/serving) | ✅ done | this doc, Phase 3 |
+| Export Ridgeformer → ONNX + calibrate | ⏳ next | Phase 3 remaining |
+| Mobile hand-capture UI | ⏳ blocked | Flutter toolchain not installed on this Mac |
+| Layered identity / NIDA (C2CL) | ⏳ deferred | Phase 4 |
+
+Tests: `python-service/tests/test_four_finger.py` (15 checks, runs without pytest/dataset).
+
+**Guardrails honoured:** verify-hand returns `needs_review` and never auto-accepts while the
+matcher is the minutiae placeholder or no contactless threshold is set
+(`services.fingerprint.contactless_match_threshold` is NULL by default) — so we never demo
+accuracy on the placeholder. The contact minutiae path and its 32.0 threshold are untouched.
+
+**Remaining before a real contactless demo:** (1) export Ridgeformer to ONNX and drop it at
+`EMBEDDING_MODEL_PATH`; (2) re-run `tools/ridgebase_eval.py` to set the contactless threshold;
+(3) build the Flutter hand-capture screen (or feed server-side segmentation). Only then does
+verify-hand switch from advisory to deciding.
