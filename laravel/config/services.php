@@ -33,6 +33,18 @@ return [
         'url'             => env('PYTHON_SERVICE_URL', 'http://127.0.0.1:5001'),
         'key'             => env('PYTHON_SERVICE_API_KEY', ''),
         'match_threshold' => (float) env('FINGERPRINT_MATCH_THRESHOLD', 32.0),
+
+        // Contactless four-finger (hand-slap) accept threshold on the FUSED
+        // hand score. Intentionally NULL by default: the minutiae matcher is
+        // non-discriminative on finger photos (RidgeBase EER ~46%), so there is
+        // no valid contactless operating point until a learned embedding matcher
+        // is installed. While NULL, verify-hand returns advisory scores as
+        // needs_review and NEVER auto-accepts — do not set this from minutiae
+        // numbers. Calibrate with tools/ridgebase_eval.py once the embedding is
+        // in place, then set FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD.
+        'contactless_match_threshold' => env('FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD') !== null
+            ? (float) env('FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD')
+            : null,
     ],
 
     /*

@@ -20,6 +20,9 @@ class VerificationController extends Controller
     /** How many face candidates the multimodal shortlist may contain. */
     private const SHORTLIST_SIZE = 5;
 
+    /** Minimum shared fingers required to fuse a four-finger hand match. */
+    private const MIN_HAND_FINGERS = 3;
+
     /**
      * Minutiae match score threshold (0–100 scale). Single source of truth:
      * services.fingerprint.match_threshold (FINGERPRINT_MATCH_THRESHOLD, default 32.0)
@@ -365,6 +368,187 @@ class VerificationController extends Controller
             'ehr'               => $ehr,
             'insurance'         => $insurance,
         ]);
+    }
+
+    /**
+     * POST /api/verify/hand
+     *
+     * Four-finger ("hand slap") verification. The nurse photographs a hand; the
+     * Python service segments it into four fingers and this flow matches all
+     * four against each enrolled hand, fusing the per-finger scores.
+     *
+     * Placeholder-safe decision: the minutiae matcher is non-discriminative on
+     * contactless finger photos, so while no contactless threshold is
+     * configured (or the Python side is still running the minutiae placeholder),
+     * this endpoint returns the fused score as **needs_review** and NEVER
+     * auto-accepts — it will not demo accuracy on the placeholder. Once a
+     * learned embedding matcher + calibrated
+     * services.fingerprint.contactless_match_threshold are in place, it accepts
+     * on score ≥ threshold.
+     *
+     * Fields:
+     *   image  (string, required)  — base64 whole-hand photo
+     *   hand   (string)            — "right" | "left" (default right)
+     *   gps_latitude / gps_longitude / wifi_ssid — optional geofence context
+     */
+    public function verifyHand(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'image'         => 'required|string',
+            'hand'          => 'nullable|in:right,left',
+            'gps_latitude'  => 'nullable|numeric|between:-90,90',
+            'gps_longitude' => 'nullable|numeric|between:-180,180',
+            'wifi_ssid'     => 'nullable|string|max:100',
+        ]);
+
+        $operator = $request->user();
+        $hospital = $operator->hospital;
+        $hand     = $data['hand'] ?? 'right';
+
+        // 1. Geofence
+        if (! $this->geofence->isWithinHospital(
+            hospital:  $hospital,
+            latitude:  $data['gps_latitude']  ?? null,
+            longitude: $data['gps_longitude'] ?? null,
+            wifiSsid:  $data['wifi_ssid']     ?? null,
+        )) {
+            return response()->json([
+                'error' => 'Access denied: device is not within hospital premises.',
+            ], 403);
+        }
+
+        // 2. Segment + extract the four probe fingers
+        try {
+            $processed = $this->fingerprint->processHand($data['image'], $hand, 'contactless');
+        } catch (\Throwable $e) {
+            $this->writeLog($operator->id, $hospital->id, null, null, null, 'error', $data, $e->getMessage(), 'hand');
+            return response()->json(['error' => 'Hand processing failed: ' . $e->getMessage()], 422);
+        }
+
+        $probe = [];
+        foreach ($processed['fingers'] ?? [] as $finger) {
+            $probe[$finger['finger_position']] = $finger['template'];
+        }
+
+        if (count($probe) < self::MIN_HAND_FINGERS) {
+            return response()->json([
+                'error'          => 'Too few usable fingers in the probe photo. Please retake.',
+                'usable_fingers' => count($probe),
+                'required'       => self::MIN_HAND_FINGERS,
+            ], 422);
+        }
+
+        // 3. Build candidate hands (one per enrolled patient) and fuse-match
+        $candidates = $this->loadCandidateHands($hospital->id);
+
+        $fusedScore = 0.0;
+        $matchedPatientId = null;
+        $matcherName = $processed['matcher'] ?? 'unknown';
+        $perFinger = [];
+
+        if (! empty($candidates)) {
+            try {
+                $result = $this->fingerprint->matchHand($probe, $candidates, 'contactless');
+                $fusedScore       = (float) ($result['score'] ?? 0.0);
+                $matchedPatientId = $result['patient_id'] ?? null;
+                $matcherName      = $result['matcher'] ?? $matcherName;
+                $perFinger        = $result['per_finger'] ?? [];
+            } catch (\Throwable $e) {
+                // Non-fatal — fall through to needs_review with score 0.
+            }
+        }
+
+        // 4. Placeholder-safe decision
+        $threshold = config('services.fingerprint.contactless_match_threshold'); // null until embedding lands
+        $usingPlaceholder = ! str_contains($matcherName, 'embedding');
+
+        if ($threshold === null || $usingPlaceholder) {
+            $status  = 'needs_review';
+            $matched = false;
+        } else {
+            $matched = $matchedPatientId !== null && $fusedScore >= (float) $threshold;
+            $status  = $matched ? 'matched' : 'no_match';
+        }
+
+        $matchedPatient = $matched && $matchedPatientId
+            ? \App\Models\Patient::find($matchedPatientId)
+            : null;
+
+        $log = $this->writeLog(
+            operatorId:    $operator->id,
+            hospitalId:    $hospital->id,
+            patientId:     $matchedPatient?->id,
+            fingerprintId: null,
+            score:         $fusedScore,
+            status:        $status,
+            locationData:  $data,
+            modality:      'hand',
+        );
+
+        AuditLog::record(
+            $request,
+            $matched ? AuditLog::ACTION_FINGERPRINT_MATCH : AuditLog::ACTION_FINGERPRINT_NO_MATCH,
+            $matchedPatient?->id,
+            null,
+            $status,
+            [
+                'log_id'       => $log->id,
+                'fused_score'  => round($fusedScore, 2),
+                'matcher'      => $matcherName,
+                'fingers_used' => $result['fingers_used'] ?? array_keys($probe),
+            ],
+        );
+
+        return response()->json([
+            'status'      => $status,
+            'score'       => round($fusedScore, 2),
+            'matcher'     => $matcherName,
+            'per_finger'  => $perFinger,
+            'candidate_patient_id' => $matchedPatientId,  // advisory when needs_review
+            'patient'     => $matchedPatient,
+            'log_id'      => $log->id,
+            'note'        => ($threshold === null || $usingPlaceholder)
+                ? 'Advisory only: contactless matcher is a placeholder (minutiae is '
+                  . 'non-discriminative on finger photos). Staff must confirm identity. '
+                  . 'Install a learned embedding matcher + calibrated threshold to auto-decide.'
+                : null,
+        ]);
+    }
+
+    /**
+     * Load one fused-matchable "hand" per enrolled patient for a hospital:
+     * [['patient_id' => int, 'fingers' => [finger_position => template]], ...].
+     *
+     * Uses gallery leads only (one template per finger), and drops patients
+     * with fewer than MIN_HAND_FINGERS enrolled fingers so they can't produce
+     * a spurious fused match.
+     *
+     * @return array<int, array{patient_id: int, fingers: array<string, array>}>
+     */
+    private function loadCandidateHands(int $hospitalId): array
+    {
+        $rows = Fingerprint::where('hospital_id', $hospitalId)
+            ->where('is_active', true)
+            ->where('is_gallery_lead', true)
+            ->get(['id', 'patient_id', 'finger_position', 'template']);
+
+        $byPatient = [];
+        foreach ($rows as $fp) {
+            $template = $fp->getTemplate();
+            if ($template === null) {
+                continue;
+            }
+            $byPatient[$fp->patient_id][$fp->finger_position] = $template;
+        }
+
+        $hands = [];
+        foreach ($byPatient as $patientId => $fingers) {
+            if (count($fingers) >= self::MIN_HAND_FINGERS) {
+                $hands[] = ['patient_id' => $patientId, 'fingers' => $fingers];
+            }
+        }
+
+        return $hands;
     }
 
     /**
