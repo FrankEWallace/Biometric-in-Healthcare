@@ -72,8 +72,10 @@ class EmbeddingMatcher(Matcher):
     domain = "contactless"
     template_format = "embedding"
 
-    # Placeholder preprocessing — MUST be reconciled with the exported model's
-    # training transform before the numbers mean anything.
+    # Matches the exported Ridgeformer encoder's training transform (RB_loader
+    # test transform): resize 224, grayscale→3ch, /255, NO ImageNet mean/std.
+    # Verified: this preprocessing reproduces the torch reference embedding at
+    # cosine ≥0.997 (INTER_AREA downsample). See docs ridgeformer_eval.md.
     INPUT_SIZE = (224, 224)
 
     def __init__(self, model_path: str | None = None):
@@ -109,24 +111,40 @@ class EmbeddingMatcher(Matcher):
 
     # -- preprocessing -----------------------------------------------------
 
-    def _preprocess(self, image_bgr: np.ndarray) -> np.ndarray:
-        """Resize + normalise a finger crop to the model's NCHW input tensor."""
-        rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        resized = cv2.resize(rgb, self.INPUT_SIZE, interpolation=cv2.INTER_AREA)
-        arr = resized.astype(np.float32) / 255.0
-        # ImageNet-style normalisation (typical for transformer backbones);
-        # adjust to match the exported model.
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        arr = (arr - mean) / std
-        chw = np.transpose(arr, (2, 0, 1))  # HWC -> CHW
-        return chw[np.newaxis, ...]  # add batch dim -> NCHW
+    def _preprocess(self, image_bgr: np.ndarray, hand: str | None = None) -> np.ndarray:
+        """
+        Match the model's training transform exactly.
+
+        Optional ``hand`` applies RB_loader's orientation normalisation (RIGHT:
+        rotate 90° CW + horizontal flip; LEFT: 90° CCW + flip) so captures match
+        the pose the encoder was trained on. Grayscale uses torchvision's RGB
+        weights on the cv2 BGR-ordered channels — replicating how RB_loader
+        feeds cv2 images straight into ToTensor+Grayscale without a channel swap.
+        """
+        img = image_bgr
+        if hand is not None:
+            if str(hand).lower().startswith("r"):
+                img = cv2.flip(cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE), 1)
+            else:
+                img = cv2.flip(cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE), 1)
+
+        # INTER_AREA matches torchvision's antialiased downsample (cosine ≥0.997
+        # vs the torch reference; plain INTER_LINEAR only ~0.987).
+        img = cv2.resize(img, self.INPUT_SIZE, interpolation=cv2.INTER_AREA)
+        b = img[..., 0].astype(np.float32)
+        g = img[..., 1].astype(np.float32)
+        r = img[..., 2].astype(np.float32)
+        gray = np.clip(0.2989 * b + 0.587 * g + 0.114 * r, 0, 255) / 255.0
+        chw = np.stack([gray, gray, gray], axis=0)  # 3 identical channels, CHW
+        return chw[np.newaxis, ...].astype(np.float32)  # NCHW
 
     # -- Matcher API -------------------------------------------------------
 
-    def extract(self, image_bgr: np.ndarray, *, enhance: bool = True) -> dict[str, Any]:
+    def extract(
+        self, image_bgr: np.ndarray, *, enhance: bool = True, hand: str | None = None
+    ) -> dict[str, Any]:
         self._ensure_session()
-        tensor = self._preprocess(image_bgr)
+        tensor = self._preprocess(image_bgr, hand=hand)
         outputs = self._session.run(None, {self._input_name: tensor})
         vec = np.asarray(outputs[0], dtype=np.float32).ravel()
         norm = float(np.linalg.norm(vec))
