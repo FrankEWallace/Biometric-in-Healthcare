@@ -113,9 +113,15 @@ all **single-finger** — one probe template vs stored templates, keyed by
 3 captures of the **same** finger (a recall-boosting gallery), **not** four fingers.
 
 This is a gap vs the intended UX (nurse photographs the whole hand). Four-finger
-support would require: (1) capture → segment hand into 4 finger crops, (2) store 4
-templates/patient, (3) match all 4 and fuse. The fusion logic is already prototyped
-in `ridgebase_eval.py`.
+support requires: (1) capture → segment hand into 4 finger crops, (2) store 4
+templates/patient, (3) match all 4 and fuse.
+
+**Update (2026-07-05): this four-finger pipeline is now built** on the minutiae
+placeholder, matcher-agnostic so a learned embedding swaps in for accuracy. See
+`docs/contactless-fingerprint-roadmap.md` (Implementation status). Segmentation
+`hand_segmentation.py`, matcher interface + fusion `matcher.py`, endpoints
+`/process-hand` + `/match-hand`, and Laravel `enroll-hand` + `verify-hand` (the
+latter placeholder-safe: advisory `needs_review`, never auto-accepts on minutiae).
 
 ## Benchmark context — this isn't just our code being bad
 
@@ -124,7 +130,7 @@ arXiv:2506.01806):
 
 | Approach | CL2CL EER | C2CL EER |
 |---|---|---|
-| **Our minutiae matcher** | **~46%** | (pending) |
+| **Our minutiae matcher** | **~46%** | **~50%** (rank-1 2.5%) |
 | VeriFinger (best commercial minutiae) | 19.7% | 18.9% |
 | AdaCos deep-CNN baseline | 21.3% | — |
 | **Ridgeformer (SOTA deep embedding)** | **7.6%** | **5.25%** |
