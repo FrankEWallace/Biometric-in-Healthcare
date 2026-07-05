@@ -84,6 +84,71 @@ tiny relative to the gap that needs closing.
    as motivation for the embedding approach or for scoping the demo to the
    like-to-like case.
 
+## Four-finger fusion (does combining fingers rescue it?)
+
+A phone photo of a hand already contains 4 fingers, so we tested fusing the 4
+per-finger scores into one hand score (`ridgebase_eval.py` four-finger mode, mean
+fusion, RidgeBase Task1 Test/Contactless).
+
+| Metric | Single finger (enhance) | Four-finger fused (enhance) |
+|---|---|---|
+| EER | 46.0% | **41.9%** |
+| Separation | 1.66 | 2.02 |
+| d′ | 0.19 | **0.36** |
+
+Fusion helps but does **not** rescue it. d′ almost exactly *doubled* (0.19 → 0.36),
+which is the textbook √4 variance-reduction result: averaging 4 independent noisy
+scores halves the noise. That confirms the fusion is working correctly **and** that
+it is fundamentally capped — it reduces noise but cannot create signal. A usable
+biometric needs d′ > 3 (~16× more); no amount of finger-fusion gets there from a
+near-random per-finger matcher. Fusion is a multiplier on an already-good matcher,
+not a fix for a bad one. At FAR 1% the four-finger FRR is still ~96%.
+
+## The app is single-finger today (design gap)
+
+Verified in code (`fingerprint_capture_screen.dart`, `fingerprint_service.dart`,
+`VerificationController`, Python `/match`): capture, enrollment, and verification are
+all **single-finger** — one probe template vs stored templates, keyed by
+`finger_position` (default `right_index`). The `enroll-gallery` endpoint stores up to
+3 captures of the **same** finger (a recall-boosting gallery), **not** four fingers.
+
+This is a gap vs the intended UX (nurse photographs the whole hand). Four-finger
+support would require: (1) capture → segment hand into 4 finger crops, (2) store 4
+templates/patient, (3) match all 4 and fuse. The fusion logic is already prototyped
+in `ridgebase_eval.py`.
+
+## Benchmark context — this isn't just our code being bad
+
+Published RidgeBase Task1 single-finger results (RidgeBase paper; Ridgeformer,
+arXiv:2506.01806):
+
+| Approach | CL2CL EER | C2CL EER |
+|---|---|---|
+| **Our minutiae matcher** | **~46%** | (pending) |
+| VeriFinger (best commercial minutiae) | 19.7% | 18.9% |
+| AdaCos deep-CNN baseline | 21.3% | — |
+| **Ridgeformer (SOTA deep embedding)** | **7.6%** | **5.25%** |
+
+Even **VeriFinger**, a world-class commercial minutiae matcher, caps around 20% EER on
+contactless — minutiae is the wrong tool for this domain, period. A learned deep
+embedding (Ridgeformer) reaches 7.6% single-finger; that is the realistic target for a
+viable contactless path, with four-finger fusion as a further boost on top.
+
+## How deployed systems actually authenticate (informs the design)
+
+- **Selcom (Tanzania):** does not bet on contactless finger-photo accuracy — layers
+  device fingerprint sensor + face recognition + PIN + **NIDA national-ID biometric
+  verification** (authoritative check against the government DB).
+- **IDEMIA 4F / commercial contactless:** capture 4 fingers at once with rear
+  camera+flash, auto-segment, enhance, normalize to 500 DPI, and match against legacy
+  **contact** databases (C2CL). Multi-finger reduces false accepts.
+- **Lesson:** (1) C2CL matters — integration targets (existing hospital contact DBs,
+  NIDA) are contact-based. (2) Don't rely on fingerprint alone; this repo already has
+  multimodal verify (face + fingerprint) + geofencing — Selcom-style layering is the
+  pragmatic, defensible design.
+
+---
+
 Each result folder contains `calibration_report.json` (full metrics + ROC table),
 `scores.csv`, `roc.csv`, rendered `roc.png` / `far_frr.png`, and `run.log`.
 Raw RidgeBase data stays local (gitignored under `datasets/`).

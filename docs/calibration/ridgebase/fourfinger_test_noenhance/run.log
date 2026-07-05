@@ -1,0 +1,38 @@
+  ! drop 1_Apple_32467_1_LEFT_image_fingerprintQQBHVUOJ_2.png: no usable minutiae
+  ! drop 1_google_56583_1_LEFT_image_fingerprint2HJHHOFW_0.png: no usable minutiae
+  ! drop 1_google_74850_1_LEFT_image_fingerprintQH1JVL3H_2.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintHQ45LAOL_1.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintHQ45LAOL_2.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintVXKQMHZ1_0.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintVXKQMHZ1_1.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintVXKQMHZ1_2.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_0.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_1.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_2.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_3.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprintTJ9XFPJ5_0.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprintTJ9XFPJ5_1.png: no usable minutiae
+Grouped 558 hand-samples into 50 hand-identities with >=2 samples (min 3 shared fingers per pair).
+
+Scored 2905 genuine + 1204 impostor pairs.
+
+──────────────────────────────────────────────────────────
+  FAR / FRR CALIBRATION SUMMARY
+──────────────────────────────────────────────────────────
+  genuine pairs   :   2905   mean  19.45  sd  6.70
+  impostor pairs  :   1204   mean  18.08  sd  5.70
+  separation      :   1.37  (genuine_mean − impostor_mean)
+──────────────────────────────────────────────────────────
+  EER             :  46.66%   at threshold 17.7033
+  operating points (pick threshold for a target false-accept rate):
+    target FAR | threshold | actual FAR |     FRR
+         1.00% |     32.70 |      0.83% |  96.25%
+         0.10% |     40.20 |      0.08% |  99.83%
+──────────────────────────────────────────────────────────
+  Set FINGERPRINT_MATCH_THRESHOLD (in laravel/.env and python-service/.env)
+  to the threshold whose FAR your deployment tolerates.
+  Lower threshold = fewer false rejects, more false accepts.
+──────────────────────────────────────────────────────────
+
+  wrote far_frr.png and roc.png
+Wrote scores.csv, roc.csv, calibration_report.json to /Users/C.E.O/Biometric-in-Healthcare/docs/calibration/ridgebase/fourfinger_test_noenhance/
