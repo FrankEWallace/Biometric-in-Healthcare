@@ -71,7 +71,34 @@ The encoder is now exported and wired into the production `EmbeddingMatcher`.
   runs the whole SERVICE path (ONNX + our preprocessing + our fusion scoring)
   over RidgeBase Test to reproduce CL2CL EER and derive the contactless threshold.
 
+## Service-path validation (DONE 2026-07-05)
+
+Ran `tools/validate_embedding_ridgebase.py` over all 2229 RidgeBase Test
+contactless crops through the production `EmbeddingMatcher` (ONNX + our
+preprocessing + our cosine→0-100 scoring):
+
+| Metric | Service pipeline (ONNX) | Reference (torch) |
+|---|---|---|
+| **CL2CL EER** | **8.05%** | 8.13% |
+| Genuine score mean ± sd | 77.5 ± 19.1 | — |
+| Impostor score mean ± sd | 16.5 ± 16.0 | — |
+| EER threshold (0–100 scale) | **42.35** | — |
+| Threshold @ FAR≈1% | 61.11 (FRR 15.1%) | — |
+
+Our own pipeline reproduces the reference within 0.08% EER — the ONNX export and
+preprocessing are faithful. Contrast: minutiae CL2CL EER here was ~46%.
+
+### Setting the contactless threshold (operating-point choice)
+`services.fingerprint.contactless_match_threshold` (env
+`FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD`) is on the **fused** hand score, still
+NULL by default (verify-hand stays advisory until set). Guidance:
+- **~42** = EER point (balanced ~8% FAR/FRR, single-finger).
+- **~61** = FAR≈1% (conservative; recommended for healthcare, where a false
+  accept = wrong patient). Four-finger fusion tightens the genuine/impostor gap,
+  so a single-finger threshold applied to fused scores is *conservative* (lower
+  FRR at the same FAR) — a four-finger embedding calibration would refine it.
+
 ## Remaining
-Set `services.fingerprint.contactless_match_threshold` from the validation
-harness's EER/FAR output (flips `verify-hand` from advisory to deciding), and
-build the Flutter hand-capture screen (toolchain not installed).
+Pick and set the contactless threshold above (policy call: FAR vs FRR), optionally
+run a four-finger embedding calibration to refine it, and build the Flutter
+hand-capture screen (toolchain not installed).
