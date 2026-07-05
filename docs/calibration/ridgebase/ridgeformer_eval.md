@@ -98,7 +98,31 @@ NULL by default (verify-hand stays advisory until set). Guidance:
   so a single-finger threshold applied to fused scores is *conservative* (lower
   FRR at the same FAR) — a four-finger embedding calibration would refine it.
 
+## Four-finger fused calibration (DONE 2026-07-05) — the verify-hand operating point
+
+`tools/validate_embedding_fourfinger.py` calibrates on the *fused* hand score
+verify-hand actually computes (same grouping as the minutiae four-finger run:
+50 hand-identities, 2943 genuine / 1222 impostor, mean fusion, ≥3 shared fingers):
+
+| Metric | Four-finger fused (embedding) | Minutiae four-finger |
+|---|---|---|
+| **EER** | **8.85%** @ fused threshold 45.5 | ~42–47% |
+| Genuine mean ± sd | 77.6 ± 17.4 | ~28 |
+| Impostor mean ± sd | 25.2 ± 14.3 | ~26 |
+| Threshold @ FAR≈1% | **57.55** (FRR 12.3%) | (unusable) |
+
+Note the impostors here are *same finger-position* cross-identity pairs (index vs
+index …), which the embedding finds slightly harder than random-position pairs —
+so four-finger EER (8.85%) is marginally above single-finger CL2CL (8.05%). This
+is the honest number for the real flow. Still a ~5–6× improvement over minutiae.
+
+### Threshold set
+`FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD = 57.5` (the FAR≈1% point) — conservative,
+appropriate for healthcare where a false accept means the wrong patient. With the
+embedding model present and this set, `verify-hand` now **decides** (matched /
+no_match) instead of returning advisory `needs_review`. Lower it toward ~45 (EER)
+to trade fewer genuine rejects for more false accepts. Local, gitignored env.
+
 ## Remaining
-Pick and set the contactless threshold above (policy call: FAR vs FRR), optionally
-run a four-finger embedding calibration to refine it, and build the Flutter
-hand-capture screen (toolchain not installed).
+Build the Flutter hand-capture screen (toolchain not installed) so real captures
+feed enroll-hand / verify-hand.
