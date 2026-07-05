@@ -29,6 +29,7 @@ from fastapi import Depends, FastAPI
 
 from app.routes.face import router as face_router
 from app.routes.fingerprint import router as fingerprint_router
+from app.routes.hand import router as hand_router
 from app.routes.health import router as health_router
 from app.security import require_internal_key
 
@@ -73,4 +74,5 @@ app = FastAPI(
 # shared internal key when INTERNAL_API_KEY is configured.
 app.include_router(health_router)
 app.include_router(fingerprint_router, dependencies=[Depends(require_internal_key)])
+app.include_router(hand_router, dependencies=[Depends(require_internal_key)])
 app.include_router(face_router, dependencies=[Depends(require_internal_key)])
