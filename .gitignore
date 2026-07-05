@@ -29,3 +29,6 @@ Thumbs.db
 
 # Claude Code (local machine settings)
 .claude/settings.local.json
+
+# Raw calibration datasets (large, local-only)
+datasets/
