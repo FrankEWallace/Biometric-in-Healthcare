@@ -148,6 +148,97 @@ class FingerprintLivenessResult {
   }
 }
 
+class HandFingerInfo {
+  final int fingerprintId;
+  final String fingerPosition;
+  final double qualityScore;
+  final bool isPrimary;
+
+  const HandFingerInfo({
+    required this.fingerprintId,
+    required this.fingerPosition,
+    required this.qualityScore,
+    required this.isPrimary,
+  });
+
+  factory HandFingerInfo.fromJson(Map<String, dynamic> json) {
+    return HandFingerInfo(
+      fingerprintId:  json['fingerprint_id']  as int?    ?? 0,
+      fingerPosition: json['finger_position'] as String? ?? '',
+      qualityScore:   (json['quality_score'] as num?)?.toDouble() ?? 0.0,
+      isPrimary:      json['is_primary']      as bool?   ?? false,
+    );
+  }
+}
+
+class HandEnrollResult {
+  final String message;
+  final String hand;
+  final String? matcher;
+  final List<HandFingerInfo> fingers;
+
+  const HandEnrollResult({
+    required this.message,
+    required this.hand,
+    required this.matcher,
+    required this.fingers,
+  });
+
+  /// True when fewer than 4 fingers landed — worth a retake later.
+  bool get isPartial => fingers.length < 4;
+
+  factory HandEnrollResult.fromJson(Map<String, dynamic> json) {
+    return HandEnrollResult(
+      message: json['message'] as String? ?? 'Hand enrolled.',
+      hand:    json['hand']    as String? ?? 'right',
+      matcher: json['matcher'] as String?,
+      fingers: (json['fingers'] as List<dynamic>? ?? [])
+          .map((f) => HandFingerInfo.fromJson(f as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class HandVerifyResult {
+  final String status; // matched | no_match | needs_review
+  final double score;  // fused 0.0–100.0
+  final String matcher;
+  final Map<String, double> perFinger;
+  final int? candidatePatientId; // advisory when needs_review
+  final Map<String, dynamic>? patient;
+  final int? logId;
+  final String? note;
+
+  const HandVerifyResult({
+    required this.status,
+    required this.score,
+    required this.matcher,
+    required this.perFinger,
+    this.candidatePatientId,
+    this.patient,
+    this.logId,
+    this.note,
+  });
+
+  bool get isMatch       => status == 'matched';
+  bool get isNeedsReview => status == 'needs_review';
+
+  factory HandVerifyResult.fromJson(Map<String, dynamic> json) {
+    final perFingerRaw = json['per_finger'] as Map<String, dynamic>? ?? {};
+    return HandVerifyResult(
+      status:  json['status']  as String? ?? 'no_match',
+      score:   (json['score'] as num?)?.toDouble() ?? 0.0,
+      matcher: json['matcher'] as String? ?? 'unknown',
+      perFinger: perFingerRaw.map(
+          (k, v) => MapEntry(k, (v as num?)?.toDouble() ?? 0.0)),
+      candidatePatientId: json['candidate_patient_id'] as int?,
+      patient: json['patient'] as Map<String, dynamic>?,
+      logId:   json['log_id']  as int?,
+      note:    json['note']    as String?,
+    );
+  }
+}
+
 class FingerprintVerifyResult {
   final String verdict;        // "MATCH" | "NO MATCH"
   final double score;          // 0.0–100.0
@@ -346,6 +437,87 @@ class FingerprintService {
     );
   }
 
+  // ── Four-finger ("hand slap") enroll + verify ─────────────────────────────
+
+  /// POST /api/patients/{patientId}/enroll-hand
+  ///
+  /// Uploads one photo of the whole hand; the server segments it into 4
+  /// finger crops, extracts a template per finger, quality-gates them, and
+  /// stores one fingerprint row per usable finger (contactless domain).
+  Future<HandEnrollResult> enrollHand(
+    File image, {
+    required String token,
+    required String patientId,
+    String hand = 'right',
+    bool isPrimary = false,
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
+  }) async {
+    final response = await _postJson(
+      Uri.parse('$_baseUrl/patients/$patientId/enroll-hand'),
+      token: token,
+      body: {
+        'image':      base64Encode(await _compressedJpegBytes(image)),
+        'hand':       hand,
+        'is_primary': isPrimary,
+        if (gpsLatitude  != null) 'gps_latitude':  gpsLatitude,
+        if (gpsLongitude != null) 'gps_longitude': gpsLongitude,
+        if (wifiSsid     != null) 'wifi_ssid':     wifiSsid,
+      },
+    );
+
+    final json = _decodeJson(response);
+    if (response.statusCode == 201) {
+      return HandEnrollResult.fromJson(json);
+    }
+
+    final msg = _extractMessage(json);
+    throw FingerprintException(
+      msg,
+      statusCode: response.statusCode,
+      kind: _kindFromStatus(response.statusCode, msg),
+    );
+  }
+
+  /// POST /api/verify/hand
+  ///
+  /// 1:N identification from one photo of the whole hand: the server
+  /// segments 4 probe fingers, fuse-matches them against every enrolled
+  /// hand in the hospital, and returns matched / no_match / needs_review.
+  Future<HandVerifyResult> verifyHand(
+    File image, {
+    required String token,
+    String hand = 'right',
+    double? gpsLatitude,
+    double? gpsLongitude,
+    String? wifiSsid,
+  }) async {
+    final response = await _postJson(
+      Uri.parse('$_baseUrl/verify/hand'),
+      token: token,
+      body: {
+        'image': base64Encode(await _compressedJpegBytes(image)),
+        'hand':  hand,
+        if (gpsLatitude  != null) 'gps_latitude':  gpsLatitude,
+        if (gpsLongitude != null) 'gps_longitude': gpsLongitude,
+        if (wifiSsid     != null) 'wifi_ssid':     wifiSsid,
+      },
+    );
+
+    final json = _decodeJson(response);
+    if (response.statusCode == 200) {
+      return HandVerifyResult.fromJson(json);
+    }
+
+    final msg = _extractMessage(json);
+    throw FingerprintException(
+      msg,
+      statusCode: response.statusCode,
+      kind: _kindFromStatus(response.statusCode, msg),
+    );
+  }
+
   // ── Liveness check ────────────────────────────────────────────────────────
 
   /// POST /api/fingerprint/liveness-check
@@ -422,6 +594,73 @@ class FingerprintService {
 
   // ── Shared helpers ────────────────────────────────────────────────────────
 
+  /// POST a JSON body with auth headers. Uses a longer timeout than the
+  /// multipart sender: hand requests segment + embed 4 fingers server-side.
+  Future<http.Response> _postJson(
+    Uri uri, {
+    required String token,
+    required Map<String, dynamic> body,
+  }) async {
+    try {
+      return await http
+          .post(
+            uri,
+            headers: {
+              ..._authHeaders(token),
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 90));
+    } on TimeoutException {
+      throw const FingerprintException(
+        'Request timed out. The server is taking too long — please try again.',
+        kind: FingerprintErrorKind.network,
+      );
+    } on SocketException {
+      throw const FingerprintException(
+        'No internet connection. Check your network and try again.',
+        kind: FingerprintErrorKind.network,
+      );
+    } on HandshakeException {
+      throw const FingerprintException(
+        'Secure connection failed. Check the server certificate.',
+        kind: FingerprintErrorKind.network,
+      );
+    } catch (_) {
+      throw const FingerprintException(
+        'Could not reach the server. Check your connection.',
+        kind: FingerprintErrorKind.network,
+      );
+    }
+  }
+
+  /// Decode a non-streamed response body as JSON, mirroring [_parseJson].
+  Map<String, dynamic> _decodeJson(http.Response response) {
+    if (response.body.isEmpty) {
+      throw FingerprintException(
+        'The server returned an empty response (${response.statusCode}).',
+        statusCode: response.statusCode,
+        kind: response.statusCode >= 500
+            ? FingerprintErrorKind.serverError
+            : FingerprintErrorKind.invalidResponse,
+      );
+    }
+    try {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw FingerprintException(
+        response.statusCode >= 500
+            ? 'Server error (${response.statusCode}). Please try again later.'
+            : 'Unexpected response from the server (${response.statusCode}).',
+        statusCode: response.statusCode,
+        kind: response.statusCode >= 500
+            ? FingerprintErrorKind.serverError
+            : FingerprintErrorKind.invalidResponse,
+      );
+    }
+  }
+
   /// Build the multipart part for a captured fingerprint image.
   ///
   /// The camera captures at high resolution and the raw JPEG can exceed the
@@ -440,17 +679,22 @@ class FingerprintService {
     File image, {
     String field = 'fingerprint',
   }) async {
+    return http.MultipartFile.fromBytes(
+      field,
+      await _compressedJpegBytes(image),
+      filename: 'fingerprint.jpg',
+      contentType: MediaType('image', 'jpeg'),
+    );
+  }
+
+  /// Read [image] and re-encode it as a payload-safe JPEG (see
+  /// [_imageUploadPart] for why). Falls back to the raw bytes when the image
+  /// can't be decoded.
+  Future<List<int>> _compressedJpegBytes(File image) async {
     final raw = await image.readAsBytes();
 
     final decoded = img.decodeImage(raw);
-    if (decoded == null) {
-      return http.MultipartFile.fromBytes(
-        field,
-        raw,
-        filename: 'fingerprint.jpg',
-        contentType: MediaType('image', 'jpeg'),
-      );
-    }
+    if (decoded == null) return raw;
 
     const maxEdge = 1280;
     final resized = (decoded.width > maxEdge || decoded.height > maxEdge)
@@ -468,12 +712,7 @@ class FingerprintService {
       jpg = img.encodeJpg(resized, quality: quality);
     }
 
-    return http.MultipartFile.fromBytes(
-      field,
-      jpg,
-      filename: 'fingerprint.jpg',
-      contentType: MediaType('image', 'jpeg'),
-    );
+    return jpg;
   }
 
   /// Send a [MultipartRequest] and return the response.
@@ -562,7 +801,9 @@ class FingerprintService {
 
     if (status == 422) {
       final lower = message.toLowerCase();
-      if (lower.contains('quality')) return FingerprintErrorKind.qualityTooLow;
+      if (lower.contains('quality') || lower.contains('usable fingers')) {
+        return FingerprintErrorKind.qualityTooLow;
+      }
       if (lower.contains('feature') || lower.contains('fingerprint')) {
         return FingerprintErrorKind.noFeatures;
       }

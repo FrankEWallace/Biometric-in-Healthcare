@@ -44,6 +44,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from app.services.image_processor import compute_quality_score
 from app.services.matcher import Matcher
 
 # Default location; override with EMBEDDING_MODEL_PATH.
@@ -150,7 +151,19 @@ class EmbeddingMatcher(Matcher):
         norm = float(np.linalg.norm(vec))
         if norm > 0:
             vec = vec / norm  # L2-normalise so cosine == dot product
-        return {"format": "embedding", "vector": vec.tolist(), "dim": int(vec.size)}
+        # Carry capture quality on the template (same Laplacian-sharpness
+        # scale as the minutiae path) so enroll gating works for both matchers.
+        gray = (
+            cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+            if image_bgr.ndim == 3
+            else image_bgr
+        )
+        return {
+            "format": "embedding",
+            "vector": vec.tolist(),
+            "dim": int(vec.size),
+            "quality_score": compute_quality_score(gray),
+        }
 
     def score(self, probe: dict[str, Any], candidate: dict[str, Any]) -> float:
         self._assert_format(probe)

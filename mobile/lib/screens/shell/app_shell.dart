@@ -8,6 +8,7 @@ import '../../screens/staff/staff_screen.dart';
 import '../../screens/requests/requests_screen.dart';
 import '../../screens/emergency/emergency_registration_screen.dart';
 import '../../screens/verification_screen.dart';
+import '../../screens/verify/hand_verification_screen.dart';
 import '../../screens/patient_registration_screen.dart';
 import '../../screens/face/face_verification_screen.dart';
 import '../../screens/clerk/clerk_dashboard.dart';
@@ -211,7 +212,7 @@ class _AppShellState extends State<AppShell> {
         return [
           const _Tab(label: 'Dashboard',   icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard_rounded,        screen: NurseDashboard()),
           _Tab(label: 'Queue',             icon: Icons.queue_rounded,             activeIcon: Icons.queue_rounded,            screen: const GeoGatedScreen(child: StageQueueScreen())),
-          _Tab(label: 'Fingerprint',       icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,              screen: const GeoGatedScreen(child: VerificationScreen())),
+          _Tab(label: 'Fingerprint',       icon: Icons.fingerprint,               activeIcon: Icons.fingerprint,              screen: const GeoGatedScreen(child: HandVerificationScreen())),
           _Tab(label: 'Face ID',           icon: Icons.face_outlined,             activeIcon: Icons.face_rounded,             screen: const GeoGatedScreen(child: FaceVerificationScreen())),
           _Tab(label: 'Register',          icon: Icons.person_add_alt_1_outlined, activeIcon: Icons.person_add_alt_1_rounded, screen: const GeoGatedScreen(child: PatientRegistrationScreen())),
         ];

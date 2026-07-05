@@ -26,8 +26,8 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
   final _fpService = FingerprintService();
 
   static const _steps = [
-    _EnrollStep(position: 'right_hand', label: 'Right Hand'),
-    _EnrollStep(position: 'left_hand',  label: 'Left Hand'),
+    _EnrollStep(hand: 'right', label: 'Right Hand'),
+    _EnrollStep(hand: 'left',  label: 'Left Hand'),
   ];
 
   int _currentIndex = 0;
@@ -45,7 +45,7 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
           isHandCapture: true,
           fingerLabel: _steps[_currentIndex].label,
           galleryMode: true,
-          galleryTarget: 3,
+          galleryTarget: 1,
         ),
       ),
     );
@@ -59,27 +59,26 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
       final position = await LocationService().getCurrentPosition();
       final wifiSsid = await NetworkService().getCurrentSsid();
 
-      final res = await _fpService.enrollGallery(
-        capture.captures.map((x) => File(x.path)).toList(),
-        token:          _token,
-        patientId:      widget.patient.id.toString(),
-        fingerPosition: _steps[_currentIndex].position,
-        isPrimary:      _currentIndex == 0,
-        livenessToken:  capture.livenessToken,
-        gpsLatitude:    position?.latitude,
-        gpsLongitude:   position?.longitude,
-        wifiSsid:       wifiSsid,
+      final res = await _fpService.enrollHand(
+        File(capture.captures.first.path),
+        token:        _token,
+        patientId:    widget.patient.id.toString(),
+        hand:         _steps[_currentIndex].hand,
+        isPrimary:    _currentIndex == 0,
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
       );
 
       if (!mounted) return;
 
-      // Soft notice when the finger enrolled with degraded (< 3) coverage.
-      if (res.needsReenrollment) {
+      // Soft notice when the hand enrolled with degraded (< 4) coverage.
+      if (res.isPartial) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '${_steps[_currentIndex].label}: enrolled with '
-                '${res.gallerySize} of 3 captures — consider re-enrolling later.'),
+                '${_steps[_currentIndex].label}: enrolled '
+                '${res.fingers.length} of 4 fingers — consider re-enrolling later.'),
             backgroundColor: AppColors.warning,
           ),
         );
@@ -359,7 +358,7 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
 }
 
 class _EnrollStep {
-  final String position;
+  final String hand; // 'right' | 'left'
   final String label;
-  const _EnrollStep({required this.position, required this.label});
+  const _EnrollStep({required this.hand, required this.label});
 }
