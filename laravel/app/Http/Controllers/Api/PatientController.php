@@ -10,12 +10,17 @@ use App\Services\FingerprintService;
 use App\Services\PatientService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PatientController extends Controller
 {
     // Minimum acceptable quality score from the Python /process endpoint.
     // Scores below this indicate a blurry or poorly-positioned capture.
     private const MIN_QUALITY_SCORE = 0.30;
+
+    // Minimum usable fingers required for a four-finger hand enrollment.
+    // Mirrors the matcher's min_fingers fusion guard (3 of 4).
+    private const MIN_HAND_FINGERS = 3;
 
     public function __construct(
         private FingerprintService $fingerprint,
@@ -212,6 +217,109 @@ class PatientController extends Controller
             'finger_position' => $fp->finger_position,
             'quality_score'   => $fp->quality_score,
             'is_primary'      => $fp->is_primary,
+        ], 201);
+    }
+
+    /**
+     * POST /api/patients/{patient}/enroll-hand
+     *
+     * Four-finger ("hand slap") enrollment. The nurse photographs a hand; the
+     * Python service segments it into four finger crops and returns one template
+     * per finger. Each finger is stored as its own {@see Fingerprint} row (the
+     * finger_position enum already covers all four), so the existing 1:1, 1:N,
+     * and multimodal flows keep working per-finger while verify-hand fuses them.
+     *
+     * At least {@see self::MIN_HAND_FINGERS} fingers must pass the quality gate;
+     * low-quality fingers are skipped (logged), not stored. The whole set is
+     * written in one transaction so a partial hand never persists.
+     *
+     * Fields:
+     *   image      (string, required) — base64 whole-hand photo
+     *   hand       (string)           — "right" | "left" (default right)
+     *   is_primary (bool)             — mark the index finger primary for 1:N pass-1
+     */
+    public function enrollHand(Request $request, Patient $patient): JsonResponse
+    {
+        $this->authorize('enroll', $patient);
+
+        $data = $request->validate([
+            'image'      => 'required|string',
+            'hand'       => 'nullable|in:right,left',
+            'is_primary' => 'nullable|boolean',
+        ]);
+
+        $hand      = $data['hand'] ?? 'right';
+        $isPrimary = (bool) ($data['is_primary'] ?? false);
+
+        // 1. Segment + extract 4 templates via the Python service (contactless).
+        $result  = $this->fingerprint->processHand($data['image'], $hand, 'contactless');
+        $fingers = $result['fingers'] ?? [];
+
+        // 2. Quality gate per finger — keep only usable fingers.
+        $usable = array_values(array_filter(
+            $fingers,
+            fn ($f) => (float) ($f['quality_score'] ?? 0.0) >= self::MIN_QUALITY_SCORE
+        ));
+
+        if (count($usable) < self::MIN_HAND_FINGERS) {
+            return response()->json([
+                'error'          => 'Too few usable fingers. Please retake with the hand flat and in focus.',
+                'usable_fingers' => count($usable),
+                'required'       => self::MIN_HAND_FINGERS,
+                'minimum'        => self::MIN_QUALITY_SCORE,
+            ], 422);
+        }
+
+        // 3. The index finger is the primary/gallery representative for this hand.
+        $indexPosition = $hand === 'left' ? 'left_index' : 'right_index';
+
+        $stored = DB::transaction(function () use ($request, $patient, $usable, $isPrimary, $indexPosition) {
+            if ($isPrimary) {
+                Fingerprint::where('patient_id', $patient->id)
+                    ->where('is_primary', true)
+                    ->update(['is_primary' => false]);
+            }
+
+            $rows = [];
+            foreach ($usable as $finger) {
+                $position = $finger['finger_position'];
+
+                $fp = Fingerprint::firstOrNew([
+                    'patient_id'      => $patient->id,
+                    'finger_position' => $position,
+                ]);
+
+                $fp->hospital_id   = $patient->hospital_id;
+                $fp->enrolled_by   = $request->user()->id;
+                $fp->quality_score = (float) ($finger['quality_score'] ?? 0.0);
+                $fp->is_primary    = $isPrimary && $position === $indexPosition;
+                $fp->is_active     = true;
+                $fp->setTemplate($finger['template']);
+                $fp->save();
+
+                $rows[] = $fp;
+            }
+
+            return $rows;
+        });
+
+        AuditLog::record($request, AuditLog::ACTION_FINGERPRINT_ENROLL, $patient->id, null, null, [
+            'hand'             => $hand,
+            'fingers_enrolled' => array_map(fn ($fp) => $fp->finger_position, $stored),
+            'matcher'          => $result['matcher'] ?? null,
+        ]);
+
+        return response()->json([
+            'message'    => 'Hand enrolled successfully.',
+            'patient_id' => $patient->id,
+            'hand'       => $hand,
+            'matcher'    => $result['matcher'] ?? null,
+            'fingers'    => array_map(fn ($fp) => [
+                'fingerprint_id'  => $fp->id,
+                'finger_position' => $fp->finger_position,
+                'quality_score'   => $fp->quality_score,
+                'is_primary'      => $fp->is_primary,
+            ], $stored),
         ], 201);
     }
 

@@ -29,3 +29,13 @@ Thumbs.db
 
 # Claude Code (local machine settings)
 .claude/settings.local.json
+
+# Raw calibration datasets (large, local-only)
+datasets/
+
+# Ridgeformer (CC-BY-NC) third-party code and model weights — do not commit
+/third_party/
+/python-service/models/
+
+# Cached RidgeBase embeddings (regenerable data)
+python-service/tools/.rb_test_embeddings.npz

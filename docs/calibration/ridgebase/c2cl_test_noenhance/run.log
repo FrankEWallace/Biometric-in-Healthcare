@@ -1,0 +1,54 @@
+  ! drop 1_Apple_32467_1_LEFT_image_fingerprintQQBHVUOJ_2.png: no usable minutiae
+  ! drop 1_google_56583_1_LEFT_image_fingerprint2HJHHOFW_0.png: no usable minutiae
+  ! drop 1_google_74850_1_LEFT_image_fingerprintQH1JVL3H_2.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintHQ45LAOL_1.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintHQ45LAOL_2.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintVXKQMHZ1_0.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintVXKQMHZ1_1.png: no usable minutiae
+  ! drop 1_google_74850_1_RIGHT_image_fingerprintVXKQMHZ1_2.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_0.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_1.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_2.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprint3SXKCNXQ_3.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprintTJ9XFPJ5_0.png: no usable minutiae
+  ! drop 1_google_74850_2_RIGHT_image_fingerprintTJ9XFPJ5_1.png: no usable minutiae
+Loaded protocol with 200 finger-identities; indexed 2429 images under /Users/C.E.O/Biometric-in-Healthcare/datasets/ridgebase/Task1/Test
+Usable identities: 200
+Extracting 2429 templates (no-enhance) ...
+  [200/2429]
+  [400/2429]
+  [600/2429]
+  [800/2429]
+  [1000/2429]
+  [1200/2429]
+  [1400/2429]
+  [1600/2429]
+  [1800/2429]
+  [2000/2429]
+  [2200/2429]
+  [2400/2429]
+
+Scored 2215 genuine + 20000 impostor pairs.
+
+──────────────────────────────────────────────────────────
+  FAR / FRR CALIBRATION SUMMARY
+──────────────────────────────────────────────────────────
+  genuine pairs   :   2215   mean  14.99  sd  6.18
+  impostor pairs  :  20000   mean  14.94  sd  6.13
+  separation      :   0.05  (genuine_mean − impostor_mean)
+──────────────────────────────────────────────────────────
+  EER             :  50.44%   at threshold 14.5
+  operating points (pick threshold for a target false-accept rate):
+    target FAR | threshold | actual FAR |     FRR
+         1.00% |     32.50 |      0.66% |  99.14%
+         0.10% |     38.50 |      0.05% |  99.95%
+──────────────────────────────────────────────────────────
+  Set FINGERPRINT_MATCH_THRESHOLD (in laravel/.env and python-service/.env)
+  to the threshold whose FAR your deployment tolerates.
+  Lower threshold = fewer false rejects, more false accepts.
+──────────────────────────────────────────────────────────
+
+  wrote far_frr.png and roc.png
+Wrote scores.csv, roc.csv, calibration_report.json to /Users/C.E.O/Biometric-in-Healthcare/docs/calibration/ridgebase/c2cl_test_noenhance/
+
+Rank-1 identification accuracy: 1.0%

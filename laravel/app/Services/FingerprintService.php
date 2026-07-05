@@ -297,4 +297,77 @@ class FingerprintService
 
         return $response->json();
     }
+
+    // -------------------------------------------------------------------------
+    // Four-finger ("hand slap") methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * Segment a whole-hand photo into 4 finger crops and extract one template
+     * per finger. Wraps the Python /process-hand endpoint.
+     *
+     * @param  string $base64Image  Base64 whole-hand photo.
+     * @param  string $hand         "right" | "left" — orientation for finger naming.
+     * @param  string $domain       "contactless" | "contact" — matcher routing.
+     * @return array {
+     *     matcher: string,          // matcher that actually ran (surfaces placeholder)
+     *     domain:  string,
+     *     fingers: array<int, array{
+     *         finger_position: string,
+     *         template: array,
+     *         quality_score: float,
+     *         bbox: int[]
+     *     }>
+     * }
+     * @throws RuntimeException
+     */
+    public function processHand(string $base64Image, string $hand = 'right', string $domain = 'contactless'): array
+    {
+        $response = $this->http(30)->post("{$this->baseUrl}/process-hand", [
+            'image'  => $base64Image,
+            'hand'   => $hand,
+            'domain' => $domain,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'Python /process-hand failed: ' . ($response->json('detail') ?? $response->body())
+            );
+        }
+
+        return $response->json();   // { matcher, domain, fingers: [...] }
+    }
+
+    /**
+     * Match a four-finger probe against candidate hands, fusing per-finger
+     * scores. Wraps the Python /match-hand endpoint.
+     *
+     * @param  array  $probe       [finger_position => template]
+     * @param  array  $candidates  [['patient_id' => int, 'fingers' => [finger_position => template]], ...]
+     * @param  string $domain      Matcher routing domain.
+     * @return array {
+     *     patient_id: int,
+     *     score: float,            // fused hand score [0, 100]
+     *     matcher: string,
+     *     fingers_used: string[],
+     *     per_finger: array<string, float>
+     * }
+     * @throws RuntimeException
+     */
+    public function matchHand(array $probe, array $candidates, string $domain = 'contactless'): array
+    {
+        $response = $this->http(45)->post("{$this->baseUrl}/match-hand", [
+            'probe'      => $probe,
+            'candidates' => $candidates,
+            'domain'     => $domain,
+        ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'Python /match-hand failed: ' . ($response->json('detail') ?? $response->body())
+            );
+        }
+
+        return $response->json();   // { patient_id, score, matcher, fingers_used, per_finger }
+    }
 }

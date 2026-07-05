@@ -16,31 +16,18 @@ import 'fingerprint/fingerprint_liveness_camera_screen.dart';
 import 'face/liveness_camera_screen.dart';
 import 'result_screen.dart';
 
-// ── Finger scan steps (Selcom-style, sequential) ─────────────────────────────
+// ── Hand scan steps (four fingers per photo, sequential) ─────────────────────
 
-class _FingerStep {
-  final String position;    // API field value
-  final String label;       // Human-readable label shown in camera UI
-  final bool isHandCapture; // true → wide hand frame, false → single finger
+class _HandStep {
+  final String hand;  // API field value: 'right' | 'left'
+  final String label; // Human-readable label shown in camera UI
 
-  const _FingerStep({
-    required this.position,
-    required this.label,
-    this.isHandCapture = false,
-  });
+  const _HandStep({required this.hand, required this.label});
 }
 
-const _fingerSteps = [
-  _FingerStep(
-    position: 'right_hand',
-    label: 'Right Hand',
-    isHandCapture: true,
-  ),
-  _FingerStep(
-    position: 'left_hand',
-    label: 'Left Hand',
-    isHandCapture: true,
-  ),
+const _handSteps = [
+  _HandStep(hand: 'right', label: 'Right Hand'),
+  _HandStep(hand: 'left', label: 'Left Hand'),
 ];
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -132,16 +119,16 @@ class _PatientRegistrationScreenState
   // ── Step 2: open camera for each finger sequentially ─────────────────────
 
   Future<void> _openCameraForCurrentFinger(PatientModel patient) async {
-    final finger = _fingerSteps[_currentFingerIndex];
+    final handStep = _handSteps[_currentFingerIndex];
 
     final result = await Navigator.push<FingerprintGalleryResult?>(
       context,
       MaterialPageRoute(
         builder: (_) => FingerprintLivenessCameraScreen(
-          isHandCapture: finger.isHandCapture,
-          fingerLabel: finger.label,
+          isHandCapture: true,
+          fingerLabel: handStep.label,
           galleryMode: true,
-          galleryTarget: 3,
+          galleryTarget: 1,
         ),
       ),
     );
@@ -154,18 +141,19 @@ class _PatientRegistrationScreenState
       return;
     }
 
-    await _enrollFingerGallery(patient, finger, result);
+    await _enrollHand(patient, handStep, result);
   }
 
-  /// Upload a finger's gallery, then advance to the next hand or the face step.
+  /// Upload one hand photo (server segments 4 fingers), then advance to the
+  /// next hand or the face step.
   ///
-  /// A hand that yields no usable capture is skipped with a notice — face
-  /// enrollment is the next step and serves as the multimodal fallback, so a
-  /// patient is never blocked. The first successfully enrolled finger becomes
-  /// the 1:N primary.
-  Future<void> _enrollFingerGallery(
+  /// A hand that yields too few usable fingers is skipped with a notice —
+  /// face enrollment is the next step and serves as the multimodal fallback,
+  /// so a patient is never blocked. The first successfully enrolled hand
+  /// carries the 1:N primary (its index finger).
+  Future<void> _enrollHand(
     PatientModel patient,
-    _FingerStep finger,
+    _HandStep handStep,
     FingerprintGalleryResult capture,
   ) async {
     setState(() {
@@ -180,26 +168,27 @@ class _PatientRegistrationScreenState
       final position = await LocationService().getCurrentPosition();
       final wifiSsid = await NetworkService().getCurrentSsid();
 
-      final res = await FingerprintService().enrollGallery(
-        capture.captures.map((x) => File(x.path)).toList(),
-        token:          token,
-        patientId:      patient.id.toString(),
-        fingerPosition: finger.position,
-        isPrimary:      !_primaryAssigned,
-        livenessToken:  capture.livenessToken,
-        gpsLatitude:    position?.latitude,
-        gpsLongitude:   position?.longitude,
-        wifiSsid:       wifiSsid,
+      final res = await FingerprintService().enrollHand(
+        File(capture.captures.first.path),
+        token:        token,
+        patientId:    patient.id.toString(),
+        hand:         handStep.hand,
+        isPrimary:    !_primaryAssigned,
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
       );
 
-      _primaryAssigned = true; // a finger is now enrolled
-      if (res.needsReenrollment) {
-        notice = '${finger.label}: enrolled with ${res.gallerySize} of 3 captures.';
+      _primaryAssigned = true; // a hand is now enrolled
+      if (res.isPartial) {
+        notice =
+            '${handStep.label}: enrolled ${res.fingers.length} of 4 fingers.';
       }
     } on FingerprintException catch (e) {
       if (e.kind == FingerprintErrorKind.noFeatures) {
-        // No usable capture for this hand — skip it; Face ID is captured next.
-        notice = '${finger.label}: no usable fingerprint — Face ID can be used instead.';
+        // Nothing usable on this hand — skip it; Face ID is next.
+        notice =
+            '${handStep.label}: no usable fingerprints — Face ID can be used instead.';
       } else {
         if (mounted) {
           setState(() {
@@ -231,13 +220,27 @@ class _PatientRegistrationScreenState
     }
 
     final nextIndex = _currentFingerIndex + 1;
-    if (nextIndex < _fingerSteps.length) {
+    if (nextIndex < _handSteps.length) {
       setState(() => _currentFingerIndex = nextIndex);
       await _openCameraForCurrentFinger(patient);
     } else {
       // All hands processed — move to face enrollment.
       setState(() => _step = _RegistrationStep.capturingFace);
     }
+  }
+
+  /// Advance past the current hand without enrolling it (e.g. injury,
+  /// bandage, or repeated capture failures). Face ID remains the fallback.
+  void _skipCurrentHand() {
+    final nextIndex = _currentFingerIndex + 1;
+    setState(() {
+      _apiError = null;
+      if (nextIndex < _handSteps.length) {
+        _currentFingerIndex = nextIndex;
+      } else {
+        _step = _RegistrationStep.capturingFace;
+      }
+    });
   }
 
   // ── Step 3: capture face and enroll ──────────────────────────────────────
@@ -367,8 +370,11 @@ class _PatientRegistrationScreenState
       return _FingerProgressView(
         patient: _createdPatient!,
         currentIndex: _currentFingerIndex,
-        fingers: _fingerSteps,
+        hands: _handSteps,
+        error: _apiError,
         onRetry: () => _openCameraForCurrentFinger(_createdPatient!),
+        onSkip: _skipCurrentHand,
+        onDismissError: () => setState(() => _apiError = null),
       );
     }
 
@@ -527,19 +533,25 @@ class _PatientRegistrationScreenState
 class _FingerProgressView extends StatelessWidget {
   final PatientModel patient;
   final int currentIndex;
-  final List<_FingerStep> fingers;
+  final List<_HandStep> hands;
+  final String? error;
   final VoidCallback onRetry;
+  final VoidCallback onSkip;
+  final VoidCallback onDismissError;
 
   const _FingerProgressView({
     required this.patient,
     required this.currentIndex,
-    required this.fingers,
+    required this.hands,
     required this.onRetry,
+    required this.onSkip,
+    required this.onDismissError,
+    this.error,
   });
 
   @override
   Widget build(BuildContext context) {
-    final finger = fingers[currentIndex];
+    final handStep = hands[currentIndex];
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -590,14 +602,19 @@ class _FingerProgressView extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Photograph hand ${currentIndex + 1} of ${fingers.length}',
+            'Photograph hand ${currentIndex + 1} of ${hands.length} — 4 fingers, no thumb',
             style: const TextStyle(
                 fontSize: 14, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 24),
 
-          // Finger checklist
-          ...List.generate(fingers.length, (i) {
+          if (error != null) ...[
+            _ErrorBanner(message: error!, onDismiss: onDismissError),
+            const SizedBox(height: 16),
+          ],
+
+          // Hand checklist
+          ...List.generate(hands.length, (i) {
             final done = i < currentIndex;
             final active = i == currentIndex;
             return Padding(
@@ -652,7 +669,7 @@ class _FingerProgressView extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      fingers[i].label,
+                      hands[i].label,
                       style: TextStyle(
                         color: active
                             ? AppColors.textPrimary
@@ -685,11 +702,22 @@ class _FingerProgressView extends StatelessWidget {
           const Spacer(),
 
           PrimaryButton(
-            label: 'Photograph ${finger.label}',
+            label: 'Photograph ${handStep.label}',
             icon: Icons.camera_alt,
             onPressed: onRetry,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: onSkip,
+              child: const Text(
+                'Skip this hand',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 13),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );

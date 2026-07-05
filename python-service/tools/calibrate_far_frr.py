@@ -57,6 +57,7 @@ import itertools
 import json
 import os
 import random
+import re
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -88,7 +89,7 @@ def _strip_sample_suffix(stem: str) -> str:
     return stem
 
 
-def identity_for(path: Path, root: Path) -> str:
+def identity_for(path: Path, root: Path) -> str | None:
     """Identity key = relative directory path + finger label (sample idx stripped)."""
     rel = path.relative_to(root)
     finger = _strip_sample_suffix(path.stem)
@@ -96,12 +97,47 @@ def identity_for(path: Path, root: Path) -> str:
     return "/".join(parts)
 
 
-def discover_images(root: Path) -> dict[str, list[Path]]:
+# RidgeBase Task1 Contactless filenames:
+#   <session>_<device>_<identity>_<background>_<hand>_image_fingerprint<seq>[_<confidence>]_<finger>.png
+# e.g. "1_Apple_10727_1_LEFT_image_fingerprint8GIFPDNU_0.8888496_3.png" (Train, has confidence)
+#      "1_Apple_14493_1_LEFT_image_fingerprintSMEG5K05_0.png"          (Test, no confidence)
+# The same physical finger recurs across sessions/devices/backgrounds — those are the
+# "impressions" we want grouped for genuine pairs, so identity = (identity, hand, finger),
+# discarding session/device/background/seq/confidence.
+_RIDGEBASE_CONTACTLESS_RE = re.compile(
+    r"^\d+_[A-Za-z0-9]+_(?P<identity>\d+)_\d+_(?P<hand>LEFT|RIGHT)_image_fingerprint"
+    r"[A-Za-z0-9]+(?:_[0-9.]+)?_(?P<finger>\d+)$",
+    re.IGNORECASE,
+)
+
+
+def ridgebase_contactless_identity_for(path: Path, root: Path) -> str | None:
+    """Identity key for RidgeBase Contactless captures; None for non-matching files (skipped)."""
+    m = _RIDGEBASE_CONTACTLESS_RE.match(path.stem)
+    if not m:
+        return None
+    return f"{m['identity']}_{m['hand'].upper()}_{m['finger']}"
+
+
+IDENTITY_SCHEMES = {
+    "generic": identity_for,
+    "ridgebase-contactless": ridgebase_contactless_identity_for,
+}
+
+
+def discover_images(root: Path, identity_fn=identity_for) -> dict[str, list[Path]]:
     """Walk `root` and group image files by identity. Returns {identity: [paths]}."""
     groups: dict[str, list[Path]] = {}
+    skipped = 0
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix.lower() in _IMAGE_EXTS:
-            groups.setdefault(identity_for(path, root), []).append(path)
+            key = identity_fn(path, root)
+            if key is None:
+                skipped += 1
+                continue
+            groups.setdefault(key, []).append(path)
+    if skipped:
+        print(f"  (skipped {skipped} files that didn't match the identity pattern)", file=sys.stderr)
     return groups
 
 
@@ -434,6 +470,10 @@ def main() -> int:
     ap.add_argument("--no-enhance", action="store_true",
                     help="Skip the phone-tuned CLAHE+Gabor stages (isolate the "
                          "matcher; use for clean contact-sensor sets like SOCOFing/FVC)")
+    ap.add_argument("--identity-scheme", choices=sorted(IDENTITY_SCHEMES), default="generic",
+                    help="How to derive identity keys from filenames (default: generic "
+                         "dir+stem parser; 'ridgebase-contactless' parses RidgeBase's "
+                         "Task1 Contactless filenames and skips non-matching files)")
     ap.add_argument("--self-test", action="store_true",
                     help="Validate the metric math on synthetic data and exit")
     args = ap.parse_args()
@@ -446,8 +486,8 @@ def main() -> int:
     if not args.data.is_dir():
         ap.error(f"--data is not a directory: {args.data}")
 
-    print(f"Scanning {args.data} ...")
-    groups = discover_images(args.data)
+    print(f"Scanning {args.data} (identity scheme: {args.identity_scheme}) ...")
+    groups = discover_images(args.data, identity_fn=IDENTITY_SCHEMES[args.identity_scheme])
     n_imgs = sum(len(v) for v in groups.values())
     print(f"Found {n_imgs} images across {len(groups)} identities.")
     if n_imgs == 0:
@@ -487,6 +527,7 @@ def main() -> int:
         "step": args.step,
         "far_targets": args.far_targets,
         "enhance": enhance,
+        "identity_scheme": args.identity_scheme,
     }
     write_outputs(args.out, pairs, m, meta)
     return 0

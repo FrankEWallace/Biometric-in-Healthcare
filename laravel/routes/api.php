@@ -71,6 +71,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{patient}/enroll', [PatientController::class, 'enroll'])
              ->middleware(['role:nurse,admin', 'geofence', 'throttle:20,1']);
 
+        // Nurse + admin: four-finger ("hand slap") enrollment
+        Route::post('/{patient}/enroll-hand', [PatientController::class, 'enrollHand'])
+             ->middleware(['role:nurse,admin', 'geofence', 'throttle:20,1']);
+
         // Admin/super_admin: remove a fingerprint record
         Route::delete('/{patient}/fingerprints/{fingerprint}', [PatientController::class, 'removeFingerprint'])
              ->middleware('role:admin,super_admin');
@@ -137,6 +141,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Multi-modal identification (face shortlist → fingerprint confirm) — nurse only
         Route::post('/multimodal', [VerificationController::class, 'verifyMultimodal'])
+             ->middleware(['role:nurse', 'throttle:30,1']);
+
+        // Four-finger ("hand slap") fused verification — nurse only.
+        // Advisory (needs_review) until a learned contactless embedding matcher
+        // + calibrated threshold are installed; never auto-accepts on minutiae.
+        Route::post('/hand', [VerificationController::class, 'verifyHand'])
              ->middleware(['role:nurse', 'throttle:30,1']);
 
         // Logs — all roles; nurse sees own only, doctor sees patient-centric

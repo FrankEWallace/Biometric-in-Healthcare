@@ -1,0 +1,40 @@
+Loaded protocol with 200 finger-identities; indexed 2429 images under /Users/C.E.O/Biometric-in-Healthcare/datasets/ridgebase/Task1/Test
+Usable identities: 200
+Extracting 2429 templates (enhance) ...
+  [200/2429]
+  [400/2429]
+  [600/2429]
+  [800/2429]
+  [1000/2429]
+  [1200/2429]
+  [1400/2429]
+  [1600/2429]
+  [1800/2429]
+  [2000/2429]
+  [2200/2429]
+  [2400/2429]
+
+Scored 2229 genuine + 20000 impostor pairs.
+
+──────────────────────────────────────────────────────────
+  FAR / FRR CALIBRATION SUMMARY
+──────────────────────────────────────────────────────────
+  genuine pairs   :   2229   mean  18.47  sd  6.34
+  impostor pairs  :  20000   mean  18.64  sd  6.31
+  separation      :  -0.16  (genuine_mean − impostor_mean)
+──────────────────────────────────────────────────────────
+  EER             :  50.55%   at threshold 18.5
+  operating points (pick threshold for a target false-accept rate):
+    target FAR | threshold | actual FAR |     FRR
+         1.00% |     34.50 |      0.88% |  99.15%
+         0.10% |     40.50 |      0.10% |  99.73%
+──────────────────────────────────────────────────────────
+  Set FINGERPRINT_MATCH_THRESHOLD (in laravel/.env and python-service/.env)
+  to the threshold whose FAR your deployment tolerates.
+  Lower threshold = fewer false rejects, more false accepts.
+──────────────────────────────────────────────────────────
+
+  wrote far_frr.png and roc.png
+Wrote scores.csv, roc.csv, calibration_report.json to /Users/C.E.O/Biometric-in-Healthcare/docs/calibration/ridgebase/c2cl_test_enhance/
+
+Rank-1 identification accuracy: 2.5%
