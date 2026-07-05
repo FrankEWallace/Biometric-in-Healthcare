@@ -1,0 +1,24 @@
+Grouped 558 hand-samples into 50 hand-identities with >=2 samples (min 3 shared fingers per pair).
+
+Scored 2943 genuine + 1222 impostor pairs.
+
+──────────────────────────────────────────────────────────
+  FAR / FRR CALIBRATION SUMMARY
+──────────────────────────────────────────────────────────
+  genuine pairs   :   2943   mean  28.02  sd  5.93
+  impostor pairs  :   1222   mean  26.00  sd  5.36
+  separation      :   2.02  (genuine_mean − impostor_mean)
+──────────────────────────────────────────────────────────
+  EER             :  41.87%   at threshold 27.5
+  operating points (pick threshold for a target false-accept rate):
+    target FAR | threshold | actual FAR |     FRR
+         1.00% |     38.00 |      0.98% |  95.85%
+         0.10% |     40.50 |      0.00% |  98.67%
+──────────────────────────────────────────────────────────
+  Set FINGERPRINT_MATCH_THRESHOLD (in laravel/.env and python-service/.env)
+  to the threshold whose FAR your deployment tolerates.
+  Lower threshold = fewer false rejects, more false accepts.
+──────────────────────────────────────────────────────────
+
+  wrote far_frr.png and roc.png
+Wrote scores.csv, roc.csv, calibration_report.json to /Users/C.E.O/Biometric-in-Healthcare/docs/calibration/ridgebase/fourfinger_test_enhance/
