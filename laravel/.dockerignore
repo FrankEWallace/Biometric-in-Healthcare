@@ -12,4 +12,3 @@ tests
 .github
 .phpunit.result.cache
 Dockerfile
-docker

@@ -20,6 +20,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Trust the immediate upstream proxy (NPM) so X-Forwarded-Proto is
+        // honored — the Laravel container is only reachable via the internal
+        // Docker network from NPM, never directly from the internet.
+        $middleware->trustProxies(at: '*');
+
         // CORS must run before everything else so preflight OPTIONS requests are handled
         $middleware->prepend(HandleCors::class);
 

@@ -50,8 +50,8 @@ services:
         condition: service_started
     volumes:
       - laravel_storage:/var/www/html/storage/app
-    ports:
-      - "8000:80"
+    expose:
+      - "80"
     networks:
       - proxy-net
       - internal
