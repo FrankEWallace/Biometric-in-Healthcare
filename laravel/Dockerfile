@@ -14,7 +14,7 @@ COPY vite.config.* ./
 RUN npm run build
 
 # --- Stage 3: runtime image -----------------------------------------------
-FROM php:8.3-apache AS runtime
+FROM php:8.4-apache AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libzip-dev libpng-dev libonig-dev libxml2-dev unzip git \
@@ -32,6 +32,7 @@ COPY . .
 COPY --from=vendor /app/vendor ./vendor
 COPY --from=assets /app/public/build ./public/build
 
+RUN mkdir -p /var/www/html/bootstrap/cache /var/www/html/storage/framework/cache/data /var/www/html/storage/framework/sessions /var/www/html/storage/framework/testing /var/www/html/storage/framework/views /var/www/html/storage/logs
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
