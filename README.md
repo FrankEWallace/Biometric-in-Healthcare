@@ -24,13 +24,14 @@ A final-year project implementing a hospital-grade patient identification system
    - [Backend — Laravel API](#backend--laravel-api)
    - [Fingerprint Service — Python / FastAPI](#fingerprint-service--python--fastapi)
    - [Mobile Application — Flutter](#mobile-application--flutter)
-6. [Configuration](#configuration)
-7. [Database Schema](#database-schema)
-8. [API Reference](#api-reference)
-9. [Role and Permission Model](#role-and-permission-model)
-10. [Access Control](#access-control)
-11. [Security Considerations](#security-considerations)
-12. [Development Notes](#development-notes)
+6. [Docker Deployment (VPS)](#docker-deployment-vps)
+7. [Configuration](#configuration)
+8. [Database Schema](#database-schema)
+9. [API Reference](#api-reference)
+10. [Role and Permission Model](#role-and-permission-model)
+11. [Access Control](#access-control)
+12. [Security Considerations](#security-considerations)
+13. [Development Notes](#development-notes)
 
 ---
 
@@ -43,8 +44,9 @@ Core capabilities:
 - **Patient registration** with demographic data and fingerprint enrollment
 - **Real-time fingerprint verification** at the point of care
 - **Role-based access control** with four distinct staff roles
+- **Four-finger contactless capture** — a single hand photo is segmented into four finger crops and matched via a learned ONNX embedding (Ridgeformer), fusing per-finger scores instead of relying on a single contact-style fingerprint
 - **Multi-hospital isolation** — each hospital's data is strictly partitioned
-- **Geofencing and WiFi restriction** — the mobile app enforces on-premises usage
+- **Geofencing and WiFi restriction** — the mobile app enforces on-premises usage, with a server-side fail-open/fail-closed policy for hospitals that haven't configured a perimeter yet
 - **Audit logging** — all sensitive actions are recorded with actor, action, and timestamp
 - **Edit request workflow** — nurses submit change requests that administrators approve or reject
 
@@ -63,18 +65,20 @@ Core capabilities:
              │ HTTPS / JSON
              ▼
 ┌─────────────────────────┐
-│   Laravel 11 REST API   │  Primary application server
+│   Laravel 13 REST API   │  Primary application server
 │  - Sanctum token auth   │
 │  - Role middleware       │
 │  - Hospital isolation   │
 │  - Audit log service    │
 │  - Face verify-confirm  │
+│  - Accept/reject decision│  ← thresholds live here, not in Python
 └────────────┬────────────┘
-             │ Internal HTTP (localhost:5001)
+             │ Internal HTTP (X-Internal-Api-Key header)
              ▼
 ┌─────────────────────────┐
 │  FastAPI Microservice   │  Biometric processing (not public-facing)
-│  - OpenCV fingerprint   │
+│  - OpenCV/minutiae FP   │
+│  - ONNX embedding (hand)│  ← four-finger contactless matcher
 │  - FAISS face search    │
 │  - Liveness detection   │
 │  - Index quarantine     │
@@ -84,7 +88,7 @@ Core capabilities:
         MySQL 8 Database
 ```
 
-The Python microservice is consumed exclusively by Laravel. It is never exposed directly to the mobile client or the public internet.
+The Python microservice is consumed exclusively by Laravel and is never exposed directly to the mobile client or the public internet. It holds no accept/reject thresholds itself — it only returns raw scores/templates; Laravel is the single source of truth for match decisions (`config/services.php`). Requests between Laravel and Python are authenticated with a shared internal API key (`X-Internal-Api-Key` / `INTERNAL_API_KEY`) — see [Configuration](#configuration).
 
 ---
 
@@ -119,11 +123,18 @@ BiH app/
 │
 └── python-service/           FastAPI biometric microservice
     ├── app/
-    │   ├── routes/           HTTP route handlers (health, fingerprint, face)
-    │   └── services/         OpenCV processing, FAISS index, liveness detection
-    ├── quarantine/           Corrupt FAISS index backups (auto-created)
+    │   ├── routes/           HTTP route handlers (health, fingerprint, hand, face)
+    │   └── services/         Minutiae + ONNX embedding matchers, hand segmentation,
+    │                         FAISS index, liveness detection
+    ├── models/                contactless_embedding.onnx (~1.1GB, gitignored — see
+    │                         Docker Deployment for how it reaches a VPS)
+    ├── tools/                 Calibration scripts (calibrate_far_frr.py, ridgebase_eval.py, …)
+    ├── quarantine/            Corrupt FAISS index backups (auto-created)
+    ├── Dockerfile
     ├── requirements.txt
     └── run.py
+
+docker-compose.yml            Compose stack: mysql + python-service + laravel
 ```
 
 ---
@@ -132,13 +143,14 @@ BiH app/
 
 | Component | Version |
 |-----------|---------|
-| PHP | 8.2 or later |
+| PHP | 8.3 or later |
 | Composer | 2.x |
-| Laravel | 11.x |
+| Laravel | 13.x |
 | MySQL | 8.0 or later |
-| Python | 3.11 or later |
+| Python | 3.13 or later |
 | Flutter | 3.x (stable channel) |
 | Dart | 3.x |
+| Docker + Docker Compose | Only needed for VPS/production deployment — not required for local dev (see [Docker Deployment](#docker-deployment-vps)) |
 
 ---
 
@@ -203,6 +215,37 @@ The API base URL and WiFi bypass are controlled by `--dart-define` flags — not
 
 ---
 
+## Docker Deployment (VPS)
+
+Local development does **not** require Docker — the steps above (composer, php artisan serve, python run.py) are unaffected. Docker is only used for hosting the Laravel + Python + MySQL stack on a VPS.
+
+```bash
+# On the VPS, after cloning the repo:
+cp laravel/.env.example laravel/.env               # fill in real values
+cp python-service/.env.example python-service/.env  # fill in real values
+
+docker compose up -d --build
+```
+
+Key points:
+
+- **`laravel/Dockerfile`** — multi-stage build (composer install → `vite build` → `php:8.3-apache` runtime).
+- **`python-service/Dockerfile`** — `python:3.13-slim` + OpenCV/onnxruntime system libraries.
+- **`docker-compose.yml`** — wires `mysql`, `python-service`, and `laravel` together. `laravel` joins an external `proxy-net` network (for a reverse proxy such as Nginx Proxy Manager to terminate TLS) plus an internal-only network shared with `mysql`/`python-service`, which stay unreachable from outside the stack. If you're not using an external proxy network, remove the `proxy-net` entry and publish Laravel's port directly.
+- **The 1.1GB ONNX model (`python-service/models/contactless_embedding.onnx`) is gitignored and bind-mounted, not baked into the image.** It must be transferred to the VPS separately before first run:
+  ```bash
+  rsync -avz --progress --partial python-service/models/contactless_embedding.onnx \
+      <user>@<vps-host>:~/Biometric-in-Healthcare/python-service/models/
+  ```
+  `rsync` (not `scp`) is used so a dropped connection can resume rather than restart the transfer.
+- **Production env flags** — `APP_ENV=production` / `APP_DEBUG=false` are set as `environment:` overrides directly in `docker-compose.yml` for the `laravel` service, so the container is always production-safe regardless of what `laravel/.env` contains (which stays `local`/`true` for local dev).
+- **Seed demo/reference data** after first migration:
+  ```bash
+  docker compose exec laravel php artisan db:seed --class=HospitalSeeder
+  ```
+
+---
+
 ## Configuration
 
 ### Laravel `.env` (key values)
@@ -214,19 +257,45 @@ APP_URL=http://localhost:8000
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_DATABASE=bih_fingerprint
+DB_DATABASE=bih_db
 DB_USERNAME=root
 DB_PASSWORD=
 
-# Address of the Python fingerprint microservice
-FINGERPRINT_SERVICE_URL=http://localhost:5001
+# Python biometric microservice
+PYTHON_SERVICE_URL=http://127.0.0.1:5001
+PYTHON_SERVICE_API_KEY=          # must match INTERNAL_API_KEY on the Python side — required in production
+
+# Single source of truth for the fingerprint accept/reject decision.
+# Calibrate with python-service/tools/calibrate_far_frr.py.
+FINGERPRINT_MATCH_THRESHOLD=32.0
+
+# Fused four-finger (hand-slap) contactless threshold. Left unset until an
+# embedding matcher is calibrated for your deployment — see
+# python-service/tools/ridgebase_eval.py. While unset, hand verification
+# returns advisory "needs_review" results and never auto-accepts.
+FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD=
+
+# When a hospital has neither GPS nor WiFi SSID configured, this decides the
+# outcome. true = allow (useful for demos); false = deny (required in
+# production so a misconfigured hospital fails closed, not open).
+GEOFENCE_FAIL_OPEN=true
 
 SANCTUM_STATEFUL_DOMAINS=localhost,localhost:3000
 ```
 
-### Python service port
+### Python service `.env` (key values)
 
-The default port is defined in `python-service/run.py`. Change the `port` argument if there is a conflict.
+```env
+# Must match PYTHON_SERVICE_API_KEY on the Laravel side. Leaving this unset
+# is fine for local dev only — a warning is logged and every endpoint
+# (except /health) is left unauthenticated.
+INTERNAL_API_KEY=
+
+FINGERPRINT_MATCH_THRESHOLD=32.0
+ENVIRONMENT=development   # set to "production" to disable /docs and /redoc
+```
+
+The default port (5001) is defined in `python-service/run.py`. Change the `port` argument if there is a conflict.
 
 ---
 
@@ -291,11 +360,24 @@ All API endpoints are prefixed with `/api`. Authentication uses Laravel Sanctum 
 | POST | `/api/face/identify` | Identify patient by face (FAISS search) | Nurse |
 | POST | `/api/face/verify-confirm` | Record manual staff confirmation with audit trail | Nurse |
 
+### Four-Finger Contactless Pipeline
+
+A single hand photo is segmented server-side into four finger crops (`python-service` `/process-hand`), each matched via a learned ONNX embedding, and the per-finger scores are fused into one decision (`/match-hand`). This replaces relying on a single contact-style fingerprint scan.
+
+| Method | Endpoint | Description | Minimum Role |
+|--------|----------|-------------|--------------|
+| POST | `/api/patients/{patient}/enroll-hand` | Segment a hand photo and enroll one template per finger | Nurse, Admin |
+| POST | `/api/verify/hand` | Verify a probe hand photo against enrolled candidates (fused score) | Nurse |
+
+`verify/hand` is advisory (`needs_review`) until a learned contactless embedding matcher and calibrated `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` are installed — it never auto-accepts on minutiae alone.
+
 ### Verification
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/verify` | Identification scan (nurse only) |
+| POST | `/api/verify` | **Deprecated** — hospital-wide 1:N fingerprint identification; emits RFC-8594 deprecation headers. Superseded by `/api/verify/multimodal`. |
+| POST | `/api/verify/multimodal` | Multi-modal identification: face shortlist → fingerprint confirm. Keeps false-accept risk from growing with database size. |
+| POST | `/api/verify/hand` | Four-finger fused verification (see [Four-Finger Contactless Pipeline](#four-finger-contactless-pipeline)) |
 | GET | `/api/verify/logs` | View verification history |
 | GET | `/api/verify/logs/{id}` | Single verification log detail |
 
@@ -344,13 +426,16 @@ The application uses the `network_info_plus` package to read the connected WiFi 
 
 ### Backend Validation
 
-Client-side geofencing is a convenience control only. The Laravel backend independently validates the request context where applicable. Do not rely on mobile-side checks as a security boundary.
+Client-side geofencing is a convenience control only. The Laravel backend independently validates the request context via the `geofence` middleware, which checks the device's GPS/WiFi against the hospital's configured perimeter (`GeofenceService`). Do not rely on mobile-side checks as a security boundary.
+
+If a hospital has configured **neither** GPS coordinates nor a WiFi SSID, the outcome is governed by `GEOFENCE_FAIL_OPEN` (see [Configuration](#configuration)) — `true` allows the request through (useful for demos/unconfigured hospitals), `false` denies it. Production deployments should set this to `false` so an incomplete hospital record fails closed rather than silently running unrestricted.
 
 ---
 
 ## Security Considerations
 
-- **Biometric templates, not images** — The system stores ORB minutiae descriptors (fingerprint) and 512-dim embeddings (face), not raw photographs. This limits biometric data exposure.
+- **Biometric templates, not images** — The system stores ORB/minutiae descriptors and learned embeddings (fingerprint/hand), and 512-dim embeddings (face) — not raw photographs. This limits biometric data exposure.
+- **Internal service authentication** — Laravel ↔ Python calls carry a shared-secret header (`X-Internal-Api-Key` / `INTERNAL_API_KEY`). Must be set in production; if left blank the Python service logs a warning and accepts unauthenticated requests (acceptable for local dev only).
 - **Token-based authentication** — Sanctum issues per-session tokens that are revoked on logout.
 - **Input validation** — All API inputs are validated using Laravel Form Requests before reaching business logic.
 - **Audit trail** — A dedicated `AuditLog` service records actor, action type, and affected resource for all sensitive operations, including manual face review confirmations.
@@ -363,7 +448,7 @@ Client-side geofencing is a convenience control only. The Laravel backend indepe
 
 ## Development Notes
 
-- The Python microservice is internal and should not be exposed on a public port. In production, bind it to `127.0.0.1` only and access it from Laravel via localhost.
+- The Python microservice is internal and must never be exposed on a public port. Locally, keep it bound to `127.0.0.1`. Under Docker, it has no `ports:` mapping at all — only `expose:` on the internal compose network — and additionally requires `X-Internal-Api-Key` once `INTERNAL_API_KEY`/`PYTHON_SERVICE_API_KEY` are set.
 - The mobile app connects to the API using a base URL configured in the service layer. Update this value for each deployment target (development, staging, production).
 - Database migrations are numbered chronologically. Run them in order using `php artisan migrate`. Do not modify existing migration files after they have been applied.
 - The `super_admin` role is assigned via a dedicated migration and seeder; it is not selectable through the normal staff creation UI.
