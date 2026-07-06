@@ -1,0 +1,71 @@
+---
+title: Deployment
+description: Running the stack on a VPS with Docker Compose
+---
+
+# Deployment
+
+Local development does **not** require Docker — `php artisan serve` and `python run.py` (covered in [Getting Started](/getting-started/overview)) are unaffected by anything on this page. Docker is only used to host the full stack — Laravel, the Python biometric service, and MySQL — on a VPS.
+
+## Stack
+
+| File | Purpose |
+|---|---|
+| `laravel/Dockerfile` | Multi-stage build: `composer install` → `vite build` → `php:8.3-apache` runtime |
+| `python-service/Dockerfile` | `python:3.13-slim` + the system libraries OpenCV/onnxruntime need at runtime |
+| `docker-compose.yml` | Wires `mysql`, `python-service`, and `laravel` together |
+
+## First deploy
+
+```bash
+git clone <repo-url> ~/Biometric-in-Healthcare
+cd ~/Biometric-in-Healthcare
+
+cp laravel/.env.example laravel/.env               # fill in real values
+cp python-service/.env.example python-service/.env  # fill in real values (create this file if it doesn't exist yet)
+
+docker compose up -d --build
+```
+
+<Warning>
+  Don't leave `PYTHON_SERVICE_API_KEY` / `INTERNAL_API_KEY` blank, and don't leave `GEOFENCE_FAIL_OPEN` at its permissive default in production. See the [Security deployment checklist](/security#deployment-checklist).
+</Warning>
+
+## The 1.1GB ONNX model
+
+`python-service/models/contactless_embedding.onnx` is gitignored and bind-mounted into the container read-only, rather than baked into the image — that would mean re-uploading 1.1GB on every code-only rebuild. It has to be transferred to the VPS separately, once, before the four-finger contactless matcher works:
+
+```bash
+# From your local machine, not the VPS:
+rsync -avz --progress --partial python-service/models/contactless_embedding.onnx \
+    <user>@<vps-host>:~/Biometric-in-Healthcare/python-service/models/
+```
+
+`rsync` (not `scp`) is used deliberately — if the connection drops mid-transfer, re-running the same command resumes rather than restarting from zero.
+
+Until the file is in place, `/process-hand` and `/match-hand` still respond, but report the minutiae fallback matcher name instead of the calibrated embedding matcher.
+
+## Networking
+
+`docker-compose.yml` defines two networks:
+
+- **`proxy-net`** (external) — only the `laravel` service joins this. It's meant to be the same network your reverse proxy (e.g. Nginx Proxy Manager) already uses for other projects on the VPS, so it can reach `laravel:80` by service name. If you don't have an existing proxy network, either create one (`docker network create proxy-net`) or remove `proxy-net` from the compose file and publish Laravel's port directly instead.
+- **`internal`** (bridge, compose-managed) — `mysql` and `python-service` live here only. They are unreachable from the reverse proxy or anything else outside this compose stack, and MySQL has no `ports:` mapping to the host at all.
+
+TLS should be terminated at the reverse proxy (NPM or equivalent), not inside the compose stack — Laravel/Apache serves plain HTTP internally on port 80.
+
+## Production-safe env overrides
+
+`docker-compose.yml` sets `APP_ENV=production` and `APP_DEBUG=false` as `environment:` overrides directly on the `laravel` service. This means the container is always production-safe regardless of what `laravel/.env` contains — useful because that `.env` file is shared with local dev, where `APP_ENV=local`/`APP_DEBUG=true` is what you want instead.
+
+## After first migration
+
+Seed reference data (e.g. demo/reference hospitals):
+
+```bash
+docker compose exec laravel php artisan db:seed --class=HospitalSeeder
+```
+
+## Bootstrap cache directory
+
+`laravel/bootstrap/cache/` is entirely gitignored, so a fresh clone has no directory there at all. The Dockerfile runs `mkdir -p` before `chown` on that path specifically to handle this — if you ever see a build fail on that `chown` step, this is why.

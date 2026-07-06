@@ -14,11 +14,11 @@ description: How the three system components communicate
 │   ┌──────────────┐   HTTPS/JSON   ┌──────────────────────────┐ │
 │   │              │ ─────────────► │                          │ │
 │   │  Flutter App │                │   Laravel Backend API    │ │
-│   │  (mobile)    │ ◄───────────── │   (PHP 8.2 / MySQL 8)   │ │
+│   │  (mobile)    │ ◄───────────── │   (PHP 8.3 / MySQL 8)   │ │
 │   │              │                │                          │ │
 │   └──────────────┘                └──────────┬───────────────┘ │
 │         │                                    │                 │
-│    GPS + WiFi                      Internal HTTP (port 5001)   │
+│    GPS + WiFi                      Internal HTTP + shared key   │
 │    geofence                                  │                 │
 │   auto-trigger                    ┌──────────▼───────────────┐ │
 │   quality ring                    │  Python Biometric        │ │
@@ -38,7 +38,7 @@ Nurse opens verification screen
 Flutter captures fingerprint image
         │
         ▼
-POST /api/verify (multipart image + patient_id)
+POST /api/fingerprint/verify (multipart image + patient_id)
   Authorization: Bearer <sanctum-token>
         │
         ▼
@@ -48,12 +48,14 @@ Laravel validates token, role (nurse), hospital scope
         │
         ▼
 POST http://python-service:5001/process-fingerprint (image file)
+  X-Internal-Api-Key: <shared secret>
         │   returns quality_score + ORB features
         ▼
 POST http://python-service:5001/match (probe features + stored template)
-        │   returns score (0–100) + verdict
+  X-Internal-Api-Key: <shared secret>
+        │   returns score + verdict
         ▼
-Laravel checks verdict threshold (score ≥ 20 → MATCH)
+Laravel checks score against FINGERPRINT_MATCH_THRESHOLD (default 32.0)
         │
         ├── on MATCH  → fetch EHR + insurance from GoT-HoMIS
         ├── on NO MATCH → increment failure counter, lock after 5 fails
@@ -61,6 +63,10 @@ Laravel checks verdict threshold (score ≥ 20 → MATCH)
         ▼
 JSON response → Flutter displays result screen
 ```
+
+<Note>
+  Hospital-wide identification (unknown patient) now goes through `POST /api/verify/multimodal` (face shortlist → fingerprint confirm) or `POST /api/verify/hand` (four-finger fused). The legacy `POST /api/verify` is deprecated but kept for backward compatibility — see [Verification](/api-reference/verification).
+</Note>
 
 ## Database schema (key tables)
 
@@ -126,7 +132,8 @@ audit_logs
 1. **Sanctum token** — 8-hour expiry, revoked on logout, single active token per user
 2. **Role middleware** — `role:nurse,admin` checked before every sensitive route
 3. **Hospital scope** — `hospital.access` middleware blocks cross-hospital data access
-4. **Geofence** — Flutter checks GPS + WiFi SSID before allowing capture
-5. **Fingerprint locking** — 5 failed attempts within 1 hour locks the record
-6. **Template encryption** — ORB feature JSON encrypted at rest (AES-256)
-7. **No raw image storage** — only processed feature templates are persisted
+4. **Geofence** — Flutter checks GPS + WiFi SSID before allowing capture; backend re-validates via the `geofence` middleware, failing closed in production (`GEOFENCE_FAIL_OPEN=false`)
+5. **Internal service key** — Laravel ↔ Python calls carry a shared `X-Internal-Api-Key`, required in production
+6. **Fingerprint locking** — 5 failed attempts within 1 hour locks the record
+7. **Template encryption** — ORB feature JSON encrypted at rest (AES-256)
+8. **No raw image storage** — only processed feature templates are persisted

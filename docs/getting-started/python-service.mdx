@@ -32,7 +32,26 @@ Core dependencies:
 | `faiss-cpu` | FAISS face index (enroll, identify, rebuild) |
 | `pydantic` | Request/response validation |
 
-## 3. Run the service
+## 3. Configure the internal API key (optional locally, required in production)
+
+Create `python-service/.env` (no example file is checked in yet — this repo doesn't ship a `python-service/.env.example`):
+
+```dotenv
+# Must match PYTHON_SERVICE_API_KEY on the Laravel side. Left unset locally
+# is fine — a warning is logged and every endpoint except /health accepts
+# unauthenticated requests. Set it before deploying anywhere reachable
+# beyond your own machine.
+INTERNAL_API_KEY=
+
+FINGERPRINT_MATCH_THRESHOLD=32.0
+ENVIRONMENT=development   # set to "production" to disable /docs and /redoc
+```
+
+## 4. Place the contactless embedding model
+
+The four-finger contactless matcher needs an ONNX model at `models/contactless_embedding.onnx` (~1.1GB, gitignored — not part of the repo). Without it, the contactless matcher falls back to the non-discriminative minutiae path and `/process-hand`/`/match-hand` responses report the fallback matcher name.
+
+## 5. Run the service
 
 ```bash
 python run.py
@@ -42,7 +61,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
 
 The service starts on `http://localhost:5001`.
 
-## 4. Verify it is running
+## 6. Verify it is running
 
 ```bash
 curl http://localhost:5001/health
@@ -67,11 +86,15 @@ python-service/
     ├── routes/
     │   ├── health.py               ← GET /health
     │   ├── fingerprint.py          ← POST /process, /match, /process-fingerprint, /match-fingerprint
+    │   ├── hand.py                 ← POST /process-hand, /match-hand (four-finger contactless)
     │   └── face.py                 ← POST /face/process, /face/match, /face/enroll, /face/identify
     └── services/
         ├── processor.py            ← build_template(), match_templates()
         ├── image_processor.py      ← preprocess_fingerprint() pipeline
         ├── feature_extractor.py    ← extract_features(), match_features()
+        ├── hand_segmentation.py    ← segment_hand() — whole-hand photo → 4 finger crops
+        ├── matcher.py              ← domain-routed matcher selection + match_hands() fusion
+        ├── embedding_service.py    ← ONNX Ridgeformer embedding matcher (contactless)
         ├── faiss_service.py        ← FAISS index (enroll, identify with retry, rebuild, quarantine)
         ├── liveness_service.py     ← anti-spoofing checks (env-configurable thresholds)
         ├── minutiae_service.py     ← crossing-number minutiae algorithm
@@ -98,5 +121,5 @@ Raw image (JPEG/PNG)
 ```
 
 <Note>
-  The service is intentionally simple. There is no authentication on the Python endpoints because they are only reachable from the Laravel container / host — never from the internet.
+  Every route except `/health` is protected by `require_internal_key` when `INTERNAL_API_KEY` is set — Laravel sends it as `X-Internal-Api-Key`. If unset (default for local dev), the check is skipped and a warning is logged; set it before this service is reachable from anywhere beyond your own machine.
 </Note>

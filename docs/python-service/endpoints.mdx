@@ -9,6 +9,10 @@ Base URL: `http://localhost:5001` (internal only)
 
 Interactive docs: `http://localhost:5001/docs`
 
+<Note>
+  Every route below except `/health` requires the `X-Internal-Api-Key` header when `INTERNAL_API_KEY` is configured on the Python side — see [Security](/security#internal-service-authentication).
+</Note>
+
 ---
 
 ## GET /health
@@ -176,6 +180,107 @@ Compare two uploaded fingerprint images end-to-end and return a MATCH / NO MATCH
 <Note>
   This endpoint is primarily used for standalone testing. In production, Laravel calls `/process-fingerprint` and `/match` separately so it can store/retrieve templates between calls.
 </Note>
+
+---
+
+## POST /process-hand
+
+Segment a whole-hand photo into up to four finger crops and extract a template from each — the contactless counterpart of `/process`. A phone photo of a hand naturally contains four fingers, matching the intended capture UX and the NISTIR-8307 finding that a four-finger slap is far more accurate than a single finger.
+
+**Request body**
+
+```json
+{
+  "image": "<base64-encoded JPEG or PNG>",
+  "hand": "right",
+  "domain": "contactless"
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `image` | string | Base64 whole-hand photo |
+| `hand` | string | `"right"` \| `"left"` — orientation for finger naming |
+| `domain` | string | `"contactless"` (default) or `"contact"` — selects the matcher; `"contactless"` uses the ONNX embedding when installed, else falls back to minutiae |
+
+**Response**
+
+```json
+{
+  "matcher": "ridgeformer_onnx",
+  "domain": "contactless",
+  "fingers": [
+    {
+      "finger_position": "right_index",
+      "template": { ... },
+      "quality_score": 0.71,
+      "bbox": [120, 40, 260, 310]
+    }
+  ]
+}
+```
+
+`matcher` names what actually ran, so callers can tell when they're on the placeholder/fallback rather than the calibrated embedding matcher.
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | `image` is empty or invalid base64 |
+| 422 | Hand segmentation failed (fewer than the requested finger crops found) |
+
+---
+
+## POST /match-hand
+
+Match a probe hand (up to four per-finger templates) against candidate hands, fusing the shared fingers' scores. Only fuses when at least 3 finger positions overlap between probe and candidate — below that, the hands aren't comparable and the response returns no-match rather than risk a false accept.
+
+**Request body**
+
+```json
+{
+  "probe": {
+    "right_index": { ... },
+    "right_middle": { ... }
+  },
+  "candidates": [
+    {
+      "patient_id": 1,
+      "fingers": {
+        "right_index": { ... },
+        "right_middle": { ... }
+      }
+    }
+  ],
+  "domain": "contactless",
+  "fusion": "mean",
+  "min_fingers": 3
+}
+```
+
+**Response**
+
+```json
+{
+  "patient_id": 1,
+  "score": 0.6231,
+  "matcher": "ridgeformer_onnx",
+  "fingers_used": ["right_index", "right_middle"],
+  "per_finger": {
+    "right_index": 0.6534,
+    "right_middle": 0.5928
+  }
+}
+```
+
+Laravel compares `score` against the domain-appropriate threshold (`FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` for `domain=contactless`) — the Python service never makes the accept/reject decision itself.
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | `candidates` list is empty |
+| 400 | No candidate hand could be scored |
 
 ---
 

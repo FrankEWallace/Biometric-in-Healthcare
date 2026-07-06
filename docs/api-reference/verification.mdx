@@ -11,6 +11,10 @@ The verification endpoints support **hospital-wide identification** — scanning
 
 ## POST /api/verify
 
+<Warning>
+  **Deprecated.** Hospital-wide 1:N fingerprint identification lets false-accept risk grow with the patient database size. Superseded by `POST /api/verify/multimodal` (face shortlist → fingerprint confirm), which keeps the search space small. This endpoint emits RFC-8594 deprecation headers and is kept only for backward compatibility.
+</Warning>
+
 Identify a patient from a fingerprint image alone. The system matches the probe against all active fingerprints in the caller's hospital.
 
 **Roles:** nurse — **Rate limit:** 30 req / min
@@ -60,6 +64,26 @@ Identify a patient from a fingerprint image alone. The system matches the probe 
 ```
 
 **Response 503** — Python service unavailable
+
+---
+
+## POST /api/verify/multimodal
+
+Hospital-wide identification using a face shortlist followed by fingerprint confirmation, instead of a single 1:N fingerprint scan. This is the recommended replacement for `POST /api/verify` — the face step narrows candidates before the more expensive fingerprint comparison runs, so false-accept risk doesn't grow linearly with the number of enrolled patients.
+
+**Roles:** nurse — **Rate limit:** 30 req / min
+
+---
+
+## POST /api/verify/hand
+
+Four-finger ("hand slap") fused verification — the mobile app captures one hand photo instead of a single finger, and the Python service segments it into four finger crops, matches each via the contactless embedding matcher, and fuses the per-finger scores (see [Python Service Endpoints](/python-service/endpoints#post-match-hand)).
+
+**Roles:** nurse — **Rate limit:** 30 req / min
+
+<Note>
+  Advisory only (`needs_review`) until a learned contactless embedding matcher and a calibrated `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` are installed for the deployment — it never auto-accepts on minutiae scores alone, since minutiae is non-discriminative on finger photos (RidgeBase EER ~46%).
+</Note>
 
 ---
 

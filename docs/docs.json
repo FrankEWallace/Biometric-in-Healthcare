@@ -31,6 +31,12 @@
             ]
           },
           {
+            "group": "Deployment",
+            "pages": [
+              "deployment"
+            ]
+          },
+          {
             "group": "Mobile App",
             "pages": [
               "mobile/overview",

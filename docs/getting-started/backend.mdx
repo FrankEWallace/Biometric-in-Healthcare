@@ -30,12 +30,25 @@ APP_URL=http://localhost:8000
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_DATABASE=bih_fingerprint
+DB_DATABASE=bih_db
 DB_USERNAME=root
 DB_PASSWORD=
 
-# URL of the running Python fingerprint service
-FINGERPRINT_SERVICE_URL=http://127.0.0.1:5001
+# Python biometric microservice
+PYTHON_SERVICE_URL=http://127.0.0.1:5001
+PYTHON_SERVICE_API_KEY=          # must match INTERNAL_API_KEY on the Python side — required in production
+
+# Single source of truth for the fingerprint accept/reject decision
+FINGERPRINT_MATCH_THRESHOLD=32.0
+
+# Fused four-finger (hand-slap) contactless threshold — left unset until
+# calibrated (see python-service/tools/ridgebase_eval.py); while unset,
+# hand verification is advisory only and never auto-accepts
+FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD=
+
+# When a hospital has neither GPS nor WiFi configured: true = allow (demo),
+# false = deny (required in production)
+GEOFENCE_FAIL_OPEN=true
 
 # Sanctum token expiry (hours)
 SANCTUM_TOKEN_EXPIRY_HOURS=8
@@ -44,7 +57,7 @@ SANCTUM_TOKEN_EXPIRY_HOURS=8
 ## 3. Create the database
 
 ```sql
-CREATE DATABASE bih_fingerprint CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE bih_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 ## 4. Run migrations
@@ -111,3 +124,7 @@ laravel/
     ├── api.php                  ← All API routes
     └── web.php                  ← Admin dashboard routes
 ```
+
+<Note>
+  For hosting this on a VPS instead of running it locally, see [Deployment](/deployment) — it covers the Docker Compose setup, the network split for a reverse proxy, and transferring the ONNX model file.
+</Note>

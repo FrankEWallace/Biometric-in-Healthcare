@@ -20,6 +20,14 @@ description: Security model, threat mitigations, and operational guidelines
 | Sanctum API token | `personal_access_tokens` (hashed) | SHA-256 hash |
 | Staff passwords | `users.password` | bcrypt |
 
+## Internal service authentication
+
+Laravel and the Python biometric service authenticate each other with a shared secret, not network trust alone:
+
+- Laravel sends `X-Internal-Api-Key` (`PYTHON_SERVICE_API_KEY`) on every call to the Python service
+- The Python service validates it against `INTERNAL_API_KEY` via `require_internal_key` (`app/security.py`), applied to every router except `/health`
+- If `INTERNAL_API_KEY` is unset, the check is skipped and a warning is logged once at import time — acceptable for local dev, **not** for any deployment reachable beyond your own machine
+
 ## Authentication
 
 - **Sanctum personal access tokens** — issued on login, expire after 8 hours
@@ -57,10 +65,17 @@ The FAISS face index is protected against corruption at multiple levels:
 
 The Flutter app enforces location restrictions before any capture screen is accessible:
 
-1. **GPS check** — device coordinates must be within `hospital.radius_meters` of the hospital's `lat/lng`
+1. **GPS check** — device coordinates must be within `hospital.gps_radius_meters` of the hospital's `gps_latitude`/`gps_longitude`
 2. **WiFi SSID check** — device must be connected to the hospital's registered SSID
 3. The WiFi bypass is controlled by `--dart-define=BYPASS_WIFI=true` at build time — it is **not** tied to `kDebugMode`. Release builds have the bypass off by default.
-4. Both checks are re-validated at the backend via IP allowlisting (configurable)
+4. Both checks are re-validated server-side by the `geofence` middleware (`GeofenceService`) — client-side checks are a convenience only, never the security boundary
+
+Both GPS and WiFi are optional per hospital — a hospital only enforces the signals it has configured. If a hospital has configured **neither**, the outcome falls back to `GEOFENCE_FAIL_OPEN` (`services.geofence.fail_open`):
+
+| Value | Behaviour | When to use |
+|---|---|---|
+| `true` (default) | Unconfigured hospitals are allowed through | Local dev, demos, hospitals not yet fully set up |
+| `false` | Unconfigured hospitals are denied | **Required in production** — an incomplete hospital record should fail closed, not silently run unrestricted |
 
 ## Security headers
 
@@ -101,12 +116,15 @@ Every sensitive action is recorded in `audit_logs`:
 
 ## Deployment checklist
 
-- [ ] `APP_ENV=production`, `APP_DEBUG=false` in `.env`
-- [ ] `FINGERPRINT_SERVICE_URL` points to internal-only URL (not public)
-- [ ] HTTPS enforced on the Laravel host (nginx / Caddy with valid TLS cert)
+- [ ] `APP_ENV=production`, `APP_DEBUG=false` (set as `docker-compose.yml` `environment:` overrides on the `laravel` service, so they hold regardless of what `laravel/.env` contains)
+- [ ] `PYTHON_SERVICE_URL` points to an internal-only address (Docker service name, not a public host)
+- [ ] `PYTHON_SERVICE_API_KEY` (Laravel) and `INTERNAL_API_KEY` (Python) are both set and match — neither should ship blank
+- [ ] `GEOFENCE_FAIL_OPEN=false`, and every real hospital row has GPS and/or WiFi configured before flipping it (otherwise that hospital's staff are locked out entirely)
+- [ ] HTTPS enforced at the edge (Nginx Proxy Manager or equivalent reverse proxy with a valid TLS cert) — don't also terminate TLS inside the compose stack, that's redundant double-proxying
 - [ ] MySQL user has only `SELECT`, `INSERT`, `UPDATE`, `DELETE` (no `DROP`, `CREATE`)
-- [ ] Python service is NOT exposed to the public internet (firewall or Docker network isolation)
-- [ ] Python service bound to `127.0.0.1` in `run.py` (not `0.0.0.0`)
+- [ ] Python service has no `ports:` mapping in `docker-compose.yml` — `expose:` only, reachable exclusively over the internal Docker network
+- [ ] Only the `laravel` service joins the external reverse-proxy network; `mysql` and `python-service` stay on the internal-only network
+- [ ] The 1.1GB `contactless_embedding.onnx` has been transferred to the VPS's `python-service/models/` (bind-mounted, not baked into the image — see [Deployment](/deployment))
 - [ ] Sanctum `SANCTUM_STATEFUL_DOMAINS` lists only the admin web dashboard domain
 - [ ] Flutter build does **not** include `--dart-define=BYPASS_WIFI=true`
 - [ ] `--dart-define=API_BASE_URL=` points to the production HTTPS domain
