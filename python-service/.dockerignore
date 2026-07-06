@@ -1,0 +1,14 @@
+.venv
+__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+datasets
+calibration_out
+models
+face_index
+tests
+tools
+.git
+Dockerfile
