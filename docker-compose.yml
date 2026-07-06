@@ -1,0 +1,68 @@
+services:
+  mysql:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-bih_db}
+      MYSQL_USER: ${DB_USERNAME:-bih_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-secret}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  python-service:
+    build: ./python-service
+    restart: unless-stopped
+    env_file:
+      - ./python-service/.env
+    volumes:
+      - ./python-service/models:/app/models:ro
+      - face_index_data:/app/face_index
+    expose:
+      - "5001"
+    # Not published to the host — Laravel reaches it over the compose network only.
+    networks:
+      - internal
+
+  laravel:
+    build: ./laravel
+    restart: unless-stopped
+    env_file:
+      - ./laravel/.env
+    environment:
+      DB_HOST: mysql
+      PYTHON_SERVICE_URL: http://python-service:5001
+      # Production overrides — laravel/.env keeps APP_ENV=local/APP_DEBUG=true
+      # for local dev; this stack always runs as production regardless.
+      APP_ENV: production
+      APP_DEBUG: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      python-service:
+        condition: service_started
+    volumes:
+      - laravel_storage:/var/www/html/storage/app
+    ports:
+      - "8000:80"
+    networks:
+      - proxy-net
+      - internal
+
+networks:
+  proxy-net:
+    external: true
+  internal:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  laravel_storage:
+  face_index_data:
