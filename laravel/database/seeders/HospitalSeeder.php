@@ -32,6 +32,19 @@ class HospitalSeeder extends Seeder
                 'is_active'               => true,
                 'face_recognition_enabled'=> false,
             ],
+            [
+                // Demo/presentation hospital — CoICT, University of Dar es Salaam.
+                // No wifi_ssid set: geofence check relies on GPS only for the demo.
+                'name'                    => 'CoICT Demo Clinic (University of Dar es Salaam)',
+                'code'                    => 'COICT',
+                'city'                    => 'Dar es Salaam',
+                'wifi_ssid'               => null,
+                'gps_latitude'            => -6.771349,
+                'gps_longitude'           => 39.239748,
+                'gps_radius_meters'       => 500,
+                'is_active'               => true,
+                'face_recognition_enabled'=> true,
+            ],
         ];
 
         foreach ($hospitals as $data) {
