@@ -7,9 +7,9 @@
   },
   "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#0284C7",
-    "light": "#38BDF8",
-    "dark": "#0369A1"
+    "primary": "#109DD7",
+    "light": "#3BB8E8",
+    "dark": "#0A6A94"
   },
   "topbarLinks": [
     {
@@ -17,6 +17,16 @@
       "url": "https://github.com/FrankEWallace"
     }
   ],
+  "topbarCtaButton": {
+    "name": "View on GitHub",
+    "url": "https://github.com/FrankEWallace/Biometric-in-Healthcare"
+  },
+  "api": {
+    "baseUrl": "https://fyp.fwtechnologies.co.tz/api",
+    "auth": {
+      "method": "bearer"
+    }
+  },
   "tabs": [
     {
       "name": "API Reference",

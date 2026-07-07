@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- BiH "Sovereign Security" mark: fingerprint ridges inside a shield.
+       Palette: gray-900 field, cerulean shield, white ridges. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="32%" r="80%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </radialGradient>
+    <path id="shield" d="M512 178 L806 286 V540 C806 712 676 812 512 872 C348 812 218 712 218 540 V286 Z"/>
+    <clipPath id="shieldClip">
+      <use href="#shield" transform="translate(512 525) scale(0.80) translate(-512 -525)"/>
+    </clipPath>
+  </defs>
+  <g transform="translate(512 512) scale(0.62) translate(-512 -512)">
+
+    <use href="#shield" fill="#109DD7" stroke="#109DD7" stroke-width="44" stroke-linejoin="round"/>
+
+  <g clip-path="url(#shieldClip)" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round">
+    <circle cx="512" cy="600" r="62" stroke-dasharray="311.6 77.9" transform="rotate(25 512 600)"/>
+    <circle cx="512" cy="606" r="124" stroke-dasharray="654.5 124.7" transform="rotate(160 512 606)"/>
+    <circle cx="512" cy="612" r="186" stroke-dasharray="1005.1 163.6" transform="rotate(300 512 612)"/>
+    <circle cx="512" cy="618" r="248" stroke-dasharray="1371.2 187.0" transform="rotate(80 512 618)"/>
+    <circle cx="512" cy="624" r="310" stroke-dasharray="1753.0 194.8" transform="rotate(215 512 624)"/>
+    <circle cx="512" cy="630" r="372" stroke-dasharray="2103.6 233.7" transform="rotate(350 512 630)"/>
+  </g>
+  <circle cx="512" cy="600" r="20" fill="#FFFFFF"/>
+</g>
+</svg>
