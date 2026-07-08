@@ -28,6 +28,7 @@ against the live code before a plan was written.
 | 013 | Design spike — national patient identity + separate access-control layer | P2 | L | — | IN PROGRESS (ADR + design doc drafted 2026-07-08, `docs/adr/013-national-patient-identity.md` + `docs/design/national-identity-access-control.md`; awaiting sign-off on decision points; Step 6 prototype not started) |
 | 014 | Fix the Visit model/migration timestamp mismatch | P0 | S | — | TODO |
 | 015 | Establish Flutter test infrastructure | P3 | M | — | TODO |
+| 016 | Next.js admin/superadmin web dashboard | P2 | L | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
 
@@ -46,6 +47,12 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED 
 - 003, 004, 005, 009 are independent and can run in parallel.
 - 010 (docs) should run last or after 002/009 so it documents the true post-fix
   state, not a moving target.
+- **016 is independent and isolated on purpose**: it's a new `web-admin/`
+  Next.js app consuming the existing API, branched from `main` on its own
+  `feature/016-nextjs-admin-dashboard` branch — it does not depend on, and must
+  not be rebased onto, any other plan's branch. It only touches Laravel to add
+  a small number of net-new, additive endpoints (geofence/device config), never
+  existing biometric/verification code.
 - **005 and 013 implement the same principle at two scopes.** Decided 2026-07-08
   (modified option a): identity is resolved **nationally** in the matcher NOW;
   the hospital boundary is enforced as a separate, audited **access-control step
