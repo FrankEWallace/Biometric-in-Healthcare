@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="132" height="36" viewBox="0 0 132 36">
+  <defs>
+    <path id="shield" d="M18 3 L31 7.5 V17.5 C31 25 25.5 29.5 18 32.5 C10.5 29.5 5 25 5 17.5 V7.5 Z"/>
+    <clipPath id="clip"><use href="#shield" transform="translate(18 17.5) scale(0.78) translate(-18 -17.5)"/></clipPath>
+  </defs>
+  <use href="#shield" fill="#109DD7" stroke="#109DD7" stroke-width="2" stroke-linejoin="round"/>
+  <g clip-path="url(#clip)" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round">
+    <circle cx="18" cy="19.5" r="2.6" stroke-dasharray="13.5 2.9" transform="rotate(30 18 19.5)"/>
+    <circle cx="18" cy="19.8" r="5.4" stroke-dasharray="29 4.9" transform="rotate(170 18 19.8)"/>
+    <circle cx="18" cy="20.1" r="8.2" stroke-dasharray="45 6.5" transform="rotate(300 18 20.1)"/>
+    <circle cx="18" cy="20.4" r="11" stroke-dasharray="61 8.1" transform="rotate(80 18 20.4)"/>
+  </g>
+  <circle cx="18" cy="19.5" r="0.9" fill="#FFFFFF"/>
+  <text x="40" y="25" font-family="Inter, -apple-system, 'Segoe UI', sans-serif" font-size="19" font-weight="700" letter-spacing="-0.3" fill="#0F172A">bih id</text>
+</svg>

@@ -3,10 +3,13 @@ import 'package:flutter/services.dart';
 
 class AppColors {
   // ── Brand ──────────────────────────────────────────────────────────────────
-  static const primary      = Color(0xFF155D9C);
-  static const primaryLight = Color(0xFF1A7AC4);
-  static const primaryDark  = Color(0xFF0D3F6E);
-  static const primaryTint  = Color(0xFFE8F4FD);
+  // "Sovereign Security" palette: near-black CTAs, cerulean accents,
+  // white/slate neutrals. No pure #000000 (framework rule).
+  static const primary      = Color(0xFF0F172A); // gray-900 — buttons, CTAs
+  static const primaryLight = Color(0xFF109DD7); // cerulean — accents, links, scan overlays
+  static const primaryDark  = Color(0xFF0A6A94); // deep cerulean — text on tint surfaces
+  static const primaryTint  = Color(0xFFE3F4FC); // cerulean tint — chips, indicators
+  static const accent       = primaryLight;
 
   // ── Semantic ───────────────────────────────────────────────────────────────
   static const success      = Color(0xFF16A34A);
@@ -17,7 +20,7 @@ class AppColors {
   static const errorLight   = Color(0xFFFEE2E2);
 
   // ── Neutrals ───────────────────────────────────────────────────────────────
-  static const background    = Color(0xFFF0F5FA);
+  static const background    = Color(0xFFF5F7FA);
   static const surface       = Color(0xFFFFFFFF);
   static const surfaceAlt    = Color(0xFFF8FAFC);
   static const textPrimary   = Color(0xFF0F172A);
@@ -144,7 +147,7 @@ class AppTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         border:       OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.divider)),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.divider, width: 1.5)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.accent, width: 2)),
         errorBorder:   OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.error, width: 1.5)),
         focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.error, width: 2)),
         labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
@@ -190,11 +193,11 @@ class AppTheme {
     const scheme = ColorScheme.dark(
       primary:              AppColors.primaryLight,
       onPrimary:            Colors.white,
-      primaryContainer:     Color(0xFF1A3A5C),
+      primaryContainer:     Color(0xFF0E3A50),
       onPrimaryContainer:   AppColors.primaryLight,
       secondary:            AppColors.primaryLight,
       onSecondary:          Colors.white,
-      secondaryContainer:   Color(0xFF1A3A5C),
+      secondaryContainer:   Color(0xFF0E3A50),
       onSecondaryContainer: AppColors.primaryLight,
       surface:              AppColorsDark.surface,
       onSurface:            AppColorsDark.textPrimary,
@@ -228,7 +231,7 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColorsDark.surface,
-        indicatorColor: const Color(0xFF1A3A5C),
+        indicatorColor: const Color(0xFF0E3A50),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return const IconThemeData(color: AppColors.primaryLight, size: 24);
@@ -258,10 +261,10 @@ class AppTheme {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryLight,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: AppColors.primaryLight.withValues(alpha: 0.45),
-          disabledForegroundColor: Colors.white60,
+          backgroundColor: AppColorsDark.textPrimary,
+          foregroundColor: AppColors.primary,
+          disabledBackgroundColor: AppColorsDark.textPrimary.withValues(alpha: 0.40),
+          disabledForegroundColor: AppColors.primary.withValues(alpha: 0.60),
           minimumSize: const Size(double.infinity, 56),
           padding: const EdgeInsets.symmetric(horizontal: 24),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

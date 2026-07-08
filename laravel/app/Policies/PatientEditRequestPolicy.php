@@ -37,3 +37,4 @@ class PatientEditRequestPolicy
         return $user->isAnyAdmin();
     }
 }
+

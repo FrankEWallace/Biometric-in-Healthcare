@@ -3,9 +3,9 @@
   "theme": "mint",
   "name": "BiH Fingerprint Patient ID System",
   "colors": {
-    "primary": "#0284C7",
-    "light": "#38BDF8",
-    "dark": "#0369A1"
+    "primary": "#109DD7",
+    "light": "#3BB8E8",
+    "dark": "#0A6A94"
   },
   "favicon": "/favicon.svg",
   "navigation": {
@@ -89,7 +89,18 @@
         "label": "GitHub",
         "href": "https://github.com/FrankEWallace"
       }
-    ]
+    ],
+    "primary": {
+      "type": "button",
+      "label": "View on GitHub",
+      "href": "https://github.com/FrankEWallace/Biometric-in-Healthcare"
+    }
+  },
+  "api": {
+    "baseUrl": "https://fyp.fwtechnologies.co.tz/api",
+    "auth": {
+      "method": "bearer"
+    }
   },
   "footer": {
     "socials": {
