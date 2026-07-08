@@ -59,11 +59,15 @@ class VisitStageController extends Controller
 
     /**
      * Verify a patient's identity at a specific stage.
-     * Runs the tiered biometric pipeline: fingerprint → face → failure.
+     * Runs the tiered biometric pipeline: four-finger hand embedding → face
+     * → failure. A legacy single-finger fingerprint image, if supplied, is
+     * advisory only and can never complete the stage.
      *
      * {
-     *   "fingerprint_image": "<base64>",       // required
+     *   "hand_image":        "<base64>",       // required — whole-hand photo
+     *   "hand":              "right"|"left",   // optional, default right
      *   "face_image":        "<base64>",       // optional fallback
+     *   "fingerprint_image": "<base64>",       // optional, legacy advisory-only
      *   "gps_latitude":      ...,
      *   "gps_longitude":     ...,
      *   "wifi_ssid":         "..."
@@ -100,8 +104,10 @@ class VisitStageController extends Controller
         }
 
         $data = $request->validate([
-            'fingerprint_image' => 'required|string',
+            'hand_image'        => 'required|string',
+            'hand'               => 'nullable|in:left,right',
             'face_image'        => 'nullable|string',
+            'fingerprint_image' => 'nullable|string', // legacy single-finger, advisory only
             'gps_latitude'      => 'nullable|numeric',
             'gps_longitude'     => 'nullable|numeric',
             'wifi_ssid'         => 'nullable|string|max:100',
@@ -111,14 +117,16 @@ class VisitStageController extends Controller
         $hospital = $visit->hospital;
 
         $result = $this->visits->verifyStage(
-            visit:            $visit,
-            stage:            $stage,
-            patient:          $patient,
-            hospital:         $hospital,
-            operatorId:       $user->id,
-            fingerprintImage: $data['fingerprint_image'],
-            faceImage:        $data['face_image'] ?? null,
-            request:          $request,
+            visit:             $visit,
+            stage:             $stage,
+            patient:           $patient,
+            hospital:          $hospital,
+            operatorId:        $user->id,
+            handImage:         $data['hand_image'],
+            hand:              $data['hand'] ?? 'right',
+            faceImage:         $data['face_image'] ?? null,
+            fingerprintImage:  $data['fingerprint_image'] ?? null,
+            request:           $request,
         );
 
         AuditLog::record(
@@ -130,6 +138,7 @@ class VisitStageController extends Controller
             [
                 'visit_id'            => $visit->id,
                 'stage'               => $stageName,
+                'hand'                => $data['hand'] ?? 'right',
                 'modality'            => $result['modality'],
                 'score'               => $result['score'],
                 'verification_log_id' => $result['verification_log_id'],

@@ -10,10 +10,10 @@ import '../../services/network_service.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
+import '../camera_screen.dart';
 import '../face/liveness_camera_screen.dart';
-import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 
-enum _VerifyPhase { fingerprint, face, override }
+enum _VerifyPhase { hand, face, override }
 
 /// Reusable stage verification screen.
 /// Used by nurse (triage), doctor (consultation), lab tech, pharmacist.
@@ -39,8 +39,9 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
   bool _verified = false;
   Map<String, dynamic>? _simulatedData;
   String? _error;
-  int _fpAttempts = 0;
-  _VerifyPhase _phase = _VerifyPhase.fingerprint;
+  int _handAttempts = 0;
+  String _hand = 'right';
+  _VerifyPhase _phase = _VerifyPhase.hand;
   static const int _maxAttempts = 3;
 
   String get _stageLabel => switch (widget.stageName) {
@@ -58,9 +59,12 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
       MaterialPageRoute(
         builder: (_) => _phase == _VerifyPhase.face
             ? const LivenessCameraScreen()
-            : FingerprintLivenessCameraScreen(
+            : CameraScreen(
+                title: 'Scan ${_hand == 'right' ? 'Right' : 'Left'} Hand',
+                showFingerprintOverlay: true,
+                returnImageOnly: true,
                 isHandCapture: true,
-                fingerLabel: _stageLabel,
+                fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
               ),
       ),
     );
@@ -73,7 +77,7 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
     final token = context.read<AuthProvider>().user?.token ?? '';
     final isFace = _phase == _VerifyPhase.face;
     setState(() { _verifying = true; _error = null; });
-    if (!isFace) _fpAttempts++;
+    if (!isFace) _handAttempts++;
 
     try {
       final bytes       = await File(_capturedImage!.path).readAsBytes();
@@ -83,14 +87,15 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
       final wifiSsid = await NetworkService().getCurrentSsid();
 
       final result = await _visitService.verifyStage(
-        token:            token,
-        visitId:          widget.visit.id,
-        stage:            widget.stageName,
-        fingerprintImage: isFace ? '' : base64Image,
-        faceImage:        isFace ? base64Image : null,
-        gpsLatitude:      position?.latitude,
-        gpsLongitude:     position?.longitude,
-        wifiSsid:         wifiSsid,
+        token:       token,
+        visitId:     widget.visit.id,
+        stage:       widget.stageName,
+        handImage:   isFace ? '' : base64Image,
+        hand:        _hand,
+        faceImage:   isFace ? base64Image : null,
+        gpsLatitude: position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:    wifiSsid,
       );
 
       if (!mounted) return;
@@ -108,13 +113,13 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
         return;
       }
 
-      // After fingerprint exhaustion → switch to face fallback
-      if (!isFace && _fpAttempts >= _maxAttempts) {
+      // After hand-embedding exhaustion → switch to face fallback
+      if (!isFace && _handAttempts >= _maxAttempts) {
         setState(() {
           _verifying     = false;
           _capturedImage = null;
           _phase         = _VerifyPhase.face;
-          _error         = 'Fingerprint failed $_fpAttempts times. Try face scan.';
+          _error         = 'Hand scan failed $_handAttempts times. Try face scan.';
         });
         return;
       }
@@ -133,7 +138,7 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
       setState(() {
         _verifying     = false;
         _capturedImage = null;
-        _error = 'Fingerprint did not match. ${_maxAttempts - _fpAttempts} attempt(s) remaining.';
+        _error = 'Hand scan did not match. ${_maxAttempts - _handAttempts} attempt(s) remaining.';
       });
     } catch (_) {
       if (mounted) {
@@ -155,8 +160,8 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
       await _visitService.requestOverride(
         token: token,
         visitStageId: stage.id,
-        fallbackChain: 'fingerprint_and_face_failed',
-        staffNote: 'Fingerprint failed $_fpAttempts time(s), face scan also failed.',
+        fallbackChain: 'hand_and_face_failed',
+        staffNote: 'Hand scan failed $_handAttempts time(s), face scan also failed.',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -206,7 +211,7 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                         const SizedBox(width: 8),
                         const Expanded(
                           child: Text(
-                            'Fingerprint failed. Please scan your face instead.',
+                            'Hand scan failed. Please scan your face instead.',
                             style: TextStyle(
                                 color: AppColors.warning,
                                 fontSize: 13,
@@ -233,11 +238,41 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                 Text(
                   _phase == _VerifyPhase.face
                       ? 'Position the patient\'s face in the frame to verify identity.'
-                      : 'Scan the patient\'s fingerprint to access the $_stageLabel record.',
+                      : 'Photograph the patient\'s four fingers (no thumb) to access the $_stageLabel record.',
                   style: TextStyle(
                       color: cs.onSurfaceVariant, fontSize: 14, height: 1.5),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+
+                // Hand selector
+                if (_phase == _VerifyPhase.hand) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _HandOption(
+                          label: 'Right Hand',
+                          selected: _hand == 'right',
+                          onTap: () => setState(() {
+                            _hand = 'right';
+                            _capturedImage = null;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _HandOption(
+                          label: 'Left Hand',
+                          selected: _hand == 'left',
+                          onTap: () => setState(() {
+                            _hand = 'left';
+                            _capturedImage = null;
+                          }),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Capture area
                 if (_phase != _VerifyPhase.override)
@@ -282,7 +317,7 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                                 Icon(
                                   _phase == _VerifyPhase.face
                                       ? Icons.face_rounded
-                                      : Icons.fingerprint,
+                                      : Icons.back_hand_outlined,
                                   size: 44,
                                   color: cs.onSurfaceVariant,
                                 ),
@@ -290,7 +325,7 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                                 Text(
                                   _phase == _VerifyPhase.face
                                       ? 'Tap to scan face'
-                                      : 'Tap to scan fingerprint',
+                                      : 'Tap to photograph the hand',
                                   style:
                                       TextStyle(color: cs.onSurfaceVariant),
                                 ),
@@ -343,18 +378,18 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                         ? 'Verifying…'
                         : _phase == _VerifyPhase.face
                             ? 'Verify Face'
-                            : 'Verify Fingerprint',
+                            : 'Verify Hand',
                     onPressed:
                         _capturedImage != null && !_verifying ? _verify : null,
                     isLoading: _verifying,
                   ),
 
-                // Fingerprint attempt counter
-                if (_phase == _VerifyPhase.fingerprint && _fpAttempts > 0) ...[
+                // Hand attempt counter
+                if (_phase == _VerifyPhase.hand && _handAttempts > 0) ...[
                   const SizedBox(height: 8),
                   Center(
                     child: Text(
-                      'Attempt $_fpAttempts of $_maxAttempts',
+                      'Attempt $_handAttempts of $_maxAttempts',
                       style: TextStyle(
                           color: cs.onSurfaceVariant, fontSize: 12),
                     ),
@@ -659,6 +694,55 @@ class _SimulatedDataView extends StatelessWidget {
       default:
         return [Text(data.toString())];
     }
+  }
+}
+
+class _HandOption extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _HandOption(
+      {required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.primary.withValues(alpha: 0.1)
+              : AppColors.secondary,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.divider,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.back_hand_outlined,
+              color: selected ? AppColors.primary : AppColors.textSecondary,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.primary : AppColors.textSecondary,
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

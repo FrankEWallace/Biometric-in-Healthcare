@@ -168,8 +168,10 @@ class VisitService {
     required String token,
     required int visitId,
     required String stage,
-    required String fingerprintImage,
+    required String handImage,
+    String hand = 'right',
     String? faceImage,
+    String? fingerprintImage,
     double? gpsLatitude,
     double? gpsLongitude,
     String? wifiSsid,
@@ -180,13 +182,15 @@ class VisitService {
         Uri.parse('$_baseUrl/visits/$visitId/stages/$stage/verify'),
         headers: _headers(token),
         body: jsonEncode({
-          'fingerprint_image': fingerprintImage,
-          if (faceImage != null)    'face_image':    faceImage,
+          'hand_image': handImage,
+          'hand':       hand,
+          if (faceImage != null)        'face_image':        faceImage,
+          if (fingerprintImage != null) 'fingerprint_image': fingerprintImage,
           if (gpsLatitude != null)  'gps_latitude':  gpsLatitude,
           if (gpsLongitude != null) 'gps_longitude': gpsLongitude,
           if (wifiSsid != null)     'wifi_ssid':     wifiSsid,
         }),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(const Duration(seconds: 90));
     } catch (_) {
       throw const VisitException('Could not reach the server.');
     }

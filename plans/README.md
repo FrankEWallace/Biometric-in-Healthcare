@@ -14,7 +14,7 @@ against the live code before a plan was written.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | 001 | Establish a Python-service test & CI baseline | P1 | M | — | DONE (2026-07-08 — pytest suite: 12 passed/2 skipped; `.github/workflows/ci.yml` added) |
-| 002 | Make the four-finger embedding matcher the core of visit-stage verification | P1 | L | 001 | TODO |
+| 002 | Make the four-finger embedding matcher the core of visit-stage verification | P1 | L | 001 | DONE (2026-07-08 — hand tier + placeholder-safe gate wired into VisitService; 3 crash bugs fixed; VisitStageVerifyTest: 5 passed; composer test: 106 passed; flutter analyze/test clean. Flutter widget test for the changed screen deferred — no mock/screen-test infra exists in this repo yet. Found pre-existing bug: `Visit::create()` fails everywhere — `visits` table has no created_at/updated_at columns but the model doesn't set `$timestamps = false`; out of scope for this plan, needs its own fix) |
 | 003 | Stop trusting arbitrary proxies (IP-gate & audit-log spoofing) | P1 | S | — | TODO |
 | 004 | Close authz & accountability gaps (override self-approval, stage fail-open, missing audit logs) | P1 | M | — | TODO |
 | 005 | Resolve identity nationally on face + hand; enforce access in one shared audited authorization step | P1 | L | — | TODO |
