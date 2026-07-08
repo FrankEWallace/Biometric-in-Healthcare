@@ -9,7 +9,8 @@ laravel/storage/logs/
 laravel/storage/framework/cache/
 laravel/storage/framework/sessions/
 laravel/storage/framework/views/
-laravel/bootstrap/cache/
+laravel/bootstrap/cache/*
+!laravel/bootstrap/cache/.gitignore
 laravel/.phpunit.result.cache
 
 # Python
