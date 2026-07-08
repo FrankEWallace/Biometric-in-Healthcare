@@ -28,7 +28,7 @@ against the live code before a plan was written.
 | 013 | Design spike — national patient identity + separate access-control layer | P2 | L | — | IN PROGRESS (ADR + design doc drafted 2026-07-08, `docs/adr/013-national-patient-identity.md` + `docs/design/national-identity-access-control.md`; awaiting sign-off on decision points; Step 6 prototype not started) |
 | 014 | Fix the Visit model/migration timestamp mismatch | P0 | S | — | TODO |
 | 015 | Establish Flutter test infrastructure | P3 | M | — | TODO |
-| 016 | Next.js admin/superadmin web dashboard | P2 | L | — | TODO |
+| 016 | Next.js admin/superadmin web dashboard | P2 | L | — | IN PROGRESS (2026-07-09 — Tasks 1-2 done: `web-admin/` scaffolded from the forked template, token auth against real Sanctum API verified end-to-end, role-gated nav shell. Tasks 3-11 remain, stubbed as placeholder pages) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
 
