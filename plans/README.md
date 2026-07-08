@@ -26,6 +26,8 @@ against the live code before a plan was written.
 | 011 | Shortlist 1:N hand identification via a FAISS index | P3 | L | 001 | TODO |
 | 012 | Remove dead code, fix naming, split dependencies | P3 | S | — | TODO |
 | 013 | Design spike — national patient identity + separate access-control layer | P2 | L | — | IN PROGRESS (ADR + design doc drafted 2026-07-08, `docs/adr/013-national-patient-identity.md` + `docs/design/national-identity-access-control.md`; awaiting sign-off on decision points; Step 6 prototype not started) |
+| 014 | Fix the Visit model/migration timestamp mismatch | P0 | S | — | TODO |
+| 015 | Establish Flutter test infrastructure | P3 | M | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
 
@@ -65,16 +67,32 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED 
   exposed to clients or suppressed to `no_match` audit-only; (2) whether
   `patient->hospital_id` is the right ownership model or it becomes National Patient
   + Hospital Record. Both are recorded as decision points in plan 013.
+- **014 was discovered live while implementing 002**, not from the original
+  audit — `POST /api/visits` (`VisitService::openVisit`) currently fails in
+  every environment (reproduced against the dev MySQL DB, not just sqlite
+  tests) because `Visit::create()` tries to insert `created_at`/`updated_at`
+  into a table that doesn't have those columns. This is independent of 002's
+  biometric changes but sat undiscovered because no test exercised
+  `VisitController::store`. Treat as P0 — run before anything else that
+  depends on opening a new visit.
+- **015 was deferred out of 002**: the plan asked for a widget test on the
+  changed stage-verify screen, but this repo has no mock/screen-test
+  infrastructure at all (one smoke test, no mocktail/mockito). 015 builds
+  that infrastructure once, including the specific test 002 deferred
+  (`stage_verify_screen_test.dart`), so future UI plans don't hit the same gap.
 
 ## Priority rationale
 
+- **P0** (014) is a confirmed, currently-live break of the visit-opening
+  workflow itself — nothing downstream of `POST /api/visits` can run until
+  it's fixed, regardless of how correct 002's biometric logic is.
 - **P1** items are either active correctness breaks (002, 005), exploitable
   boundary/authz gaps (003, 004), the verification baseline that unblocks safe
   change (001), or a one-session config-hardening win (009).
 - **P2** items are real but latent races / consistency bugs (006, 007, 008) and
   doc drift (010).
 - **P3** items are performance and cleanup that matter at scale, not for a pilot
-  demo (011, 012).
+  demo (011, 012, 015).
 
 ## Findings considered and rejected
 
