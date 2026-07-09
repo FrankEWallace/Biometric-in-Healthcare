@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuditLogController;
+use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\FaceController;
@@ -236,4 +237,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Audit Logs ────────────────────────────────────────────────────────────
     Route::get('/audit-logs', [AuditLogController::class, 'index'])
          ->middleware('role:super_admin,admin,doctor');
+
+    // ── Devices (read-only inventory derived from audit logs) ────────────────
+    Route::get('/devices', [DeviceController::class, 'index'])
+         ->middleware('role:super_admin,admin');
 });
