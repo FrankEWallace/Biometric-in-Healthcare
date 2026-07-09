@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\Api\HospitalController;
+use App\Http\Controllers\Api\MatcherConfigController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\Api\FingerprintController;
@@ -241,4 +242,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Devices (read-only inventory derived from audit logs) ────────────────
     Route::get('/devices', [DeviceController::class, 'index'])
          ->middleware('role:super_admin,admin');
+
+    // ── Matcher config (read-only — thresholds are env/code-backed) ──────────
+    Route::get('/matcher-config', [MatcherConfigController::class, 'show'])
+         ->middleware('role:super_admin');
 });
