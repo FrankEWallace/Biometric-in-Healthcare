@@ -174,11 +174,11 @@ php artisan migrate
 # Create storage symlink (for file uploads)
 php artisan storage:link
 
-# Start the development server
-php artisan serve
+# Start the development server (--host=0.0.0.0 to allow LAN access, e.g. from web-admin on another device)
+php artisan serve --host=0.0.0.0
 ```
 
-The API will be available at `http://localhost:8000`.
+The API will be available at `http://localhost:8000` (or `http://<your-lan-ip>:8000` for other devices on the network).
 
 ### Fingerprint Service — Python / FastAPI
 

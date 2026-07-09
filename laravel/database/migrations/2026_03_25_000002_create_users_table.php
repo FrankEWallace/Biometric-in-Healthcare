@@ -15,8 +15,18 @@ return new class extends Migration
             $table->string('email', 120)->unique();
             $table->string('password');
 
-            // Role-based access: admin | nurse | doctor
-            $table->enum('role', ['admin', 'nurse', 'doctor'])->default('nurse');
+            // Role-based access. Full superset of roles: later MODIFY-enum
+            // migrations are MySQL-only, so SQLite (the test database) builds
+            // its CHECK constraint from this list alone.
+            $table->enum('role', [
+                'super_admin',
+                'admin',
+                'clerk',
+                'nurse',
+                'doctor',
+                'lab_technician',
+                'pharmacist',
+            ])->default('nurse');
 
             $table->foreignId('hospital_id')
                   ->constrained('hospitals')
