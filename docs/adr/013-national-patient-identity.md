@@ -1,6 +1,6 @@
 # ADR-013: National patient identity, hospital-scoped clinical records
 
-- **Status**: Proposed — awaiting sign-off on the two decision points below
+- **Status**: Accepted — both decision points signed off by the maintainer on 2026-07-10 (recommendations adopted as written: expose `access_restricted`; National Patient + Hospital Record)
 - **Date**: 2026-07-08
 - **Driven by**: `plans/013-national-patient-identity-spike.md`
 - **Supersedes/enriches**: the access-control seam introduced by `plans/005-face-identify-topk-hospital-filter.md`
@@ -71,7 +71,7 @@ Option C is the decision. Full detail (per-table disposition, resolution API,
 migration outline) is in
 `docs/design/national-identity-access-control.md`.
 
-## Decision points (this ADR resolves both, pending sign-off)
+## Decision points (both SIGNED OFF 2026-07-10 — recommendations below are now decisions)
 
 ### 1. Does a cross-hospital hit tell the client `access_restricted`, or is that suppressed to `no_match` externally?
 

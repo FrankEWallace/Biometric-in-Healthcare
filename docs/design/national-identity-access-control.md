@@ -290,4 +290,6 @@ filtering (~lines 567–573) and audit-log scoping (~line 604).
 - [x] FAR-at-scale rationale + mitigation — Step 4.
 - [x] Migration outline, ordered/reversible, not applied — Step 5.
 - [x] All four decision points surfaced with a recommendation (1 & 2 in the
-      ADR; 3 & 4 above) — awaiting sign-off.
+      ADR; 3 & 4 above) — ALL FOUR SIGNED OFF 2026-07-10, recommendations
+      adopted as written (expose `access_restricted`; National Patient +
+      Hospital Record; opt-in consent for the pilot; NIDA seam only, no mock).
