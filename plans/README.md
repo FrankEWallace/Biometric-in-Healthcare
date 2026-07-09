@@ -26,7 +26,7 @@ against the live code before a plan was written.
 | 011 | Shortlist 1:N hand identification via a FAISS index | P3 | L | 001 | TODO |
 | 012 | Remove dead code, fix naming, split dependencies | P3 | S | — | TODO |
 | 013 | Design spike — national patient identity + separate access-control layer | P2 | L | — | DONE (2026-07-10 — ADR accepted; all four decision points signed off, recommendations adopted as written: expose `access_restricted`, National Patient + Hospital Record, opt-in consent for pilot, NIDA seam-only. Optional Step 6 prototype deferred to the future build plan. Unblocks 005's governance STOP condition) |
-| 014 | Fix the Visit model/migration timestamp mismatch | P0 | S | — | TODO |
+| 014 | Fix the Visit model/migration timestamp mismatch | P0 | S | — | DONE (2026-07-10 — `Visit::$timestamps = false`; bug reproduced then fixed against dev MySQL via tinker; new `VisitControllerTest` covers open/close/reopen; `VisitStageVerifyTest` workaround removed, now uses real `Visit::create()`; `composer test` 116 passing) |
 | 015 | Establish Flutter test infrastructure | P3 | M | — | TODO |
 | 016 | Next.js admin/superadmin web dashboard | P2 | L | — | DONE (2026-07-10 — all 11 tasks complete: every screen wired to the real API. Task 9 reused the existing Hospital geofence fields (single SSID + GPS circle via `PUT /api/hospitals`, per STOP condition) instead of a new table, and added read-only `GET /api/devices` derived from audit logs; Task 11 is a read-only `GET /api/matcher-config` display since thresholds are env/code-backed. New endpoints feature-tested; `composer test` 112 passing, `npm run build`/`check` clean) |
 

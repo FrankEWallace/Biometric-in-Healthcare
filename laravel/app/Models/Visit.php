@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Visit extends Model
 {
+    // The visits table has no created_at/updated_at columns; chronology
+    // lives in opened_at/closed_at.
+    public $timestamps = false;
+
     protected $fillable = [
         'hospital_id',
         'patient_id',
