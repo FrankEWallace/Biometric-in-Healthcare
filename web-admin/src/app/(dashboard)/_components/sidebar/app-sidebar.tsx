@@ -5,7 +5,15 @@ import Link from "next/link";
 import { Fingerprint } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
 import { APP_CONFIG } from "@/config/app-config";
 import { useAuth } from "@/lib/auth/auth-context";
 import { filterSidebarByRole, sidebarItems } from "@/navigation/sidebar/sidebar-items";

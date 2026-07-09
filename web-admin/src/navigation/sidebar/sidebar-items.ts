@@ -56,7 +56,13 @@ export const sidebarItems: NavGroup[] = [
     label: "Security & audit",
     items: [
       { id: "audit-log", title: "Audit log", url: "/audit-log", icon: ScrollText, roles: ADMIN_AND_UP },
-      { id: "geofence-devices", title: "Geofence & devices", url: "/geofence-devices", icon: MapPin, roles: ADMIN_AND_UP },
+      {
+        id: "geofence-devices",
+        title: "Geofence & devices",
+        url: "/geofence-devices",
+        icon: MapPin,
+        roles: ADMIN_AND_UP,
+      },
     ],
   },
   {

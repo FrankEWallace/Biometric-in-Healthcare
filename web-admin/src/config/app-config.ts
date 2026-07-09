@@ -8,6 +8,7 @@ export const APP_CONFIG = {
   copyright: `© ${currentYear}, Sovereign Security.`,
   meta: {
     title: "Sovereign Security — Admin Dashboard",
-    description: "Staff, patient visit, and audit administration for the Sovereign Security fingerprint patient identification system.",
+    description:
+      "Staff, patient visit, and audit administration for the Sovereign Security fingerprint patient identification system.",
   },
 };

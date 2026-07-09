@@ -40,11 +40,11 @@ php artisan db:seed
 # Create storage symlink
 php artisan storage:link
 
-# Start development server
-php artisan serve
+# Start development server (--host=0.0.0.0 to allow LAN access, e.g. from web-admin on another device)
+php artisan serve --host=0.0.0.0
 ```
 
-API available at `http://localhost:8000/api`.
+API available at `http://localhost:8000/api` (or `http://<your-lan-ip>:8000/api` for other devices on the network).
 
 ---
 

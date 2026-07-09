@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import {
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
 import type { NavGroup } from "@/navigation/sidebar/sidebar-items";
 
 export function NavMain({ items }: { readonly items: readonly NavGroup[] }) {
@@ -18,7 +25,11 @@ export function NavMain({ items }: { readonly items: readonly NavGroup[] }) {
             <SidebarMenu>
               {group.items.map((item) => (
                 <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton asChild tooltip={item.title} isActive={path === item.url || path.startsWith(`${item.url}/`)}>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip={item.title}
+                    isActive={path === item.url || path.startsWith(`${item.url}/`)}
+                  >
                     <Link prefetch={false} href={item.url}>
                       <item.icon />
                       <span>{item.title}</span>

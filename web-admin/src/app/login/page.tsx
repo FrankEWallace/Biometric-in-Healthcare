@@ -14,7 +14,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const router = useRouter();
+  const _router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

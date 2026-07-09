@@ -2,8 +2,8 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
-import type { AuthSession, AuthUser } from "./types";
 import { AUTH_TOKEN_COOKIE, AUTH_USER_COOKIE } from "./cookies";
+import type { AuthSession, AuthUser } from "./types";
 
 // Used only by server components (the dashboard layout) to gate routes.
 // The actual API calls happen client-side against the token cookie directly.
