@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../controllers/finger_guidance/finger_guidance_controller.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/fingerprint_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/finger_guidance_overlay.dart';
 import '../../widgets/fingerprint_overlay.dart';
 
 /// Full-screen fingerprint capture with server-side optical-flow liveness check.
@@ -90,6 +93,13 @@ class _FingerprintLivenessCameraScreenState
   // Realtime quality indicator fed by the image stream (0.0–1.0).
   double _liveQuality = 0.0;
 
+  // Four-finger guidance (MediaPipe hand tracking). Null when unavailable
+  // (iOS/web, native init failure, single-finger mode) — the auto-trigger
+  // then falls back to the sharpness-only gate.
+  FingerGuidanceController? _guidance;
+  StreamSubscription<FingerGuidanceState>? _guidanceSub;
+  FingerGuidanceState _guidanceState = FingerGuidanceState.searching;
+
   // Failure details
   String? _errorMessage;
   double? _meanDisplacement;
@@ -100,12 +110,20 @@ class _FingerprintLivenessCameraScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.isHandCapture) {
+      _guidance = FingerGuidanceController.create();
+      _guidanceSub = _guidance?.stream.listen((state) {
+        if (mounted) setState(() => _guidanceState = state);
+      });
+    }
     _initCamera();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _guidanceSub?.cancel();
+    _guidance?.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -151,11 +169,14 @@ class _FingerprintLivenessCameraScreenState
       orElse: () => _cameras.first,
     );
 
+    // Stream format: 3-plane YUV420 on Android (what the sharpness gate and
+    // MediaPipe hand tracking expect), BGRA on iOS. Stills are JPEG regardless.
     final ctrl = CameraController(
       camera,
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
+      imageFormatGroup:
+          Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
     );
     _controller = ctrl;
 
@@ -180,10 +201,18 @@ class _FingerprintLivenessCameraScreenState
     if (_screenState != _ScreenState.ready || _streamChecking) return;
     _streamChecking = true;
 
+    // Feed hand tracking (throttled internally to ~10 fps).
+    _guidance?.processFrame(
+        image, _controller?.description.sensorOrientation ?? 90);
+
     final quality = _quickQualityFromStream(image);
     if (mounted) setState(() => _liveQuality = (quality / _sharpnessThreshold).clamp(0.0, 1.0));
 
-    if (quality >= _sharpnessThreshold) {
+    // With hand tracking, capture also waits for four stable, close-enough
+    // fingers; without it, the sharpness streak alone triggers.
+    final guidanceReady = _guidance == null || _guidanceState.isReady;
+
+    if (quality >= _sharpnessThreshold && guidanceReady) {
       _goodFrameStreak++;
       if (_goodFrameStreak >= _goodFramesRequired) {
         // Stop the stream before taking still pictures.
@@ -658,18 +687,28 @@ class _FingerprintLivenessCameraScreenState
             ),
           ),
 
-          // Fingerprint frame overlay
-          Center(
-            child: FingerprintOverlay(
-              width:         overlayW,
-              height:        overlayH,
-              isScanning:    _screenState == _ScreenState.capturing ||
-                             _screenState == _ScreenState.repositioning ||
-                             _screenState == _ScreenState.checking,
-              isHandCapture: widget.isHandCapture,
-              liveQuality:   _liveQuality,
+          // Fingerprint frame overlay — hidden once hand tracking has locked
+          // onto the fingers (the per-finger boxes replace the static guide).
+          if (_guidance == null || _guidanceState.fingers.isEmpty)
+            Center(
+              child: FingerprintOverlay(
+                width:         overlayW,
+                height:        overlayH,
+                isScanning:    _screenState == _ScreenState.capturing ||
+                               _screenState == _ScreenState.repositioning ||
+                               _screenState == _ScreenState.checking,
+                isHandCapture: widget.isHandCapture,
+                liveQuality:   _liveQuality,
+              ),
             ),
-          ),
+
+          // Per-finger tracked guidance boxes (four-finger capture, Android).
+          if (_guidance != null && _screenState == _ScreenState.ready)
+            FingerGuidanceOverlay(
+              state: _guidanceState,
+              previewSize: _controller!.value.previewSize ?? Size.zero,
+              sensorOrientation: _controller!.description.sensorOrientation,
+            ),
 
           // Instruction / status strip
           Positioned(
@@ -677,14 +716,15 @@ class _FingerprintLivenessCameraScreenState
             left: 16,
             right: 16,
             child: _InstructionBanner(
-              screenState:   _screenState,
-              capturedCount: _capturedCount,
-              frameTarget:   _frameTarget,
-              fingerLabel:   widget.fingerLabel,
-              isHandCapture: widget.isHandCapture,
-              galleryMode:   widget.galleryMode,
-              galleryShots:  _galleryShots,
-              galleryTarget: widget.galleryTarget,
+              screenState:    _screenState,
+              capturedCount:  _capturedCount,
+              frameTarget:    _frameTarget,
+              fingerLabel:    widget.fingerLabel,
+              isHandCapture:  widget.isHandCapture,
+              galleryMode:    widget.galleryMode,
+              galleryShots:   _galleryShots,
+              galleryTarget:  widget.galleryTarget,
+              guidanceStatus: _guidance != null ? _guidanceState.status : null,
             ),
           ),
 
@@ -1007,6 +1047,9 @@ class _InstructionBanner extends StatelessWidget {
   final int galleryShots;
   final int galleryTarget;
 
+  /// Live hand-tracking verdict — null when guidance is unavailable.
+  final GuidanceStatus? guidanceStatus;
+
   const _InstructionBanner({
     required this.screenState,
     required this.capturedCount,
@@ -1016,6 +1059,7 @@ class _InstructionBanner extends StatelessWidget {
     this.galleryMode = false,
     this.galleryShots = 0,
     this.galleryTarget = 3,
+    this.guidanceStatus,
   });
 
   @override
@@ -1037,6 +1081,24 @@ class _InstructionBanner extends StatelessWidget {
           'Liveness check failed',
           'Tap "Try Again" below',
         ),
+      _ when guidanceStatus != null => switch (guidanceStatus!) {
+          GuidanceStatus.searching => (
+              'Show your four fingers to the camera',
+              'Hold your hand flat, palm facing the lens',
+            ),
+          GuidanceStatus.tooFar => (
+              'Move your hand closer',
+              'The boxes should cover your fingertips',
+            ),
+          GuidanceStatus.holdStill => (
+              'Hold still…',
+              'Keep your fingers steady',
+            ),
+          GuidanceStatus.ready => (
+              'Ready — scanning…',
+              null,
+            ),
+        },
       _ => (
           isHandCapture
               ? 'Place hand flat · Fingers spread · Fill the frame'
