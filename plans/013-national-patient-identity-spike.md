@@ -178,39 +178,42 @@ proves the resolution seam without migrating data.
 **Deliverable check**: the prototype is flag-gated and changes no existing behavior
 when the flag is off (`grep` the flag; default off).
 
-## Decision points (STOP and get a human decision)
+## Decision points (ALL DECIDED — signed off by maintainer 2026-07-10)
 
 Pilot access posture is **DECIDED** (2026-07-08, modified option a): identity
 national now; access hospital-gated + audited now (`access_restricted`, not open);
-consent = phase 2. Plan 005 already implements that seam. The open decisions are:
+consent = phase 2. Plan 005 already implements that seam. The four decision
+points were signed off 2026-07-10, adopting each recommendation as written:
 
-1. **`access_restricted` client exposure** (flagged by architecture review
-   2026-07-08): does the client learn that a person exists in the national system
-   (status `access_restricted`, no PII), or is that suppressed to `no_match`
-   externally while the identity + denial are recorded audit-only? Information-
-   disclosure / existence-probe risk (journalist, political figure, celebrity).
-   Currently a STOP condition in plan 005. Decide the governance posture here.
-2. **Patient↔hospital ownership model** (flagged by architecture review 2026-07-08):
-   is `patient->hospital_id` the right authorization basis at all, or should the
-   model become **National Patient + Hospital Record** — hospitals own
-   visits/diagnoses/prescriptions/labs, NOT the patient identity — so authorization
-   asks "can this operator access this patient's records?" not "does this patient
-   belong to my hospital?" This is the deeper model decision and drives Steps 1–2
-   above. These two decisions outweigh the plan 005 code in long-term impact.
-3. **Consent model**: opt-in vs opt-out for the pilot.
-4. **NIDA integration depth**: design-the-seam-only vs. a mock NIDA service for the
-   demo (overlaps the HOMIS mock idea; coordinate).
+1. **`access_restricted` client exposure** — **DECIDED: expose `access_restricted`
+   to the client, never fold it into `no_match`.** Zero-PII denial response, every
+   denial audit-logged with the resolved patient id. This resolves the plan-005
+   STOP condition. Full rationale in `docs/adr/013-national-patient-identity.md`.
+2. **Patient↔hospital ownership model** — **DECIDED: National Patient + Hospital
+   Record.** `patients` becomes the national identity table; a
+   `patient_hospital_links` table records provenance ("seen at"); authorization
+   asks "can this operator access this patient's records?" via
+   `PatientAccessService`, not `hospital_id` equality. Migration stays additive
+   and reversible per the design doc. Full rationale in the ADR.
+3. **Consent model** — **DECIDED: opt-in for the pilot.** Visibility = the
+   patient's `patient_hospital_links` (implied consent from the encounter) plus
+   explicit referral/consent grants; no patient-facing UI needed yet.
+4. **NIDA integration depth** — **DECIDED: design the seam only.** The optional
+   `nida` field in the resolution API is the seam; no mock NIDA service now (we
+   have no NIDA access yet — any demo simulation is deferred and must be
+   coordinated with the HOMIS-mock idea so there's one stub, not two).
 
 ## Done criteria
 
-- [ ] `docs/adr/013-national-patient-identity.md` exists with decision + consequences + sequencing.
-- [ ] `docs/design/national-identity-access-control.md` exists covering identity
+- [x] `docs/adr/013-national-patient-identity.md` exists with decision + consequences + sequencing.
+- [x] `docs/design/national-identity-access-control.md` exists covering identity
       layer, access layer, FAR-at-scale, and the migration outline.
-- [ ] Per-table disposition (national / hospital / link) is documented.
-- [ ] The three DECISION POINTS are surfaced with a recommendation each, awaiting sign-off.
-- [ ] NO schema migration applied; NO tenancy/middleware removed; if Step 6 was
-      done, its flag defaults off and off-state changes nothing.
-- [ ] `plans/README.md` status row for 013 updated.
+- [x] Per-table disposition (national / hospital / link) is documented.
+- [x] The DECISION POINTS were surfaced with a recommendation each and ALL FOUR
+      were signed off 2026-07-10 (recommendations adopted as written).
+- [x] NO schema migration applied; NO tenancy/middleware removed; Step 6
+      (optional prototype) was not built — deferred to the future build plan.
+- [x] `plans/README.md` status row for 013 updated.
 
 ## STOP conditions
 
