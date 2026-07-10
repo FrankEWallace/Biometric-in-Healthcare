@@ -222,6 +222,9 @@ class HandVerifyResult {
 
   bool get isMatch       => status == 'matched';
   bool get isNeedsReview => status == 'needs_review';
+  // Identity was resolved nationally, but this facility is not authorized to
+  // view the record (plan 005). The server sends no patient PII in this case.
+  bool get isAccessRestricted => status == 'access_restricted';
 
   factory HandVerifyResult.fromJson(Map<String, dynamic> json) {
     final perFingerRaw = json['per_finger'] as Map<String, dynamic>? ?? {};
