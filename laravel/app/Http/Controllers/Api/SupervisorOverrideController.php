@@ -135,6 +135,17 @@ class SupervisorOverrideController extends Controller
             return response()->json(['error' => 'Override has already been resolved.'], 409);
         }
 
+        // Segregation of duties: the person who requested the override cannot
+        // approve it. Otherwise a single operator whose biometric failed could
+        // request AND self-approve, completing a stage with no biometric and no
+        // independent supervisor — collapsing the two-person control.
+        if ($override->requested_by === $user->id) {
+            return response()->json([
+                'error' => 'You cannot resolve an override you requested. A different supervisor must approve.',
+                'code'  => 'self_approval_forbidden',
+            ], 403);
+        }
+
         $data = $request->validate([
             'decision'        => 'required|in:approved,denied',
             'supervisor_note' => 'nullable|string|max:255',
