@@ -21,7 +21,7 @@ against the live code before a plan was written.
 | 006 | Make face enrollment transaction-safe and FAISS-consistent | P2 | M | — | TODO |
 | 007 | Fix the FAISS identify/rebuild race | P2 | M | — | TODO |
 | 008 | Lock visit-stage completion against double-verify | P2 | S | — | TODO |
-| 009 | Harden deploy & client configuration | P1 | S | — | TODO |
+| 009 | Harden deploy & client configuration | P1 | S | — | DONE (2026-07-10 — compose: DB passwords now `${VAR:?...}` (fail-closed, no `:-secret`) AND python-service forced `ENVIRONMENT: production` (both in the one compose commit d98cda5, whose message only names the DB fix); new `python-service/.env.example` (placeholders, all consumed vars incl. INTERNAL_API_KEY); mobile default → `https://api.hospital.local/api`. `flutter analyze` clean (9 pre-existing info lints); no real `.env` touched. OPS ACTIONS: (1) every deploy must now set `DB_PASSWORD`/`DB_ROOT_PASSWORD` + a real `INTERNAL_API_KEY`; (2) rotate any MySQL password ever brought up with the old `secret` default) |
 | 010 | Reconcile docs & agent instructions with the live system | P2 | S | — | TODO |
 | 011 | Shortlist 1:N hand identification via a FAISS index | P3 | L | 001 | TODO |
 | 012 | Remove dead code, fix naming, split dependencies | P3 | S | — | TODO |
