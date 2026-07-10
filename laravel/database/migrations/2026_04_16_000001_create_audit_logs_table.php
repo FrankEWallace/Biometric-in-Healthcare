@@ -63,6 +63,7 @@ return new class extends Migration
                 'stage_verified',
                 'stage_override_requested',
                 'stage_override_resolved',
+                'access_restricted',
             ]);
 
             // Which GoT-HoMIS module was queried (null for local-only actions)
