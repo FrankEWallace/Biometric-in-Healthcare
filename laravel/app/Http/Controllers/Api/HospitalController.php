@@ -89,7 +89,19 @@ class HospitalController extends Controller
             $rules['code']      = 'sometimes|string|max:20|unique:hospitals,code,' . $hospital->id;
         }
 
-        $hospital->update($request->validate($rules));
+        $hospital->fill($request->validate($rules));
+
+        // Perimeter/config changes are security-relevant (they move the
+        // geofence or WiFi gate) — record which fields changed, keys only.
+        $changed = array_keys($hospital->getDirty());
+        $hospital->save();
+
+        if ($changed !== []) {
+            AuditLog::record($request, AuditLog::ACTION_HOSPITAL_UPDATED, null, null, null, [
+                'hospital_id'    => $hospital->id,
+                'fields_changed' => $changed,
+            ]);
+        }
 
         return response()->json(['hospital' => $hospital->fresh()]);
     }
