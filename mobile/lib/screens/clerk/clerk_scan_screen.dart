@@ -54,19 +54,36 @@ class _ClerkScanScreenState extends State<ClerkScanScreen> {
     setState(() { _isProcessing = true; _error = null; _attempts++; });
 
     try {
-      // Step 1: verify fingerprint against this specific patient
-      final fpResult = await _fpService.verifyFingerprint(
-        File(_capturedImage!.path),
-        token: token,
-        patientId: widget.patient.id.toString(),
-      );
+      // Step 1: verify fingerprint (four-finger fused) against this specific patient
+      final result = await _verifyHandBothSides(File(_capturedImage!.path), token);
 
-      if (!fpResult.isMatch) {
+      if (result.isAccessRestricted) {
         setState(() {
           _isProcessing = false;
-          _error = _attempts >= _maxAttempts
-              ? 'Verification failed after $_maxAttempts attempts.'
-              : 'Fingerprint did not match. ${_maxAttempts - _attempts} attempt(s) remaining.';
+          _error = 'Patient identified, but records are restricted at this facility.';
+          _capturedImage = null;
+        });
+        return;
+      }
+      if (result.isNeedsReview) {
+        setState(() {
+          _isProcessing = false;
+          _error = 'Could not auto-confirm identity. Verify manually with an '
+              'ID card, or contact a supervisor.';
+          _capturedImage = null;
+        });
+        return;
+      }
+
+      final matchedPatientId = result.patient?['id'] as int?;
+      if (!result.isMatch || matchedPatientId != widget.patient.id) {
+        setState(() {
+          _isProcessing = false;
+          _error = result.isMatch
+              ? 'Fingerprint matched a different patient.'
+              : _attempts >= _maxAttempts
+                  ? 'Verification failed after $_maxAttempts attempts.'
+                  : 'Fingerprint did not match. ${_maxAttempts - _attempts} attempt(s) remaining.';
           _capturedImage = null;
         });
         return;
@@ -76,7 +93,7 @@ class _ClerkScanScreenState extends State<ClerkScanScreen> {
       await _visitService.openVisit(
         token: token,
         patientId: widget.patient.id,
-        verificationLogId: fpResult.verificationLogId!,
+        verificationLogId: result.logId!,
       );
 
       if (!mounted) return;
@@ -94,6 +111,14 @@ class _ClerkScanScreenState extends State<ClerkScanScreen> {
         MaterialPageRoute(builder: (_) => const ClerkDashboard()),
         (route) => route.isFirst,
       );
+    } on FingerprintException catch (e) {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _error = e.message;
+          _capturedImage = null;
+        });
+      }
     } on VisitException catch (e) {
       if (mounted) {
         setState(() {
@@ -111,6 +136,15 @@ class _ClerkScanScreenState extends State<ClerkScanScreen> {
         });
       }
     }
+  }
+
+  /// Tries the right hand first, then falls back to the left hand on a clean
+  /// no-match — this screen doesn't ask which hand was photographed, so this
+  /// covers both without extra UI friction.
+  Future<HandVerifyResult> _verifyHandBothSides(File image, String token) async {
+    final right = await _fpService.verifyHand(image, token: token, hand: 'right');
+    if (right.status != 'no_match') return right;
+    return _fpService.verifyHand(image, token: token, hand: 'left');
   }
 
   @override

@@ -209,6 +209,7 @@ class FaceService {
     required File faceImage,
     required File fingerprintImage,
     required String token,
+    String hand = 'right',
     double? gpsLatitude,
     double? gpsLongitude,
     String? wifiSsid,
@@ -220,6 +221,7 @@ class FaceService {
     final body = <String, dynamic>{
       'face_image':        faceB64,
       'fingerprint_image': fpB64,
+      'hand':              hand,
     };
     if (gpsLatitude  != null) body['gps_latitude']  = gpsLatitude;
     if (gpsLongitude != null) body['gps_longitude'] = gpsLongitude;

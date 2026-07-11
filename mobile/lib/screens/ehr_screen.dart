@@ -12,6 +12,10 @@ class EhrScreen extends StatelessWidget {
   final Map<String, dynamic>? ehr;
   final Map<String, dynamic>? insurance;
 
+  /// Per-finger match score from a hand (4-finger) verification, keyed by
+  /// finger position. Null for single-finger verification.
+  final Map<String, double>? perFinger;
+
   const EhrScreen({
     super.key,
     required this.patientName,
@@ -19,6 +23,7 @@ class EhrScreen extends StatelessWidget {
     this.matchedFinger,
     this.ehr,
     this.insurance,
+    this.perFinger,
   });
 
   @override
@@ -41,6 +46,7 @@ class EhrScreen extends StatelessWidget {
             patientName: patientName,
             score: score,
             matchedFinger: matchedFinger,
+            perFinger: perFinger,
           ),
           const SizedBox(height: 16),
           _EhrSection(ehr: ehr),
@@ -69,11 +75,13 @@ class _VerifiedBanner extends StatelessWidget {
   final String patientName;
   final double score;
   final String? matchedFinger;
+  final Map<String, double>? perFinger;
 
   const _VerifiedBanner({
     required this.patientName,
     required this.score,
     this.matchedFinger,
+    this.perFinger,
   });
 
   @override
@@ -85,54 +93,74 @@ class _VerifiedBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.verified_user, color: AppColors.success, size: 26),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  patientName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'Match ${score.toStringAsFixed(1)}%'
-                  '${matchedFinger != null ? ' · ${matchedFinger!.replaceAll('_', ' ')}' : ''}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.success,
-                    fontWeight: FontWeight.w500,
-                  ),
+                child: const Icon(Icons.verified_user, color: AppColors.success, size: 26),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      patientName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Match ${score.toStringAsFixed(1)}%'
+                      '${matchedFinger != null ? ' · ${matchedFinger!.replaceAll('_', ' ')}' : ''}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.success,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.success,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Verified',
+                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.success,
-              borderRadius: BorderRadius.circular(20),
+          if (perFinger != null && perFinger!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Divider(color: AppColors.success, height: 1),
+            const SizedBox(height: 10),
+            Text(
+              '${perFinger!.values.where((s) => s > 0).length} of '
+              '${perFinger!.length} fingers matched — always confirm identity '
+              'with a secondary ID before proceeding.',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+                height: 1.4,
+              ),
             ),
-            child: const Text(
-              'Verified',
-              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-          ),
+          ],
         ],
       ),
     );
