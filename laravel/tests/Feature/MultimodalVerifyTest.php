@@ -14,8 +14,13 @@ use Tests\TestCase;
 
 /**
  * Tests for POST /api/verify/multimodal — the decision-matrix flow:
- * face identify → top-5 hospital shortlist → fingerprint match against
+ * face identify → top-5 hospital shortlist → four-finger hand match against
  * only the shortlisted patients → matched / needs_review / no_match.
+ *
+ * The fingerprint-confirm step uses the SAME four-finger contactless embedding
+ * pipeline as /verify/hand (processHand → matchHand), so it is placeholder-safe:
+ * it only auto-confirms when a calibrated contactless threshold is configured
+ * AND the matcher that ran is a learned embedding.
  */
 class MultimodalVerifyTest extends TestCase
 {
@@ -31,6 +36,10 @@ class MultimodalVerifyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // A calibrated embedding threshold so the placeholder-safe gate can
+        // reach an auto-accept decision.
+        config(['services.fingerprint.contactless_match_threshold' => 57.5]);
 
         $this->hospital = Hospital::factory()->create([
             'face_recognition_enabled' => true,
@@ -60,13 +69,19 @@ class MultimodalVerifyTest extends TestCase
         return $ft;
     }
 
-    private function fingerprint(Patient $patient): Fingerprint
+    /** Enroll >= MIN_HAND_FINGERS gallery-lead templates so the patient is a candidate. */
+    private function enrollHand(Patient $patient): void
     {
-        return Fingerprint::factory()->create([
-            'patient_id'  => $patient->id,
-            'hospital_id' => $this->hospital->id,
-            'enrolled_by' => $this->nurse->id,
-        ]);
+        foreach (['right_index', 'right_middle', 'right_ring'] as $position) {
+            Fingerprint::factory()->create([
+                'patient_id'      => $patient->id,
+                'hospital_id'     => $patient->hospital_id,
+                'enrolled_by'     => $this->nurse->id,
+                'finger_position' => $position,
+                'is_gallery_lead' => true,
+                'is_active'       => true,
+            ]);
+        }
     }
 
     /** Stub the face stage: liveness ok, embedding ok, FAISS returns $candidates. */
@@ -80,11 +95,36 @@ class MultimodalVerifyTest extends TestCase
         });
     }
 
+    /** Stub the hand fingerprint-confirm stage: probe segments + a fused match. */
+    private function mockHandConfirm(callable $matchArgs, int $matchedPatientId, float $score): void
+    {
+        $this->mock(FingerprintService::class, function ($mock) use ($matchArgs, $matchedPatientId, $score) {
+            $mock->shouldReceive('processHand')->once()->andReturn([
+                'matcher' => 'ridgeformer_embedding',
+                'domain'  => 'contactless',
+                'fingers' => [
+                    ['finger_position' => 'right_index',  'template' => ['format' => 'embedding']],
+                    ['finger_position' => 'right_middle', 'template' => ['format' => 'embedding']],
+                    ['finger_position' => 'right_ring',   'template' => ['format' => 'embedding']],
+                ],
+            ]);
+            $mock->shouldReceive('matchHand')->once()
+                ->withArgs($matchArgs)
+                ->andReturn([
+                    'patient_id' => $matchedPatientId,
+                    'score'      => $score,
+                    'matcher'    => 'ridgeformer_embedding',
+                    'per_finger' => [],
+                ]);
+        });
+    }
+
     private function payload(): array
     {
         return [
             'face_image'        => base64_encode('face'),
             'fingerprint_image' => base64_encode('finger'),
+            'hand'              => 'right',
         ];
     }
 
@@ -95,38 +135,37 @@ class MultimodalVerifyTest extends TestCase
     {
         $ftA = $this->faceTemplate($this->patientA);
         $ftB = $this->faceTemplate($this->patientB);
-        $fpA = $this->fingerprint($this->patientA);
-        $fpB = $this->fingerprint($this->patientB);
+        $this->enrollHand($this->patientA);
+        $this->enrollHand($this->patientB);
 
         // A patient outside the face shortlist must never reach the matcher.
-        $outsider   = Patient::factory()->create(['hospital_id' => $this->hospital->id]);
-        $fpOutsider = $this->fingerprint($outsider);
+        $outsider = Patient::factory()->create(['hospital_id' => $this->hospital->id]);
+        $this->enrollHand($outsider);
 
         $this->mockFaceStage([
             ['patient_id' => $this->patientA->id, 'template_id' => $ftA->id, 'score' => 0.85],
             ['patient_id' => $this->patientB->id, 'template_id' => $ftB->id, 'score' => 0.55],
         ]);
 
-        $this->mock(FingerprintService::class, function ($mock) use ($fpA, $fpB, $fpOutsider) {
-            $mock->shouldReceive('process')->once()
-                ->andReturn(['template' => ['minutiae' => []], 'quality_score' => 0.8]);
-
-            $mock->shouldReceive('match')->once()
-                ->withArgs(function ($probe, $candidates) use ($fpA, $fpB, $fpOutsider) {
-                    $ids = array_column($candidates, 'patient_id'); // keyed by fingerprint id
-                    return in_array($fpA->id, $ids)
-                        && in_array($fpB->id, $ids)
-                        && ! in_array($fpOutsider->id, $ids);
-                })
-                ->andReturn(['patient_id' => $fpA->id, 'score' => 45.0]);
-        });
+        // Candidate hands are keyed by patient_id and scoped to the shortlist —
+        // the outsider must never appear among them.
+        $this->mockHandConfirm(
+            function ($probe, $candidates) use ($outsider) {
+                $ids = array_column($candidates, 'patient_id');
+                return in_array($this->patientA->id, $ids)
+                    && in_array($this->patientB->id, $ids)
+                    && ! in_array($outsider->id, $ids);
+            },
+            matchedPatientId: $this->patientA->id,
+            score: 72.0, // >= configured contactless threshold (57.5)
+        );
 
         $this->actingAs($this->nurse)
             ->postJson(self::URL, $this->payload())
             ->assertStatus(200)
             ->assertJsonPath('status', 'matched')
             ->assertJsonPath('patient.id', $this->patientA->id)
-            ->assertJsonPath('fingerprint_score', 45)
+            ->assertJsonPath('fingerprint_score', 72)
             ->assertJsonPath('face_score', 0.85);
 
         $this->assertDatabaseHas('verification_logs', [
@@ -140,18 +179,14 @@ class MultimodalVerifyTest extends TestCase
     public function unconfirmed_fingerprint_escalates_to_needs_review_not_rejection(): void
     {
         $ftA = $this->faceTemplate($this->patientA);
-        $this->fingerprint($this->patientA);
+        $this->enrollHand($this->patientA);
 
         $this->mockFaceStage([
             ['patient_id' => $this->patientA->id, 'template_id' => $ftA->id, 'score' => 0.70],
         ]);
 
-        $this->mock(FingerprintService::class, function ($mock) {
-            $mock->shouldReceive('process')->once()
-                ->andReturn(['template' => ['minutiae' => []], 'quality_score' => 0.8]);
-            $mock->shouldReceive('match')->once()
-                ->andReturn(['patient_id' => 0, 'score' => 8.0]); // below threshold
-        });
+        // Fused score below the configured contactless threshold (57.5).
+        $this->mockHandConfirm(fn ($probe, $candidates) => true, matchedPatientId: 0, score: 8.0);
 
         $this->actingAs($this->nurse)
             ->postJson(self::URL, $this->payload())
@@ -166,19 +201,55 @@ class MultimodalVerifyTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
+    public function placeholder_matcher_never_auto_confirms_even_above_threshold(): void
+    {
+        $ftA = $this->faceTemplate($this->patientA);
+        $this->enrollHand($this->patientA);
+
+        $this->mockFaceStage([
+            ['patient_id' => $this->patientA->id, 'template_id' => $ftA->id, 'score' => 0.80],
+        ]);
+
+        // Minutiae placeholder (matcher name lacks "embedding") — must NOT
+        // auto-confirm even with a high fused score.
+        $this->mock(FingerprintService::class, function ($mock) {
+            $mock->shouldReceive('processHand')->once()->andReturn([
+                'matcher' => 'minutiae_sourceafis',
+                'domain'  => 'contactless',
+                'fingers' => [
+                    ['finger_position' => 'right_index',  'template' => ['format' => 'minutiae']],
+                    ['finger_position' => 'right_middle', 'template' => ['format' => 'minutiae']],
+                    ['finger_position' => 'right_ring',   'template' => ['format' => 'minutiae']],
+                ],
+            ]);
+            $mock->shouldReceive('matchHand')->once()->andReturn([
+                'patient_id' => $this->patientA->id,
+                'score'      => 99.0,
+                'matcher'    => 'minutiae_sourceafis',
+                'per_finger' => [],
+            ]);
+        });
+
+        $this->actingAs($this->nurse)
+            ->postJson(self::URL, $this->payload())
+            ->assertStatus(200)
+            ->assertJsonPath('status', 'needs_review');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
     public function fingerprint_stage_failure_still_escalates_to_needs_review(): void
     {
         $ftA = $this->faceTemplate($this->patientA);
-        $this->fingerprint($this->patientA);
+        $this->enrollHand($this->patientA);
 
         $this->mockFaceStage([
             ['patient_id' => $this->patientA->id, 'template_id' => $ftA->id, 'score' => 0.80],
         ]);
 
         $this->mock(FingerprintService::class, function ($mock) {
-            $mock->shouldReceive('process')->once()
-                ->andThrow(new \RuntimeException('Python /process failed'));
-            $mock->shouldReceive('match')->never();
+            $mock->shouldReceive('processHand')->once()
+                ->andThrow(new \RuntimeException('Python /process-hand failed'));
+            $mock->shouldReceive('matchHand')->never();
         });
 
         $this->actingAs($this->nurse)
@@ -194,8 +265,8 @@ class MultimodalVerifyTest extends TestCase
         $this->mockFaceStage([]);
 
         $this->mock(FingerprintService::class, function ($mock) {
-            $mock->shouldReceive('process')->never();
-            $mock->shouldReceive('match')->never();
+            $mock->shouldReceive('processHand')->never();
+            $mock->shouldReceive('matchHand')->never();
         });
 
         $this->actingAs($this->nurse)
@@ -228,8 +299,8 @@ class MultimodalVerifyTest extends TestCase
         ]);
 
         $this->mock(FingerprintService::class, function ($mock) {
-            $mock->shouldReceive('process')->never();
-            $mock->shouldReceive('match')->never();
+            $mock->shouldReceive('processHand')->never();
+            $mock->shouldReceive('matchHand')->never();
         });
 
         $this->actingAs($this->nurse)

@@ -8,8 +8,8 @@ import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
 import '../face/liveness_camera_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 import '../ehr_screen.dart';
 import '../result_screen.dart';
 
@@ -34,6 +34,7 @@ class _MultimodalVerificationScreenState
     extends State<MultimodalVerificationScreen> {
   XFile? _faceImage;
   XFile? _fingerprintImage;
+  String _hand = 'right';
   bool _isVerifying = false;
   String? _error;
 
@@ -63,11 +64,9 @@ class _MultimodalVerificationScreenState
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => const CameraScreen(
-          title: 'Scan Hand',
-          showFingerprintOverlay: true,
-          returnImageOnly: true,
+        builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
+          fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
         ),
       ),
     );
@@ -104,6 +103,7 @@ class _MultimodalVerificationScreenState
         faceImage:        File(_faceImage!.path),
         fingerprintImage: File(_fingerprintImage!.path),
         token:            token,
+        hand:             _hand,
         gpsLatitude:      position?.latitude,
         gpsLongitude:     position?.longitude,
         wifiSsid:         wifiSsid,
@@ -330,6 +330,27 @@ class _MultimodalVerificationScreenState
             enabled: _faceImage != null,
             onRetake: () => setState(() => _fingerprintImage = null),
           ),
+
+          // Hand selector — only relevant once the face step is done and before
+          // the hand is captured (changing it invalidates the current capture).
+          if (_faceImage != null && _fingerprintImage == null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _HandOption(
+                  label: 'Right Hand',
+                  selected: _hand == 'right',
+                  onTap: () => setState(() => _hand = 'right'),
+                ),
+                const SizedBox(width: 12),
+                _HandOption(
+                  label: 'Left Hand',
+                  selected: _hand == 'left',
+                  onTap: () => setState(() => _hand = 'left'),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 32),
 
           PrimaryButton(
@@ -344,6 +365,57 @@ class _MultimodalVerificationScreenState
 }
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
+
+class _HandOption extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _HandOption(
+      {required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary.withValues(alpha: 0.1)
+                : AppColors.secondary,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.divider,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.back_hand_outlined,
+                color: selected ? AppColors.primary : AppColors.textSecondary,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? AppColors.primary : AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _CaptureStep extends StatelessWidget {
   final int step;

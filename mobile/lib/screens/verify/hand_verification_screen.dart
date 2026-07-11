@@ -8,8 +8,8 @@ import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
 import '../ehr_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 import '../result_screen.dart';
 
 /// Four-finger ("hand slap") patient identification.
@@ -45,10 +45,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => CameraScreen(
-          title: 'Scan ${_hand == 'right' ? 'Right' : 'Left'} Hand',
-          showFingerprintOverlay: true,
-          returnImageOnly: true,
+        builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
           fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
         ),
@@ -103,6 +100,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
               matchedFinger: '4-finger fused ($_hand hand)',
               ehr:           null,
               insurance:     null,
+              perFinger:     result.perFinger,
             ),
           ),
         );

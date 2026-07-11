@@ -8,7 +8,7 @@ import '../../services/fingerprint_service.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 
 class VisitDetailScreen extends StatefulWidget {
   final int visitId;
@@ -51,11 +51,9 @@ class _VisitDetailScreenState extends State<VisitDetailScreen> {
     final XFile? image = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => const CameraScreen(
-          title: 'Checkout — Scan Fingerprint',
-          showFingerprintOverlay: true,
-          returnImageOnly: true,
+        builder: (_) => const FingerprintLivenessCameraScreen(
           isHandCapture: true,
+          fingerLabel: 'Hand',
         ),
       ),
     );
@@ -64,16 +62,31 @@ class _VisitDetailScreenState extends State<VisitDetailScreen> {
     setState(() { _closing = true; _error = null; });
 
     try {
-      final fpResult = await _fpService.verifyFingerprint(
-        File(image.path),
-        token: token,
-        patientId: _visit!.patientId.toString(),
-      );
+      final result = await _verifyHandBothSides(File(image.path), token);
 
-      if (!fpResult.isMatch) {
+      if (result.isAccessRestricted) {
         setState(() {
           _closing = false;
-          _error = 'Fingerprint did not match. Cannot close visit.';
+          _error = 'Patient identified, but records are restricted at this facility.';
+        });
+        return;
+      }
+      if (result.isNeedsReview) {
+        setState(() {
+          _closing = false;
+          _error = 'Could not auto-confirm identity. Verify manually with an '
+              'ID card, or contact a supervisor.';
+        });
+        return;
+      }
+
+      final matchedPatientId = result.patient?['id'] as int?;
+      if (!result.isMatch || matchedPatientId != _visit!.patientId) {
+        setState(() {
+          _closing = false;
+          _error = result.isMatch
+              ? 'Fingerprint matched a different patient. Cannot close this visit.'
+              : 'Fingerprint did not match. Cannot close visit.';
         });
         return;
       }
@@ -81,7 +94,7 @@ class _VisitDetailScreenState extends State<VisitDetailScreen> {
       await _visitService.closeVisit(
         token: token,
         visitId: widget.visitId,
-        verificationLogId: fpResult.verificationLogId!,
+        verificationLogId: result.logId!,
       );
 
       if (!mounted) return;
@@ -95,11 +108,22 @@ class _VisitDetailScreenState extends State<VisitDetailScreen> {
         ),
       );
       navigator.pop();
+    } on FingerprintException catch (e) {
+      if (mounted) setState(() { _closing = false; _error = e.message; });
     } on VisitException catch (e) {
       if (mounted) setState(() { _closing = false; _error = e.message; });
     } catch (_) {
       if (mounted) setState(() { _closing = false; _error = 'Unexpected error.'; });
     }
+  }
+
+  /// Tries the right hand first (the common default), then falls back to the
+  /// left hand on a clean no-match — the checkout flow doesn't ask which hand
+  /// was photographed, so this covers both without extra UI friction.
+  Future<HandVerifyResult> _verifyHandBothSides(File image, String token) async {
+    final right = await _fpService.verifyHand(image, token: token, hand: 'right');
+    if (right.status != 'no_match') return right;
+    return _fpService.verifyHand(image, token: token, hand: 'left');
   }
 
   Future<void> _reopen() async {

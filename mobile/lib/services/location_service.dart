@@ -9,9 +9,9 @@ import 'package:geolocator/geolocator.dart';
 /// list is unavailable.
 class LocationService {
   // ── Fallback anchor (used only when API hospital list cannot be fetched) ───
-  static const double _fallbackLat         = -6.827;
-  static const double _fallbackLng         = 39.2675;
-  static const double _fallbackRadiusMeters = 500.0;
+  static const double _fallbackLat         = -6.8235;
+  static const double _fallbackLng         = 39.2695;
+  static const double _fallbackRadiusMeters = 20000.0;
 
   /// Returns the current [Position], or `null` if permission is denied,
   /// services are off, or the fix times out.

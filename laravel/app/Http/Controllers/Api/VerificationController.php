@@ -237,7 +237,8 @@ class VerificationController extends Controller
     {
         $data = $request->validate([
             'face_image'        => 'required|string',
-            'fingerprint_image' => 'required|string',
+            'fingerprint_image' => 'required|string', // whole-hand photo (segmented into 4 fingers)
+            'hand'              => 'nullable|in:left,right',
             'gps_latitude'      => 'nullable|numeric|between:-90,90',
             'gps_longitude'     => 'nullable|numeric|between:-180,180',
             'wifi_ssid'         => 'nullable|string|max:100',
@@ -299,30 +300,54 @@ class VerificationController extends Controller
             ]);
         }
 
-        // ── 2. Fingerprint: probe vs shortlisted patients only ───────────────
-        $fpScore   = 0.0;
-        $matchedFp = null;
+        // ── 2. Fingerprint: four-finger hand match vs shortlisted patients ────
+        // Confirm the face candidate with the SAME four-finger contactless
+        // embedding pipeline used by enrollment and /verify/hand — segment the
+        // whole-hand probe photo into four fingers and fuse-match against only
+        // the shortlisted patients' enrolled hands.
+        $fpScore          = 0.0;
+        $matchedPatientId = null;
+        $matcherName      = 'unknown';
+        $hand             = $data['hand'] ?? 'right';
 
         try {
-            $probe = $this->fingerprint->process($data['fingerprint_image']);
+            $processed   = $this->fingerprint->processHand($data['fingerprint_image'], $hand, 'contactless');
+            $matcherName = $processed['matcher'] ?? 'unknown';
 
-            $candidateFingerprints = Fingerprint::where('hospital_id', $hospital->id)
-                ->where('is_active', true)
-                ->whereIn('patient_id', $shortlist->pluck('patient_id'))
-                ->with('patient:id,full_name,date_of_birth,nida,gender,phone')
-                ->get();
+            $probe = [];
+            foreach ($processed['fingers'] ?? [] as $finger) {
+                $probe[$finger['finger_position']] = $finger['template'];
+            }
 
-            [$fpScore, $matchedFp] = $this->runMatch($probe['template'], $candidateFingerprints);
+            if (count($probe) >= self::MIN_HAND_FINGERS) {
+                $candidates = $this->loadShortlistHands($shortlist);
+                if (! empty($candidates)) {
+                    $result           = $this->fingerprint->matchHand($probe, $candidates, 'contactless');
+                    $fpScore          = (float) ($result['score'] ?? 0.0);
+                    $matchedPatientId = $result['patient_id'] ?? null;
+                    $matcherName      = $result['matcher'] ?? $matcherName;
+                }
+            }
         } catch (\RuntimeException $e) {
             // A failed fingerprint stage must not auto-reject a face candidate —
             // fall through to needs_review with score 0.
         }
 
-        // ── 3. Decision ───────────────────────────────────────────────────────
-        $matched = $fpScore >= $this->matchThreshold && $matchedFp !== null;
+        // ── 3. Decision — placeholder-safe (mirrors verifyHand) ───────────────
+        // The contactless matcher is non-discriminative until a learned
+        // embedding matcher + calibrated threshold are in place; until then the
+        // fingerprint can never auto-confirm and the flow stays in needs_review.
+        $threshold        = config('services.fingerprint.contactless_match_threshold');
+        $usingPlaceholder = ! str_contains($matcherName, 'embedding');
+
+        $matched = $threshold !== null
+            && ! $usingPlaceholder
+            && $matchedPatientId !== null
+            && $fpScore >= (float) $threshold
+            && $shortlist->contains(fn ($c) => (int) $c['patient_id'] === (int) $matchedPatientId);
 
         if ($matched) {
-            $patient = $matchedFp->patient;
+            $patient = $shortlist->firstWhere('patient_id', (int) $matchedPatientId)['patient'];
             $status  = 'matched';
         } else {
             $patient = $shortlist->first()['patient'];
@@ -333,7 +358,7 @@ class VerificationController extends Controller
             operatorId:    $operator->id,
             hospitalId:    $hospital->id,
             patientId:     $patient?->id,
-            fingerprintId: $matched ? $matchedFp->id : null,
+            fingerprintId: null, // hand match spans multiple fingerprints
             score:         $fpScore,
             status:        $status,
             locationData:  $data,
@@ -557,6 +582,46 @@ class VerificationController extends Controller
     {
         $rows = Fingerprint::where('is_active', true)
             ->where('is_gallery_lead', true)
+            ->get(['id', 'patient_id', 'finger_position', 'template']);
+
+        $byPatient = [];
+        foreach ($rows as $fp) {
+            $template = $fp->getTemplate();
+            if ($template === null) {
+                continue;
+            }
+            $byPatient[$fp->patient_id][$fp->finger_position] = $template;
+        }
+
+        $hands = [];
+        foreach ($byPatient as $patientId => $fingers) {
+            if (count($fingers) >= self::MIN_HAND_FINGERS) {
+                $hands[] = ['patient_id' => $patientId, 'fingers' => $fingers];
+            }
+        }
+
+        return $hands;
+    }
+
+    /**
+     * Build fused-matchable "hands" (one per patient) for the face shortlist —
+     * the multimodal fingerprint-confirm step matches the probe hand against
+     * only these few candidates, not the whole gallery. Same shape as
+     * {@see loadCandidateHands}, scoped to the shortlisted patient ids.
+     *
+     * @param  \Illuminate\Support\Collection $shortlist
+     * @return array<int, array{patient_id: int, fingers: array<string, array>}>
+     */
+    private function loadShortlistHands(\Illuminate\Support\Collection $shortlist): array
+    {
+        $patientIds = $shortlist->pluck('patient_id')->all();
+        if (empty($patientIds)) {
+            return [];
+        }
+
+        $rows = Fingerprint::where('is_active', true)
+            ->where('is_gallery_lead', true)
+            ->whereIn('patient_id', $patientIds)
             ->get(['id', 'patient_id', 'finger_position', 'template']);
 
         $byPatient = [];

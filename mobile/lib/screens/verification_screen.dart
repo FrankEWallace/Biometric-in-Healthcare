@@ -11,8 +11,8 @@ import '../services/network_service.dart';
 import '../services/patient_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
-import 'camera_screen.dart';
 import 'ehr_screen.dart';
+import 'fingerprint/fingerprint_liveness_camera_screen.dart';
 import 'result_screen.dart';
 
 class VerificationScreen extends StatefulWidget {
@@ -35,6 +35,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   XFile? _capturedImage;
   bool _isVerifying = false;
   String? _error;
+  String _hand = 'right';
 
   static const int _maxAttempts = 3;
   int _attemptCount = 0;
@@ -128,11 +129,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => const CameraScreen(
-          title: 'Scan Hand',
-          showFingerprintOverlay: true,
-          returnImageOnly: true,
+        builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
+          fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
         ),
       ),
     );
@@ -154,8 +153,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
       return;
     }
 
-    final patientId = _selectedPatient!.id.toString();
-
     setState(() {
       _isVerifying = true;
       _error = null;
@@ -166,10 +163,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
       final position = await LocationService().getCurrentPosition();
       final wifiSsid = await NetworkService().getCurrentSsid();
 
-      final result = await FingerprintService().verifyFingerprint(
+      final result = await FingerprintService().verifyHand(
         File(_capturedImage!.path),
         token:        token,
-        patientId:    patientId,
+        hand:         _hand,
         gpsLatitude:  position?.latitude,
         gpsLongitude: position?.longitude,
         wifiSsid:     wifiSsid,
@@ -177,45 +174,74 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
       if (!mounted) return;
 
-      if (result.isMatch) {
-        // Navigate to EHR screen — shows GoT-HoMIS record + insurance
+      if (result.isAccessRestricted) {
+        setState(() => _isVerifying = false);
+        await _showAccessRestrictedDialog();
+        if (mounted) setState(() => _capturedImage = null);
+        return;
+      }
+
+      if (result.isNeedsReview) {
+        setState(() => _isVerifying = false);
+        await _showAdvisoryDialog(result);
+        if (mounted) setState(() => _capturedImage = null);
+        return;
+      }
+
+      final matchedPatientId = result.patient?['id'] as int?;
+      final matchedName      = result.patient?['full_name'] as String?;
+
+      if (result.isMatch && matchedPatientId == _selectedPatient!.id) {
+        // Navigate to EHR screen. verifyHand doesn't enrich with GoT-HoMIS
+        // EHR/insurance yet (same as the 1:N identify flow) — EhrScreen
+        // already renders an "unavailable" state for those when null.
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => EhrScreen(
-              patientName:   result.patientName,
+              patientName:   matchedName ?? _selectedPatient!.fullName,
               score:         result.score,
-              matchedFinger: result.matchedFinger,
-              ehr:           result.ehr,
-              insurance:     result.insurance,
+              matchedFinger: '4-finger fused ($_hand hand)',
+              ehr:           null,
+              insurance:     null,
+              perFinger:     result.perFinger,
             ),
           ),
         );
-      } else {
-        // Use push (not pushReplacement) so the VerificationScreen stays on
-        // the stack — "Try Again" can pop() back with _attemptCount intact.
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ResultScreen(
-              isSuccess:      false,
-              isRegistration: false,
-              patientName:    result.patientName,
-              patientId:      'ID: ${result.patientId}',
-              score:          result.score,
-              matchedFinger:  result.matchedFinger,
-              attemptCount:   _attemptCount,
-              maxAttempts:    _maxAttempts,
-            ),
+        return;
+      }
+
+      if (result.isMatch && matchedPatientId != _selectedPatient!.id) {
+        // The fingerprint matched a DIFFERENT enrolled patient — a more
+        // serious signal than a plain no-match, worth its own dialog.
+        setState(() => _isVerifying = false);
+        await _showMismatchDialog(matchedName);
+        if (mounted) setState(() => _capturedImage = null);
+        return;
+      }
+
+      // no_match
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ResultScreen(
+            isSuccess:      false,
+            isRegistration: false,
+            patientName:    _selectedPatient!.fullName,
+            patientId:      'ID: ${_selectedPatient!.id}',
+            score:          result.score,
+            matchedFinger:  '4-finger fused',
+            attemptCount:   _attemptCount,
+            maxAttempts:    _maxAttempts,
           ),
-        );
-        // Reset image + spinner so user captures a fresh scan on retry
-        if (mounted) {
-          setState(() {
-            _isVerifying   = false;
-            _capturedImage = null;
-          });
-        }
+        ),
+      );
+      // Reset image + spinner so user captures a fresh scan on retry
+      if (mounted) {
+        setState(() {
+          _isVerifying   = false;
+          _capturedImage = null;
+        });
       }
     } on FingerprintException catch (e) {
       if (mounted) {
@@ -234,6 +260,89 @@ class _VerificationScreenState extends State<VerificationScreen> {
         });
       }
     }
+  }
+
+  /// needs_review means the backend could not auto-decide (placeholder
+  /// matcher or missing calibrated threshold) — surface the advisory
+  /// candidate; staff must confirm identity another way.
+  Future<void> _showAdvisoryDialog(HandVerifyResult result) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 22),
+          SizedBox(width: 8),
+          Text('Manual Review Required'),
+        ]),
+        content: Text(
+          result.note ??
+              'The system could not decide automatically. Verify the '
+                  'patient\'s identity with their ID card.',
+          style: const TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The fingerprint matched a different enrolled patient than the one
+  /// selected — flag it distinctly from a plain no-match.
+  Future<void> _showMismatchDialog(String? matchedName) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.error_outline_rounded, color: AppColors.error, size: 22),
+          SizedBox(width: 8),
+          Text('Identity Mismatch'),
+        ]),
+        content: Text(
+          matchedName != null
+              ? 'This fingerprint matches a different patient ($matchedName), '
+                  'not ${_selectedPatient?.fullName}.'
+              : 'This fingerprint does not belong to ${_selectedPatient?.fullName}.',
+          style: const TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// access_restricted (plan 005): the patient was identified nationally, but
+  /// this facility is not authorized to view their record. The server sends
+  /// no PII in this case.
+  Future<void> _showAccessRestrictedDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.lock_outline, color: Color(0xFF6B7280), size: 22),
+          SizedBox(width: 8),
+          Text('Access Restricted'),
+        ]),
+        content: const Text(
+          'This patient was identified, but they are registered at another '
+          'facility. You are not authorized to view their records here.',
+          style: TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Returns an actionable, user-facing message for each error kind.
@@ -362,6 +471,39 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
             const SizedBox(height: 24),
 
+            // ── Hand selector ────────────────────────────────────────────
+            const Text(
+              'Which hand?',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _HandOption(
+                  label: 'Right Hand',
+                  selected: _hand == 'right',
+                  onTap: () => setState(() {
+                    _hand = 'right';
+                    _capturedImage = null;
+                  }),
+                ),
+                const SizedBox(width: 12),
+                _HandOption(
+                  label: 'Left Hand',
+                  selected: _hand == 'left',
+                  onTap: () => setState(() {
+                    _hand = 'left';
+                    _capturedImage = null;
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
             // ── Fingerprint capture section ─────────────────────────────
             const Text(
               'Fingerprint',
@@ -405,6 +547,60 @@ class _VerificationScreenState extends State<VerificationScreen> {
 }
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
+
+class _HandOption extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _HandOption(
+      {required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary.withValues(alpha: 0.1)
+                : AppColors.secondary,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? AppColors.primary : AppColors.divider,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.back_hand_outlined,
+                color:
+                    selected ? AppColors.primary : AppColors.textSecondary,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color:
+                      selected ? AppColors.primary : AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight:
+                      selected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _VerifyingView extends StatelessWidget {
   const _VerifyingView();

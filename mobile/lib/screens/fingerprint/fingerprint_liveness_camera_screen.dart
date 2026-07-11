@@ -60,7 +60,7 @@ class FingerprintGalleryResult {
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
-enum _ScreenState { initializing, ready, capturing, repositioning, checking, failed }
+enum _ScreenState { initializing, ready, capturing, repositioning, checking, success, failed }
 
 class _FingerprintLivenessCameraScreenState
     extends State<FingerprintLivenessCameraScreen>
@@ -368,7 +368,7 @@ class _FingerprintLivenessCameraScreenState
       if (!mounted) return;
 
       if (result.isLive) {
-        Navigator.pop(context, frames.last);
+        await _showSuccessThenPop(frames.last);
       } else {
         setState(() {
           _screenState      = _ScreenState.failed;
@@ -391,6 +391,18 @@ class _FingerprintLivenessCameraScreenState
         });
       }
     }
+  }
+
+  /// Briefly shows a "Good Scan" confirmation so the user knows capture
+  /// finished before the screen pops — without it, users can't tell whether
+  /// the scan succeeded or the app just froze (the top NIST usability finding
+  /// for unassisted fingerprint capture).
+  Future<void> _showSuccessThenPop(Object popResult) async {
+    if (!mounted) return;
+    setState(() => _screenState = _ScreenState.success);
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    Navigator.pop(context, popResult);
   }
 
   // ── Gallery capture (multi-shot, one session) ───────────────────────────────
@@ -517,8 +529,7 @@ class _FingerprintLivenessCameraScreenState
       if (!mounted) return;
 
       if (result.isLive) {
-        Navigator.pop(
-          context,
+        await _showSuccessThenPop(
           FingerprintGalleryResult(
             captures: gallery,
             livenessToken: result.livenessToken ?? '',
@@ -769,6 +780,9 @@ class _FingerprintLivenessCameraScreenState
       case _ScreenState.checking:
         return const _CheckingBar();
 
+      case _ScreenState.success:
+        return const _SuccessBar();
+
       case _ScreenState.failed:
         return _FailedBar(
           message:          _errorMessage,
@@ -938,6 +952,30 @@ class _CheckingBar extends StatelessWidget {
   }
 }
 
+class _SuccessBar extends StatelessWidget {
+  const _SuccessBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.check_circle_rounded, color: AppColors.success, size: 22),
+          SizedBox(width: 10),
+          Text('Good Scan',
+              style: TextStyle(
+                  color: AppColors.success,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+}
+
 class _FailedBar extends StatelessWidget {
   final String? message;
   final double? meanDisplacement;
@@ -1075,6 +1113,10 @@ class _InstructionBanner extends StatelessWidget {
         ),
       _ScreenState.checking => (
           'Analysing movement…',
+          null,
+        ),
+      _ScreenState.success => (
+          'Good Scan ✓',
           null,
         ),
       _ScreenState.failed => (
