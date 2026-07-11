@@ -13,9 +13,31 @@ import { AppSidebar } from "./_components/sidebar/app-sidebar";
 import { LayoutControls } from "./_components/sidebar/layout-controls";
 import { ThemeSwitcher } from "./_components/sidebar/theme-switcher";
 
+// Roles allowed into the admin/superadmin dashboard. The role is re-verified
+// server-side against the API (below) rather than trusted from the client-written
+// user cookie, which is forgeable.
+const DASHBOARD_ROLES = new Set(["admin", "super_admin"]);
+
 export default async function DashboardLayout({ children }: Readonly<{ children: ReactNode }>) {
   const session = await getServerSession();
   if (!session) {
+    redirect("/login");
+  }
+
+  // Authoritative role check: ask the API who this token belongs to instead of
+  // trusting the role in the client-written `bih_admin_user` cookie. `no-store`
+  // so a revoked/downgraded role is never served from cache.
+  const me = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
+    headers: { Authorization: `Bearer ${session.token}`, Accept: "application/json" },
+    cache: "no-store",
+  }).catch(() => null);
+
+  if (!me || !me.ok) {
+    redirect("/login");
+  }
+
+  const role = ((await me.json()) as { user?: { role?: string } }).user?.role;
+  if (!role || !DASHBOARD_ROLES.has(role)) {
     redirect("/login");
   }
 
