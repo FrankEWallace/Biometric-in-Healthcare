@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/hospital_service.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../screens/edit_request_screen.dart';
@@ -32,9 +33,13 @@ class _NurseDashboardState extends State<NurseDashboard> {
   }
 
   Future<void> _check() async {
+    // Read the auth token before any await so no context use crosses the gap.
+    final token = context.read<AuthProvider>().user?.token ?? '';
     setState(() { _inRange = null; _onWifi = null; });
     final r = await Future.wait([
-      _loc.isWithinHospitalRange(),
+      _loc.isWithinConfiguredHospitals(
+        fetchHospitals: () => HospitalService().getHospitals(token: token),
+      ),
       _net.isConnectedToHospitalWifi(),
     ]);
     if (mounted) setState(() { _inRange = r[0]; _onWifi = r[1]; });

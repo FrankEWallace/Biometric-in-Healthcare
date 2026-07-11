@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/user.dart';
 import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/hospital_service.dart';
 import '../services/location_service.dart';
 import '../services/network_service.dart';
 import '../theme/app_theme.dart';
@@ -33,12 +34,16 @@ class _HomeDashboardState extends State<HomeDashboard> {
   }
 
   Future<void> _runChecks() async {
+    // Read the auth token before any await so no context use crosses the gap.
+    final token = context.read<AuthProvider>().user?.token ?? '';
     setState(() {
       _withinRange    = null;
       _onHospitalWifi = null;
     });
     final results = await Future.wait([
-      _locationService.isWithinHospitalRange(),
+      _locationService.isWithinConfiguredHospitals(
+        fetchHospitals: () => HospitalService().getHospitals(token: token),
+      ),
       _networkService.isConnectedToHospitalWifi(),
     ]);
     if (mounted) {

@@ -3,15 +3,17 @@ import 'package:geolocator/geolocator.dart';
 
 /// GPS-based geofencing service.
 ///
-/// Call [isWithinAnyHospital] at login/access-check time, passing the list of
-/// hospitals fetched from the API so the check is always up to date.
-/// Falls back to [isWithinHospitalRange] (hardcoded fallback) when the API
-/// list is unavailable.
+/// The preferred gate is [isWithinConfiguredHospitals]: it fetches the hospital
+/// list from the API and checks the device against each hospital's own GPS
+/// circle via [isWithinAnyHospital]. Only when that list cannot be fetched
+/// (API unreachable / empty) does it fall back to the single-anchor
+/// [isWithinHospitalRange]. The server-side geofence remains the authoritative
+/// gate; this client check is defence-in-depth.
 class LocationService {
   // ── Fallback anchor (used only when API hospital list cannot be fetched) ───
   static const double _fallbackLat         = -6.8235;
   static const double _fallbackLng         = 39.2695;
-  static const double _fallbackRadiusMeters = 20000.0;
+  static const double _fallbackRadiusMeters = 500.0;
 
   /// Returns the current [Position], or `null` if permission is denied,
   /// services are off, or the fix times out.
@@ -67,6 +69,26 @@ class LocationService {
     }
 
     return false;
+  }
+
+  /// Preferred gate: fetch the hospital list and check the device against each
+  /// hospital's own GPS circle. Falls back to the single-anchor
+  /// [isWithinHospitalRange] ONLY when the list cannot be fetched or is empty.
+  ///
+  /// [fetchHospitals] is injected so [LocationService] stays free of any
+  /// http/auth dependency, matching its dependency-free style.
+  Future<bool> isWithinConfiguredHospitals({
+    required Future<List<Map<String, dynamic>>> Function() fetchHospitals,
+  }) async {
+    if (kDebugMode) return true;
+    List<Map<String, dynamic>> hospitals;
+    try {
+      hospitals = await fetchHospitals();
+    } catch (_) {
+      return isWithinHospitalRange(); // API unreachable — legacy fallback
+    }
+    if (hospitals.isEmpty) return isWithinHospitalRange();
+    return isWithinAnyHospital(hospitals);
   }
 
   /// Legacy single-anchor check — kept as fallback when the hospital list

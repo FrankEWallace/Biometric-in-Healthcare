@@ -15,6 +15,7 @@ import '../../screens/clerk/clerk_dashboard.dart';
 import '../../screens/clerk/clerk_history_screen.dart';
 import '../../screens/clerk/clerk_summary_screen.dart';
 import '../../screens/visit/stage_queue_screen.dart';
+import '../../services/hospital_service.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
@@ -59,9 +60,13 @@ class _GeoGatedScreenState extends State<GeoGatedScreen> {
   }
 
   Future<void> _check() async {
+    // Read the auth token before any await so no context use crosses the gap.
+    final token = context.read<AuthProvider>().user?.token ?? '';
     setState(() { _inRange = null; _onWifi = null; });
     final results = await Future.wait([
-      _loc.isWithinHospitalRange(),
+      _loc.isWithinConfiguredHospitals(
+        fetchHospitals: () => HospitalService().getHospitals(token: token),
+      ),
       _net.isConnectedToHospitalWifi(),
     ]);
     if (mounted) {
