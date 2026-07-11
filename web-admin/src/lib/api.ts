@@ -1,6 +1,6 @@
-import { getClientCookie } from "@/lib/cookie.client";
+import { deleteClientCookie, getClientCookie } from "@/lib/cookie.client";
 
-import { AUTH_TOKEN_COOKIE } from "./auth/cookies";
+import { AUTH_TOKEN_COOKIE, AUTH_USER_COOKIE } from "./auth/cookies";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 
@@ -32,6 +32,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const data = contentType.includes("application/json") ? await res.json().catch(() => null) : null;
 
   if (!res.ok) {
+    // An expired/revoked Sanctum token must route the operator back to login
+    // rather than surface as a blank screen. Clear the session and redirect,
+    // then still throw so the calling loader stops.
+    if (res.status === 401 && typeof window !== "undefined") {
+      deleteClientCookie(AUTH_TOKEN_COOKIE);
+      deleteClientCookie(AUTH_USER_COOKIE);
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
     const message = (data && typeof data === "object" && "message" in data && String(data.message)) || res.statusText;
     throw new ApiError(message, res.status, data);
   }

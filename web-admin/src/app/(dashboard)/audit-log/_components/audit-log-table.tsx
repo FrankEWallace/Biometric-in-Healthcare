@@ -8,8 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { AuditLogEntry } from "@/lib/audit-log/api";
 
 function actionLabel(action: string) {
+  // filter(Boolean) drops empty segments from leading/trailing/double
+  // underscores so w[0] is never read off an empty string (which threw a
+  // TypeError and blanked the whole table).
   return action
     .split("_")
+    .filter(Boolean)
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(" ");
 }

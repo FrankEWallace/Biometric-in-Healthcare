@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { RefreshCw } from "lucide-react";
 
+import { LoadError } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getQueue, type QueueVisit } from "@/lib/visit-ops/api";
@@ -15,10 +16,15 @@ const POLL_INTERVAL_MS = 15_000;
 export default function Page() {
   const [visits, setVisits] = useState<QueueVisit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const reload = useCallback(() => {
     void getQueue()
-      .then(setVisits)
+      .then((q) => {
+        setVisits(q);
+        setError(false);
+      })
+      .catch(() => setError(true))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -42,7 +48,11 @@ export default function Page() {
           </Button>
         </CardHeader>
         <CardContent>
-          <KanbanBoard visits={visits} isLoading={isLoading} />
+          {error && !isLoading && visits.length === 0 ? (
+            <LoadError message="Couldn't load the visit queue." onRetry={reload} />
+          ) : (
+            <KanbanBoard visits={visits} isLoading={isLoading} />
+          )}
         </CardContent>
       </Card>
     </div>

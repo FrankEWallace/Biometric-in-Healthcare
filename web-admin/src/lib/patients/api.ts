@@ -65,10 +65,19 @@ export interface VisitSummary {
   patient: { id: number } | null;
 }
 
-export async function getPatients(search?: string): Promise<PatientListItem[]> {
-  const query = search ? `?search=${encodeURIComponent(search)}` : "";
-  const page = await api.get<Paginated<PatientListItem>>(`/patients${query}`);
-  return page.data;
+export interface PatientPage {
+  data: PatientListItem[];
+  total: number;
+  page: number;
+  lastPage: number;
+}
+
+export async function getPatients(search?: string, page = 1): Promise<PatientPage> {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  params.set("page", String(page));
+  const res = await api.get<Paginated<PatientListItem>>(`/patients?${params.toString()}`);
+  return { data: res.data, total: res.total, page: res.current_page, lastPage: res.last_page };
 }
 
 export async function getVisitDetail(visitId: number): Promise<VisitDetail> {

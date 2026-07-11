@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { LoadError } from "@/components/load-error";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,12 +23,30 @@ function ConfigRow({ label, hint, children }: { label: string; hint: string; chi
 export default function Page() {
   const [config, setConfig] = useState<MatcherConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
+  const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is an intentional retrigger — bumped by the LoadError retry to re-run the fetch.
   useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(false);
     void getMatcherConfig()
-      .then(setConfig)
-      .finally(() => setIsLoading(false));
-  }, []);
+      .then((c) => {
+        if (!cancelled) setConfig(c);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
@@ -43,9 +62,7 @@ export default function Page() {
         <CardContent>
           {isLoading && <Skeleton className="h-48 w-full" />}
 
-          {!isLoading && !config && (
-            <p className="text-muted-foreground text-sm">Could not load matcher configuration.</p>
-          )}
+          {!isLoading && error && <LoadError message="Couldn't load matcher configuration." onRetry={reload} />}
 
           {config && (
             <div className="flex flex-col">

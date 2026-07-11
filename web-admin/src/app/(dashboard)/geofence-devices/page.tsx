@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { LoadError } from "@/components/load-error";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -19,13 +20,21 @@ export default function Page() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [isLoadingDevices, setIsLoadingDevices] = useState(true);
+  const [devicesError, setDevicesError] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    void getFacilities().then((all) => {
-      setHospitals(all);
-      setSelectedId((current) => current ?? (isSuperAdmin ? (all[0]?.id ?? null) : user.hospital_id));
-    });
+    let cancelled = false;
+    void getFacilities()
+      .then((all) => {
+        if (cancelled) return;
+        setHospitals(all);
+        setSelectedId((current) => current ?? (isSuperAdmin ? (all[0]?.id ?? null) : user.hospital_id));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [user, isSuperAdmin]);
 
   const selected = useMemo(() => hospitals.find((h) => h.id === selectedId) ?? null, [hospitals, selectedId]);
@@ -33,9 +42,11 @@ export default function Page() {
   const reloadDevices = useCallback(() => {
     if (!selectedId) return;
     setIsLoadingDevices(true);
+    setDevicesError(false);
     // Admins are server-scoped to their own hospital; the filter only matters for superadmin.
     void getDevices(isSuperAdmin ? selectedId : undefined)
       .then(setDevices)
+      .catch(() => setDevicesError(true))
       .finally(() => setIsLoadingDevices(false));
   }, [selectedId, isSuperAdmin]);
 
@@ -87,7 +98,11 @@ export default function Page() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <DevicesTable devices={devices} isLoading={isLoadingDevices} showHospital={isSuperAdmin} />
+          {devicesError ? (
+            <LoadError message="Couldn't load devices." onRetry={reloadDevices} />
+          ) : (
+            <DevicesTable devices={devices} isLoading={isLoadingDevices} showHospital={isSuperAdmin} />
+          )}
         </CardContent>
       </Card>
     </div>

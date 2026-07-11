@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { LoadError } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { deactivateFacility, getFacilities, type HospitalDetail, updateFacility } from "@/lib/facilities/api";
@@ -14,16 +15,19 @@ export default function Page() {
   const [facilities, setFacilities] = useState<HospitalDetail[]>([]);
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<HospitalDetail | null>(null);
 
   const reload = useCallback(() => {
     setIsLoading(true);
+    setError(false);
     void Promise.all([getFacilities(), getStaff()])
       .then(([f, s]) => {
         setFacilities(f);
         setStaff(s);
       })
+      .catch(() => setError(true))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -71,14 +75,18 @@ export default function Page() {
           </Button>
         </CardHeader>
         <CardContent>
-          <FacilitiesTable
-            facilities={facilities}
-            staff={staff}
-            isLoading={isLoading}
-            onEdit={openEdit}
-            onDeactivate={onDeactivate}
-            onActivate={onActivate}
-          />
+          {error ? (
+            <LoadError message="Couldn't load facilities." onRetry={reload} />
+          ) : (
+            <FacilitiesTable
+              facilities={facilities}
+              staff={staff}
+              isLoading={isLoading}
+              onEdit={openEdit}
+              onDeactivate={onDeactivate}
+              onActivate={onActivate}
+            />
+          )}
         </CardContent>
       </Card>
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { LoadError } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -21,13 +22,16 @@ export default function Page() {
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<StaffUser | null>(null);
 
   const reload = useCallback(() => {
     setIsLoading(true);
+    setError(false);
     void getStaff()
       .then(setStaff)
+      .catch(() => setError(true))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -35,7 +39,9 @@ export default function Page() {
     if (!user) return;
     reload();
     if (isSuperAdmin) {
-      void getHospitals().then(setHospitals);
+      void getHospitals()
+        .then(setHospitals)
+        .catch(() => undefined);
     } else if (user.hospital) {
       setHospitals([{ id: user.hospital.id, name: user.hospital.name, city: "", is_active: true }]);
     }
@@ -83,15 +89,19 @@ export default function Page() {
           </Button>
         </CardHeader>
         <CardContent>
-          <StaffTable
-            staff={staff}
-            hospitals={hospitals}
-            isSuperAdmin={isSuperAdmin}
-            isLoading={isLoading}
-            onEdit={openEdit}
-            onDeactivate={onDeactivate}
-            onActivate={onActivate}
-          />
+          {error ? (
+            <LoadError message="Couldn't load staff." onRetry={reload} />
+          ) : (
+            <StaffTable
+              staff={staff}
+              hospitals={hospitals}
+              isSuperAdmin={isSuperAdmin}
+              isLoading={isLoading}
+              onEdit={openEdit}
+              onDeactivate={onDeactivate}
+              onActivate={onActivate}
+            />
+          )}
         </CardContent>
       </Card>
 
