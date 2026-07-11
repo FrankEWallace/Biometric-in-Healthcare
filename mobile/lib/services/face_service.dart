@@ -95,7 +95,7 @@ class FaceVerifyResult {
 /// Result of the face-first → fingerprint-confirm decision-matrix flow
 /// (`POST /api/verify/multimodal`).
 class MultimodalVerifyResult {
-  final String status;            // "matched" | "needs_review" | "no_match"
+  final String status;            // "matched" | "needs_review" | "no_match" | "access_restricted"
   final double faceScore;         // cosine similarity 0–1 of the top candidate
   final double fingerprintScore;  // minutiae score 0–100 (0 when fp stage skipped/failed)
   final int? logId;               // verification_logs.id — for confirmManualReview
@@ -105,6 +105,9 @@ class MultimodalVerifyResult {
 
   bool get isMatch       => status == 'matched';
   bool get isNeedsReview => status == 'needs_review';
+  // Identity resolved nationally, but this facility is not authorized to view
+  // the record (ADR-013 / plan 019). No patient PII is present in this case.
+  bool get isAccessRestricted => status == 'access_restricted';
 
   String get patientName => (patient?['full_name'] as String?) ?? 'Unknown';
   int    get patientId   => (patient?['id'] as int?) ?? 0;

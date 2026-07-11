@@ -286,7 +286,7 @@ class VerificationController extends Controller
             return response()->json(['error' => 'Face processing failed: ' . $e->getMessage()], 422);
         }
 
-        $shortlist = $this->buildShortlist($faissResult['candidates'] ?? [], $hospital->id);
+        $shortlist = $this->buildShortlist($faissResult['candidates'] ?? []);
 
         if ($shortlist->isEmpty()) {
             $log = $this->writeLog($operator->id, $hospital->id, null, null, 0.0, 'no_match', $data, null, 'multimodal');
@@ -354,10 +354,27 @@ class VerificationController extends Controller
             $status  = 'needs_review';
         }
 
+        // Access-control seam — decided AFTER national identification, by the
+        // SAME service the face + hand paths use. The decided patient is the
+        // matched patient, or on needs_review the top face candidate that would
+        // be shown to staff. A cross-hospital hit becomes access_restricted
+        // (identity found, records withheld), never a fake no_match.
+        $identifiedPatient = $patient;
+        $accessRestricted  = $identifiedPatient !== null
+            && ! $this->access->authorizePatientAccess($operator, $identifiedPatient);
+
+        if ($accessRestricted) {
+            $status = 'access_restricted';
+        }
+
+        // Client never receives cross-hospital PII; the server-side log/audit
+        // keeps the identified patient id for accountability.
+        $responsePatient = $accessRestricted ? null : $identifiedPatient;
+
         $log = $this->writeLog(
             operatorId:    $operator->id,
             hospitalId:    $hospital->id,
-            patientId:     $patient?->id,
+            patientId:     $identifiedPatient?->id,
             fingerprintId: null, // hand match spans multiple fingerprints
             score:         $fpScore,
             status:        $status,
@@ -365,10 +382,14 @@ class VerificationController extends Controller
             modality:      'multimodal',
         );
 
+        $auditAction = $accessRestricted
+            ? AuditLog::ACTION_ACCESS_RESTRICTED
+            : ($matched ? AuditLog::ACTION_FACE_MATCH : AuditLog::ACTION_FACE_NO_MATCH);
+
         AuditLog::record(
             $request,
-            $matched ? AuditLog::ACTION_FACE_MATCH : AuditLog::ACTION_FACE_NO_MATCH,
-            $patient?->id,
+            $auditAction,
+            $identifiedPatient?->id,
             null,
             $status,
             [
@@ -380,8 +401,8 @@ class VerificationController extends Controller
         );
 
         $ehr = $insurance = null;
-        if ($matched) {
-            $homisId   = (string) $patient->id;
+        if ($matched && ! $accessRestricted) {
+            $homisId   = (string) $identifiedPatient->id;
             $ehr       = $this->homis->getPatientRecord($homisId);
             $insurance = $this->homis->getInsuranceEligibility($homisId);
         }
@@ -390,7 +411,7 @@ class VerificationController extends Controller
             'status'            => $status,
             'face_score'        => round((float) $shortlist->first()['score'], 4),
             'fingerprint_score' => round($fpScore, 2),
-            'patient'           => $patient,
+            'patient'           => $responsePatient,
             'log_id'            => $log->id,
             'ehr'               => $ehr,
             'insurance'         => $insurance,
@@ -825,27 +846,34 @@ class VerificationController extends Controller
     }
 
     /**
-     * Reduce raw FAISS candidates to hospital-scoped unique patients.
+     * Reduce raw FAISS candidates to a NATIONAL shortlist of unique patients.
      *
      * Multiple templates of the same patient may appear in the top-K; keep
      * each patient once with their best score. Candidates below the review
      * band (IDENTIFY_THRESHOLD − 0.08, same floor the face flow uses) are
      * dropped.
      *
+     * Identity is resolved across the whole gallery (no hospital pre-filter) —
+     * the hospital boundary is enforced afterwards by PatientAccessService, so
+     * a cross-hospital patient is identified and then access-gated, never made
+     * invisible (matching {@see loadCandidateHands}).
+     *
      * @param  array $candidates [['patient_id' => int, 'template_id' => int, 'score' => float], ...]
      * @return \Illuminate\Support\Collection<array{patient_id: int, patient: \App\Models\Patient, score: float}>
      */
-    private function buildShortlist(array $candidates, int $hospitalId): \Illuminate\Support\Collection
+    private function buildShortlist(array $candidates): \Illuminate\Support\Collection
     {
         $floor = FaceService::IDENTIFY_THRESHOLD - 0.08;
 
         return collect($candidates)
             ->filter(fn ($c) => (float) $c['score'] >= $floor)
-            ->map(function ($c) use ($hospitalId) {
-                $ft = FaceTemplate::with('patient:id,full_name,date_of_birth,nida,gender,phone')
+            ->map(function ($c) {
+                // hospital_id is required so PatientAccessService can apply the
+                // hospital boundary after national identification.
+                $ft = FaceTemplate::with('patient:id,hospital_id,full_name,date_of_birth,nida,gender,phone')
                     ->find($c['template_id']);
 
-                if (! $ft || ! $ft->is_active || $ft->hospital_id !== $hospitalId || ! $ft->patient) {
+                if (! $ft || ! $ft->is_active || ! $ft->patient) {
                     return null;
                 }
 
