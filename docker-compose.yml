@@ -60,6 +60,24 @@ services:
       - proxy-net
       - internal
 
+  web-admin:
+    build:
+      context: ./web-admin
+      args:
+        # Public HTTPS API URL, inlined into the client bundle at build time.
+        # Must be reachable from a staff browser (e.g. https://your-domain/api),
+        # NOT the internal http://laravel:80.
+        NEXT_PUBLIC_API_URL: ${WEB_ADMIN_API_URL:?WEB_ADMIN_API_URL must be set}
+    restart: unless-stopped
+    depends_on:
+      - laravel
+    expose:
+      - "3000"
+    # Only on proxy-net: all API calls go browser -> public API, so this
+    # container never needs the internal compose network.
+    networks:
+      - proxy-net
+
 networks:
   proxy-net:
     external: true

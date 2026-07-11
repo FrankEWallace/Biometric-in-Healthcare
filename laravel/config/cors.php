@@ -5,10 +5,13 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
+    'allowed_origins' => array_values(array_filter([
         'http://localhost:*',
         'http://127.0.0.1:*',
-    ],
+        // Production Next.js admin origin, e.g. https://admin.your-domain.
+        // Empty in local dev (the LAN pattern below covers those).
+        env('WEB_ADMIN_ORIGIN'),
+    ])),
 
     'allowed_origins_patterns' => [
         '/^http:\/\/localhost(:\d+)?$/',

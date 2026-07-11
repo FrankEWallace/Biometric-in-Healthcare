@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Emit a self-contained server bundle (.next/standalone) so the production
+  // Docker image can run without the full node_modules tree.
+  output: "standalone",
   compiler: {
     removeConsole: process.env.NODE_ENV === "production",
   },
