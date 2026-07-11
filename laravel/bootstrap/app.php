@@ -20,10 +20,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Trust the immediate upstream proxy (NPM) so X-Forwarded-Proto is
-        // honored — the Laravel container is only reachable via the internal
-        // Docker network from NPM, never directly from the internet.
-        $middleware->trustProxies(at: '*');
+        // Trust only the reverse proxy (Nginx Proxy Manager) that fronts this
+        // stack. Laravel is reachable ONLY via NPM over the Docker network, so
+        // the X-Forwarded-For chain must originate from that proxy — never
+        // trust '*', which lets a client forge X-Forwarded-For to spoof the
+        // hospital IP gate (CheckHospitalAccess) and the audit-log source IP.
+        // TRUSTED_PROXIES must be pinned to NPM's address/subnet in production.
+        $middleware->trustProxies(
+            at: explode(',', (string) env('TRUSTED_PROXIES', '172.16.0.0/12')),
+        );
 
         // CORS must run before everything else so preflight OPTIONS requests are handled
         $middleware->prepend(HandleCors::class);

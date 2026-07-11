@@ -121,7 +121,18 @@ class UserController extends Controller
         if (array_key_exists('role', $validated))        $user->role        = $validated['role'];
         if (array_key_exists('is_active', $validated))   $user->is_active   = $validated['is_active'];
         if (array_key_exists('hospital_id', $validated)) $user->hospital_id = $validated['hospital_id'];
+
+        // Capture which columns actually changed — keys only, never values,
+        // so no credential material lands in the audit trail.
+        $changed = array_keys($user->getDirty());
         $user->save();
+
+        if ($changed !== []) {
+            AuditLog::record($request, AuditLog::ACTION_USER_UPDATED, null, null, null, [
+                'updated_user_id' => $user->id,
+                'fields_changed'  => $changed,
+            ]);
+        }
 
         return response()->json(['user' => $user->fresh()]);
     }

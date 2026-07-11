@@ -48,8 +48,10 @@ return new class extends Migration
                 'login_success',
                 'login_failed',
                 'user_created',
+                'user_updated',
                 'user_deactivated',
                 'hospital_created',
+                'hospital_updated',
                 'hospital_deactivated',
                 'face_enroll',
                 'face_match',
@@ -61,6 +63,7 @@ return new class extends Migration
                 'stage_verified',
                 'stage_override_requested',
                 'stage_override_resolved',
+                'access_restricted',
             ]);
 
             // Which GoT-HoMIS module was queried (null for local-only actions)

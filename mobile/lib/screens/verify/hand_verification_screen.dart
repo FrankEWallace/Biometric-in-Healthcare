@@ -8,8 +8,8 @@ import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
 import '../ehr_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 import '../result_screen.dart';
 
 /// Four-finger ("hand slap") patient identification.
@@ -45,10 +45,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => CameraScreen(
-          title: 'Scan ${_hand == 'right' ? 'Right' : 'Left'} Hand',
-          showFingerprintOverlay: true,
-          returnImageOnly: true,
+        builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
           fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
         ),
@@ -103,12 +100,17 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
               matchedFinger: '4-finger fused ($_hand hand)',
               ehr:           null,
               insurance:     null,
+              perFinger:     result.perFinger,
             ),
           ),
         );
       } else if (result.isNeedsReview) {
         setState(() => _isVerifying = false);
         await _showAdvisoryDialog(result);
+        if (mounted) setState(() => _capturedImage = null);
+      } else if (result.isAccessRestricted) {
+        setState(() => _isVerifying = false);
+        await _showAccessRestrictedDialog();
         if (mounted) setState(() => _capturedImage = null);
       } else {
         await Navigator.push(
@@ -182,6 +184,34 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
               ),
             ],
           ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// access_restricted (plan 005): the patient was identified nationally, but
+  /// this facility is not authorized to view their record. The server sends no
+  /// PII — never display patient details here.
+  Future<void> _showAccessRestrictedDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.lock_outline, color: Color(0xFF6B7280), size: 22),
+          SizedBox(width: 8),
+          Text('Access Restricted'),
+        ]),
+        content: const Text(
+          'This patient was identified, but they are registered at another '
+          'facility. You are not authorized to view their records here. '
+          'Request access through a referral or the patient\'s consent.',
+          style: TextStyle(fontSize: 14, height: 1.4),
         ),
         actions: [
           FilledButton(

@@ -10,8 +10,8 @@ import '../../services/network_service.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
-import '../camera_screen.dart';
 import '../face/liveness_camera_screen.dart';
+import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 
 enum _VerifyPhase { hand, face, override }
 
@@ -59,10 +59,7 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
       MaterialPageRoute(
         builder: (_) => _phase == _VerifyPhase.face
             ? const LivenessCameraScreen()
-            : CameraScreen(
-                title: 'Scan ${_hand == 'right' ? 'Right' : 'Left'} Hand',
-                showFingerprintOverlay: true,
-                returnImageOnly: true,
+            : FingerprintLivenessCameraScreen(
                 isHandCapture: true,
                 fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
               ),

@@ -129,6 +129,12 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         } else {
           setState(() => _capturedImage = null);
         }
+      } else if (result.isAccessRestricted) {
+        // Identity resolved nationally, but this facility isn't authorized to
+        // view the record (plan 005). No PII is present — show a lock message.
+        setState(() => _isVerifying = false);
+        await _showAccessRestrictedDialog();
+        if (mounted) setState(() => _capturedImage = null);
       } else {
         await Navigator.push(
           context,
@@ -229,6 +235,33 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF59E0B)),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Confirm Manually'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// access_restricted (plan 005): patient identified nationally, but this
+  /// facility is not authorized to view their record. The server sends no PII.
+  Future<void> _showAccessRestrictedDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.lock_outline, color: Color(0xFF6B7280), size: 22),
+          SizedBox(width: 8),
+          Text('Access Restricted'),
+        ]),
+        content: const Text(
+          'This patient was identified, but they are registered at another '
+          'facility. You are not authorized to view their records here. '
+          'Request access through a referral or the patient\'s consent.',
+          style: TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
           ),
         ],
       ),
