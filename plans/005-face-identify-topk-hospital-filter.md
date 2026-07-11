@@ -117,8 +117,8 @@ $operator->hospital_id`; plan 013 changes the body, not the callers.
 
 Privacy: on `access_restricted` the client gets no patient PII; the server audit
 records the identified patient id + operator + hospital + outcome + timestamp.
-(Whether even the `access_restricted` signal is exposed to the client is an open
-governance decision — see STOP conditions and the "Next architecture review" flag.)
+(Governance decided 2026-07-10, ADR-013: `access_restricted` IS exposed to the
+client — implement it exactly as this contract specifies.)
 
 ## Commands you will need
 
@@ -269,12 +269,11 @@ ALL must hold:
 ## STOP conditions
 
 Stop and report back if:
-- **Governance — client exposure of `access_restricted`**: if revealing that a
-  person exists in the national system (even without PII) is unacceptable for your
-  privacy posture (the journalist/politician-probe risk), the safe fallback is to
-  return `no_match` to the client while STILL writing the full server-side audit
-  entry (identity resolved internally, nothing revealed externally). This is a
-  **next-architecture-review decision — do not decide it unilaterally.**
+- ~~**Governance — client exposure of `access_restricted`**~~ **RESOLVED
+  2026-07-10 (ADR-013 accepted)**: expose `access_restricted` to the client
+  (zero PII, denial audit-logged with the resolved patient id). Do NOT suppress
+  to `no_match`. This STOP condition no longer applies — implement
+  `access_restricted` as specified in the response contract above.
 - **FAR / scale on the hand path**: if the gallery is large enough that a full
   national linear scan per hand verify is not viable, STOP and coordinate with
   plan 011 (FAISS shortlist) before making hand identification national.
@@ -282,16 +281,17 @@ Stop and report back if:
 - Making hand national breaks the existing `HandVerify` tests in a way implying the
   candidate contract differs from the excerpt.
 
-## Next architecture review — explicitly flagged (do NOT resolve in this plan)
+## Next architecture review — RESOLVED 2026-07-10 via ADR-013 (accepted)
 
-1. **`access_restricted` client exposure vs. audit-only `no_match`** — information
-   disclosure of existence. (Also a STOP condition above.)
-2. **Patient↔hospital ownership model** — whether `patient->hospital_id` is the
-   right authorization basis at all, or whether the model should become *National
-   Patient* + *Hospital Record* (hospitals own visits/diagnoses/prescriptions/labs,
-   not the patient identity), so authorization asks "can this operator access this
-   patient's records?" rather than "does this patient belong to my hospital?" These
-   two decisions outweigh the 005 code and are owned by plan 013.
+1. **`access_restricted` client exposure vs. audit-only `no_match`** — DECIDED:
+   expose `access_restricted` to the client. See
+   `docs/adr/013-national-patient-identity.md` decision point 1.
+2. **Patient↔hospital ownership model** — DECIDED: National Patient + Hospital
+   Record (`patient_hospital_links` provenance table; authorization via
+   `PatientAccessService`, not `hospital_id` equality). The migration is a future
+   build plan; **this plan (005) still implements the seam with `hospital_id`
+   equality inside the service body** — the decided model lands later without
+   touching the biometric controllers. See ADR-013 decision point 2.
 
 ## Maintenance notes
 

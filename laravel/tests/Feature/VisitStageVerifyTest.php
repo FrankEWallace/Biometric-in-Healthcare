@@ -12,7 +12,6 @@ use App\Models\VisitStage;
 use App\Services\FaceService;
 use App\Services\FingerprintService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -47,13 +46,7 @@ class VisitStageVerifyTest extends TestCase
         $this->nurse   = User::factory()->nurse()->create(['hospital_id' => $this->hospital->id]);
         $this->patient = Patient::factory()->create(['hospital_id' => $this->hospital->id]);
 
-        // NOTE: Visit::create() cannot be used here — the `visits` table has
-        // no created_at/updated_at columns, but the Visit model does not set
-        // $timestamps = false, so Eloquent's automatic timestamp insert fails.
-        // This is a pre-existing bug outside plan 002's scope (it also breaks
-        // VisitService::openVisit() in production); worked around here via
-        // the query builder rather than silently fixing the unrelated model.
-        $visitId = DB::table('visits')->insertGetId([
+        $this->visit = Visit::create([
             'hospital_id' => $this->hospital->id,
             'patient_id'  => $this->patient->id,
             'opened_by'   => $this->nurse->id,
@@ -61,7 +54,6 @@ class VisitStageVerifyTest extends TestCase
             'status'      => 'open',
             'opened_at'   => now(),
         ]);
-        $this->visit = Visit::find($visitId);
 
         $this->stage = VisitStage::create([
             'visit_id' => $this->visit->id,
