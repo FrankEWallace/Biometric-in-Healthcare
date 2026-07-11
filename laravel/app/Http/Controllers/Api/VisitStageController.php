@@ -95,9 +95,11 @@ class VisitStageController extends Controller
             ], 409);
         }
 
-        // Role check — only the assigned role can verify at this stage
-        $allowedRoles = VisitStage::STAGE_ROLES[$stageName] ?? [];
-        if (! empty($allowedRoles) && ! in_array($user->role, $allowedRoles)) {
+        // Role check — only the assigned role can verify at this stage.
+        // Deny-by-default: an unmapped stage name means no role is permitted,
+        // never "any role is permitted".
+        $allowedRoles = VisitStage::STAGE_ROLES[$stageName] ?? null;
+        if ($allowedRoles === null || ! in_array($user->role, $allowedRoles, true)) {
             return response()->json([
                 'error' => "Your role ({$user->role}) is not permitted to verify at the {$stageName} stage.",
             ], 403);
@@ -191,8 +193,9 @@ class VisitStageController extends Controller
             ], 422);
         }
 
-        $allowedRoles = VisitStage::STAGE_ROLES[$stageName] ?? [];
-        if (! empty($allowedRoles) && ! in_array($user->role, $allowedRoles)) {
+        // Deny-by-default: an unmapped stage name permits no role.
+        $allowedRoles = VisitStage::STAGE_ROLES[$stageName] ?? null;
+        if ($allowedRoles === null || ! in_array($user->role, $allowedRoles, true)) {
             return response()->json(['error' => 'Not permitted.'], 403);
         }
 
