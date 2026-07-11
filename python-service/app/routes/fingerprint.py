@@ -1,9 +1,9 @@
 """
 Fingerprint endpoints consumed by the Laravel backend.
 
-POST /process              — base64 image → SourceAFIS template + quality score
+POST /process              — base64 image → crossing-number minutiae template (minutiae_v1) + quality score
 POST /match                — probe template + candidate list → best patient_id + score
-POST /process-fingerprint  — multipart image → SourceAFIS template + quality score
+POST /process-fingerprint  — multipart image → crossing-number minutiae template (minutiae_v1) + quality score
 POST /match-fingerprint    — two multipart images → verdict + score
 POST /fingerprint/liveness-check — base64 frame list → optical-flow liveness verdict
 """
@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, field_validator
 
 from app.services.image_processor import preprocess_fingerprint, to_grayscale
-from app.services.sourceafis_service import extract_template, match_templates
+from app.services.minutiae_matcher import extract_template, match_templates
 from app.services.liveness_service import fingerprint_liveness_check
 
 router = APIRouter(tags=["fingerprint"])
@@ -102,7 +102,7 @@ def _decode_upload(contents: bytes, field_name: str) -> np.ndarray:
 def _preprocess_to_skeleton(img: np.ndarray) -> tuple[np.ndarray, float, list[str]]:
     """
     Run the full preprocessing pipeline and return (skeleton_gray, quality_score, steps).
-    The skeleton is a single-channel uint8 array suitable for SourceAFIS.
+    The skeleton is a single-channel uint8 array suitable for crossing-number minutiae.
     """
     result         = preprocess_fingerprint(img)
     quality_score  = result["quality_score"]
@@ -125,13 +125,13 @@ def _preprocess_to_skeleton(img: np.ndarray) -> tuple[np.ndarray, float, list[st
 @router.post(
     "/process",
     response_model=ProcessResponse,
-    summary="Extract SourceAFIS template from a base64 fingerprint image",
+    summary="Extract crossing-number minutiae template (minutiae_v1) from a base64 fingerprint image",
 )
 def process(body: ProcessRequest) -> ProcessResponse:
     """
     Accepts a base64-encoded fingerprint image, runs the full preprocessing
     pipeline (grayscale → blur → equalization → threshold → thinning), then
-    extracts a SourceAFIS minutiae template.
+    extracts a crossing-number minutiae template.
 
     The returned template dict is opaque to callers — pass it unchanged to
     POST /match as a candidate or probe template.
@@ -144,7 +144,7 @@ def process(body: ProcessRequest) -> ProcessResponse:
 
 
 # ---------------------------------------------------------------------------
-# POST /match  (SourceAFIS — used by both controllers)
+# POST /match  (crossing-number minutiae — used by both controllers)
 # ---------------------------------------------------------------------------
 
 @router.post(
@@ -154,10 +154,10 @@ def process(body: ProcessRequest) -> ProcessResponse:
 )
 def match(body: MatchRequest) -> MatchResponse:
     """
-    Runs SourceAFIS minutiae matching between the probe and every candidate.
+    Runs crossing-number minutiae matching between the probe and every candidate.
     Returns the patient_id with the highest score.
 
-    Score scale: SourceAFIS raw float (typically 0–200+). This endpoint does
+    Score scale: crossing-number minutiae raw float (typically 0–200+). This endpoint does
     not apply a verdict — the caller (Laravel) compares against the shared
     FINGERPRINT_MATCH_THRESHOLD. Calibrate it with tools/calibrate_far_frr.py.
     """
@@ -192,7 +192,7 @@ _ALLOWED_TYPES = ("image/jpeg", "image/png", "image/jpg")
 
 @router.post(
     "/process-fingerprint",
-    summary="Preprocess a fingerprint image and extract a SourceAFIS template",
+    summary="Preprocess a fingerprint image and extract a crossing-number minutiae template (minutiae_v1)",
 )
 async def process_fingerprint(file: UploadFile = File(...)) -> dict:
     """
@@ -200,7 +200,7 @@ async def process_fingerprint(file: UploadFile = File(...)) -> dict:
 
       1. Preprocessing  — grayscale → Gaussian blur → histogram equalization
                           → adaptive threshold → morphological thinning
-      2. Template extraction — SourceAFIS minutiae detection
+      2. Template extraction — crossing-number minutiae detection
 
     Feature ``status`` field:
       - ``"ok"``          — sufficient minutiae for reliable matching
@@ -258,8 +258,8 @@ async def match_fingerprint(
 
       1. Validate and decode both files.
       2. Preprocess each image (full pipeline through thinning).
-      3. Extract SourceAFIS minutiae template from each skeleton.
-      4. Match templates with SourceAFIS and return score + verdict.
+      3. Extract crossing-number minutiae template from each skeleton.
+      4. Match templates with crossing-number minutiae and return score + verdict.
 
     Verdict threshold: score ≥ MATCH_THRESHOLD → MATCH
     (FINGERPRINT_MATCH_THRESHOLD env, default 32.0).

@@ -16,7 +16,7 @@ use RuntimeException;
  * Methods
  * ───────
  *  Legacy (used by VerificationController — hospital-wide search)
- *   process()  → POST /process    base64 JSON → ORB template
+ *   process()  → POST /process    base64 JSON → crossing-number minutiae template (`minutiae_v1`)
  *   match()    → POST /match      probe template + candidates → best patient_id
  *
  *  New (used by FingerprintController — register + direct verify)
@@ -65,7 +65,8 @@ class FingerprintService
     // -------------------------------------------------------------------------
 
     /**
-     * Send a base64 image to /process and return the ORB template array.
+     * Send a base64 image to /process and return the crossing-number minutiae
+     * template (`minutiae_v1`) array.
      *
      * @param  string $base64Image
      * @return array  ['keypoints' => [...], 'descriptors' => [...]]
@@ -89,7 +90,7 @@ class FingerprintService
     /**
      * Send a probe template + candidate list to /match.
      *
-     * @param  array $probe      ORB template array
+     * @param  array $probe      crossing-number minutiae template (`minutiae_v1`) array
      * @param  array $candidates [['patient_id' => int, 'template' => array], ...]
      * @return array ['patient_id' => int, 'score' => float]
      * @throws RuntimeException
@@ -119,7 +120,7 @@ class FingerprintService
      *
      * Runs the full enhanced pipeline on the Python side:
      *   grayscale → Gaussian blur → histogram equalization
-     *   → adaptive threshold → morphological thinning → ORB feature extraction
+     *   → adaptive threshold → morphological thinning → crossing-number minutiae extraction
      *
      * @param  string $filePath  Absolute path to the uploaded JPEG/PNG file.
      * @return array {
@@ -172,11 +173,11 @@ class FingerprintService
      * verdict so the controller does not need to know matching thresholds.
      *
      * @param  string $filePath       Absolute path to the probe JPEG/PNG.
-     * @param  array  $storedTemplate Decrypted SourceAFIS template from the Fingerprint model.
+     * @param  array  $storedTemplate Decrypted crossing-number minutiae template (`minutiae_v1`) from the Fingerprint model.
      * @param  int    $patientId      ID used as the candidate key in /match.
      * @return array {
      *     verdict: string,           // "MATCH" | "NO MATCH"
-     *     score: float,              // SourceAFIS raw score (0–∞, threshold 40)
+     *     score: float,              // crossing-number minutiae raw score (0–∞, threshold 40)
      *     probe_minutiae: int,
      *     feature_status: string     // "ok" | "low_quality" | "no_features"
      * }

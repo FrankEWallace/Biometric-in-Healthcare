@@ -46,7 +46,7 @@ import cv2
 import numpy as np
 
 from app.services.image_processor import preprocess_fingerprint
-from app.services.sourceafis_service import extract_template, match_templates
+from app.services.minutiae_matcher import extract_template, match_templates
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ class MinutiaeMatcher(Matcher):
 
     Registered as the **contact** implementation and used as the safe default
     everywhere until the embedding matcher is installed. Wraps the existing
-    ``image_processor`` preprocessing + ``sourceafis_service`` extract/match so
+    ``image_processor`` preprocessing + ``minutiae_matcher`` extract/match so
     behaviour is identical to the single-finger ``/process`` + ``/match`` path.
     """
 

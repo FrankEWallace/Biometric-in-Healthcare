@@ -135,7 +135,7 @@ class FingerprintController extends Controller
      *
      * Sends the uploaded image to Python /process-fingerprint (full pipeline:
      * grayscale → blur → histogram equalization → adaptive threshold →
-     * morphological thinning → ORB feature extraction), then stores the
+     * morphological thinning → crossing-number minutiae extraction), then stores the
      * resulting feature template in the fingerprints table.
      *
      * Fields:
@@ -222,7 +222,7 @@ class FingerprintController extends Controller
         $fp->quality_score = $qualityScore;
         $fp->is_primary    = $isPrimary;
         $fp->is_active     = true;
-        $fp->setTemplate($result['features']);  // store ORB features as template
+        $fp->setTemplate($result['features']);  // store crossing-number minutiae features as template
         $fp->save();
 
         return response()->json([

@@ -128,7 +128,7 @@ def build_file_index(images_root: Path) -> dict[str, Path]:
 # ===========================================================================
 
 def run_protocol(args) -> int:
-    from app.services.sourceafis_service import match_templates
+    from app.services.minutiae_matcher import match_templates
 
     protocol = json.loads(Path(args.protocol).read_text())
     index = build_file_index(Path(args.images_root))
@@ -247,7 +247,7 @@ def _rank1_identification(entries, cache, match_templates) -> float:
 # ===========================================================================
 
 def run_four_finger(args) -> int:
-    from app.services.sourceafis_service import match_templates
+    from app.services.minutiae_matcher import match_templates
 
     data = Path(args.data)
     enhance = not args.no_enhance

@@ -150,7 +150,7 @@ def image_to_template(path: Path, enhance: bool = True) -> tuple[dict, float]:
     import cv2  # imported lazily so --self-test works without OpenCV/numpy stack
     import numpy as np
     from app.services.image_processor import preprocess_fingerprint
-    from app.services.sourceafis_service import extract_template
+    from app.services.minutiae_matcher import extract_template
 
     img = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if img is None:
@@ -218,7 +218,7 @@ def score_pairs(
     seed: int,
 ) -> list[PairScore]:
     """Compute all genuine pairs and a random sample of impostor pairs."""
-    from app.services.sourceafis_service import match_templates
+    from app.services.minutiae_matcher import match_templates
 
     rng = random.Random(seed)
     items: list[tuple[str, Path, dict]] = [
