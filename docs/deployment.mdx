@@ -45,6 +45,10 @@ rsync -avz --progress --partial python-service/models/contactless_embedding.onnx
 
 Until the file is in place, `/process-hand` and `/match-hand` still respond, but report the minutiae fallback matcher name instead of the calibrated embedding matcher.
 
+## Contactless match threshold
+
+Set `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD=57.5` in `laravel/.env` at deploy. This is the fused four-finger accept threshold; **while it is unset the hand tier never auto-accepts** — every hand verification returns `needs_review` and staff must confirm manually. `57.5` is the FAR≈1% operating point measured on the RidgeBase Test set through our own `EmbeddingMatcher` (conservative on purpose — a false accept means the wrong patient). It is adopted pending validation on real field/NIDA/NHIF captures; see `docs/calibration/own-domain/`. It only takes effect once the ONNX model above is in place (otherwise the matcher is the minutiae fallback and still won't auto-accept). Re-run the calibration and update the value if the capture pipeline or model changes.
+
 ## Networking
 
 `docker-compose.yml` defines two networks:
