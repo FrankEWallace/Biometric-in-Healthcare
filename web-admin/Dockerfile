@@ -17,7 +17,8 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NODE_ENV=production
-RUN npm run build
+# public/ is optional in Next; ensure it exists so the runtime COPY never fails.
+RUN mkdir -p public && npm run build
 
 # --- Stage 3: runtime image -----------------------------------------------
 FROM node:20-alpine AS runner
