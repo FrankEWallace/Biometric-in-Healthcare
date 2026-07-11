@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\FaceTemplate;
 use App\Models\Fingerprint;
 use App\Models\Hospital;
@@ -277,10 +278,17 @@ class MultimodalVerifyTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
-    public function candidates_from_other_hospitals_are_excluded_from_the_shortlist(): void
+    public function cross_hospital_identity_returns_access_restricted_without_pii(): void
     {
+        // Identity is resolved NATIONALLY: FAISS is global and the shortlist no
+        // longer drops foreign templates. A cross-hospital patient whose face
+        // and hand both hit is identified, then access-gated by
+        // PatientAccessService — yielding access_restricted (identity found,
+        // records withheld), never a fake no_match. Mirrors the /verify/hand
+        // contract in HandVerifyAccessControlTest.
         $otherHospital = Hospital::factory()->create(['face_recognition_enabled' => true]);
         $foreign       = Patient::factory()->create(['hospital_id' => $otherHospital->id]);
+        $this->enrollHand($foreign);
 
         $foreignTemplate = new FaceTemplate([
             'patient_id'    => $foreign->id,
@@ -292,21 +300,38 @@ class MultimodalVerifyTest extends TestCase
         $foreignTemplate->setTemplate(['embedding' => array_fill(0, 8, 0.1)]);
         $foreignTemplate->save();
 
-        // FAISS is global — it may return another hospital's template, but
-        // the shortlist must drop it.
         $this->mockFaceStage([
             ['patient_id' => $foreign->id, 'template_id' => $foreignTemplate->id, 'score' => 0.95],
         ]);
 
-        $this->mock(FingerprintService::class, function ($mock) {
-            $mock->shouldReceive('processHand')->never();
-            $mock->shouldReceive('matchHand')->never();
-        });
+        // Hand confirms the national foreign candidate above threshold.
+        $this->mockHandConfirm(
+            fn ($probe, $candidates) => in_array($foreign->id, array_column($candidates, 'patient_id')),
+            matchedPatientId: $foreign->id,
+            score: 80.0,
+        );
 
-        $this->actingAs($this->nurse)
+        $response = $this->actingAs($this->nurse)
             ->postJson(self::URL, $this->payload())
             ->assertStatus(200)
-            ->assertJsonPath('status', 'no_match');
+            ->assertJsonPath('status', 'access_restricted');
+
+        // No cross-hospital PII or clinical records leak to the client.
+        $this->assertNull($response->json('patient'));
+        $this->assertNull($response->json('ehr'));
+        $this->assertNull($response->json('insurance'));
+
+        // Audit + verification log keep the identified patient id server-side.
+        $this->assertDatabaseHas('audit_logs', [
+            'action'     => AuditLog::ACTION_ACCESS_RESTRICTED,
+            'patient_id' => $foreign->id,
+            'staff_id'   => $this->nurse->id,
+        ]);
+        $this->assertDatabaseHas('verification_logs', [
+            'patient_id' => $foreign->id,
+            'status'     => 'access_restricted',
+            'modality'   => 'multimodal',
+        ]);
     }
 
     #[\PHPUnit\Framework\Attributes\Test]
