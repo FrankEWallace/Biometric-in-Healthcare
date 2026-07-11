@@ -32,7 +32,7 @@ against the live code before a plan was written.
 | 017 | Calibrate & enable the contactless four-finger match threshold | P1 | M | — | TODO |
 | 018 | Wire the per-hospital client geofence; demote the 20 km fallback anchor | P1 | S–M | — | TODO |
 | 019 | Bring multimodal verify under the ADR-013 national-identity access gate | P1 | M | — | TODO |
-| 020 | Harden web-admin auth (token/cookies/server role gate) + add its CI & typecheck | P1 | L | — | TODO |
+| 020 | Harden web-admin auth (token/cookies/server role gate) + add its CI & typecheck | P1 | L | — | DONE (2026-07-12 — Part B: added `typecheck: tsc --noEmit` + a `web-admin` CI job (check+typecheck+build); typecheck clean, no pre-existing errors. Part A: cookie writer now sets `SameSite=Strict` + protocol-gated `Secure` (dev LAN HTTP still works); dashboard server layout re-verifies role via `GET /auth/me` (`no-store`) instead of the forgeable `bih_admin_user` cookie, redirecting non-admin roles. `/auth/me` confirmed to return `{user:{role}}`. `npm run check`/`typecheck`/`build` all exit 0. BFF/token-proxy (token out of JS) intentionally deferred per scope. Manual login/forged-cookie check not run here — no running server this session; verify at deploy) |
 | 021 | Fix web-admin data-layer correctness (401, load races, pagination, render guard) | P2 | M | 020 | TODO |
 | 012b | Flutter dead-code & duplication cleanup (addendum inside plan 012) | P3 | M | — | TODO |
 
