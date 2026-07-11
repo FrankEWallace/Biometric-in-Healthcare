@@ -11,6 +11,7 @@ use App\Services\FaceService;
 use App\Services\FingerprintService;
 use App\Services\GeofenceService;
 use App\Services\HomisService;
+use App\Services\PatientAccessService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,10 +32,11 @@ class VerificationController extends Controller
     private float $matchThreshold;
 
     public function __construct(
-        private FingerprintService $fingerprint,
-        private FaceService        $face,
-        private GeofenceService    $geofence,
-        private HomisService       $homis,
+        private FingerprintService  $fingerprint,
+        private FaceService         $face,
+        private GeofenceService     $geofence,
+        private HomisService        $homis,
+        private PatientAccessService $access,
     ) {
         $this->matchThreshold = (float) config('services.fingerprint.match_threshold', 32.0);
     }
@@ -439,7 +441,7 @@ class VerificationController extends Controller
         }
 
         // 3. Build candidate hands (one per enrolled patient) and fuse-match
-        $candidates = $this->loadCandidateHands($hospital->id);
+        $candidates = $this->loadCandidateHands();
 
         $fusedScore = 0.0;
         $matchedPatientId = null;
@@ -470,14 +472,29 @@ class VerificationController extends Controller
             $status  = $matched ? 'matched' : 'no_match';
         }
 
-        $matchedPatient = $matched && $matchedPatientId
+        // The patient identified nationally by the fused match (above threshold).
+        $identifiedPatient = $matched && $matchedPatientId
             ? \App\Models\Patient::find($matchedPatientId)
             : null;
+
+        // Access-control seam — decided AFTER national identification, by the
+        // SAME service the face path uses. A cross-hospital hit becomes
+        // access_restricted (identity found, records withheld), never no_match.
+        $accessRestricted = $identifiedPatient !== null
+            && ! $this->access->authorizePatientAccess($operator, $identifiedPatient);
+
+        if ($accessRestricted) {
+            $status = 'access_restricted';
+        }
+
+        // Client never receives cross-hospital PII; the server-side log/audit
+        // keeps the identified patient id for accountability.
+        $responsePatient = $accessRestricted ? null : $identifiedPatient;
 
         $log = $this->writeLog(
             operatorId:    $operator->id,
             hospitalId:    $hospital->id,
-            patientId:     $matchedPatient?->id,
+            patientId:     $identifiedPatient?->id,
             fingerprintId: null,
             score:         $fusedScore,
             status:        $status,
@@ -485,10 +502,14 @@ class VerificationController extends Controller
             modality:      'hand',
         );
 
+        $auditAction = $accessRestricted
+            ? AuditLog::ACTION_ACCESS_RESTRICTED
+            : ($matched ? AuditLog::ACTION_FINGERPRINT_MATCH : AuditLog::ACTION_FINGERPRINT_NO_MATCH);
+
         AuditLog::record(
             $request,
-            $matched ? AuditLog::ACTION_FINGERPRINT_MATCH : AuditLog::ACTION_FINGERPRINT_NO_MATCH,
-            $matchedPatient?->id,
+            $auditAction,
+            $identifiedPatient?->id,
             null,
             $status,
             [
@@ -504,8 +525,9 @@ class VerificationController extends Controller
             'score'       => round($fusedScore, 2),
             'matcher'     => $matcherName,
             'per_finger'  => $perFinger,
-            'candidate_patient_id' => $matchedPatientId,  // advisory when needs_review
-            'patient'     => $matchedPatient,
+            // Suppress the cross-hospital patient id on access_restricted.
+            'candidate_patient_id' => $accessRestricted ? null : $matchedPatientId,
+            'patient'     => $responsePatient,
             'log_id'      => $log->id,
             'note'        => ($threshold === null || $usingPlaceholder)
                 ? 'Advisory only: contactless matcher is a placeholder (minutiae is '
@@ -516,8 +538,14 @@ class VerificationController extends Controller
     }
 
     /**
-     * Load one fused-matchable "hand" per enrolled patient for a hospital:
+     * Load one fused-matchable "hand" per enrolled patient, NATIONALLY:
      * [['patient_id' => int, 'fingers' => [finger_position => template]], ...].
+     *
+     * Identity is resolved across the whole gallery (no hospital pre-filter) —
+     * the hospital boundary is enforced afterwards by PatientAccessService, so
+     * a cross-hospital patient is identified and then access-gated, never made
+     * invisible. NOTE: this is an O(N_national) linear scan until plan 011 adds
+     * a FAISS shortlist; acceptable at pilot gallery size.
      *
      * Uses gallery leads only (one template per finger), and drops patients
      * with fewer than MIN_HAND_FINGERS enrolled fingers so they can't produce
@@ -525,10 +553,9 @@ class VerificationController extends Controller
      *
      * @return array<int, array{patient_id: int, fingers: array<string, array>}>
      */
-    private function loadCandidateHands(int $hospitalId): array
+    private function loadCandidateHands(): array
     {
-        $rows = Fingerprint::where('hospital_id', $hospitalId)
-            ->where('is_active', true)
+        $rows = Fingerprint::where('is_active', true)
             ->where('is_gallery_lead', true)
             ->get(['id', 'patient_id', 'finger_position', 'template']);
 

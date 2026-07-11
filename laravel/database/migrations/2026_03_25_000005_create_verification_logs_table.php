@@ -40,6 +40,7 @@ return new class extends Migration
             // multimodal verification flows.
             $table->enum('status', [
                 'matched', 'no_match', 'error', 'needs_review', 'manually_confirmed',
+                'access_restricted',
             ])->default('no_match');
 
             // Device location at time of verification

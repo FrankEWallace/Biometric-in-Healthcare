@@ -10,6 +10,7 @@ use App\Models\VerificationLog;
 use App\Services\FaceService;
 use App\Services\GeofenceService;
 use App\Services\HomisService;
+use App\Services\PatientAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,9 +19,10 @@ use Illuminate\Support\Facades\Log;
 class FaceController extends Controller
 {
     public function __construct(
-        private FaceService     $face,
-        private GeofenceService $geofence,
-        private HomisService    $homis,
+        private FaceService          $face,
+        private GeofenceService      $geofence,
+        private HomisService         $homis,
+        private PatientAccessService $access,
     ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -277,11 +279,16 @@ class FaceController extends Controller
             return response()->json(['status' => 'no_match', 'score' => 0.0, 'patient' => null, 'log_id' => $log->id]);
         }
 
-        // ── Interpret top candidate ───────────────────────────────────────────
-        $top   = $candidates[0];
-        $score = (float) $top['score'];
+        // ── Resolve identity NATIONALLY (best valid candidate, hospital-agnostic) ─
+        [$status, $patient, $score] = $this->resolveIdentity($candidates);
 
-        [$status, $patient] = $this->interpretCandidate($top, $hospital->id, $score);
+        // ── Access-control seam — decided AFTER identity, by hospital ─────────
+        // A resolved patient from another hospital is NOT a no_match: identity
+        // was found; the operator is simply not authorized for the record. Do
+        // not leak any PII in that case — but still audit the identified id.
+        if ($patient !== null && ! $this->access->authorizePatientAccess($operator, $patient)) {
+            $status = 'access_restricted';
+        }
 
         $log = $this->writeLog(
             operatorId:   $operator->id,
@@ -292,14 +299,28 @@ class FaceController extends Controller
             locationData: $data,
         );
 
-        $auditAction = ($status === 'matched')
-            ? AuditLog::ACTION_FACE_MATCH
-            : AuditLog::ACTION_FACE_NO_MATCH;
+        $auditAction = match ($status) {
+            'matched'            => AuditLog::ACTION_FACE_MATCH,
+            'access_restricted'  => AuditLog::ACTION_ACCESS_RESTRICTED,
+            default              => AuditLog::ACTION_FACE_NO_MATCH,
+        };
 
         AuditLog::record($request, $auditAction, $patient?->id, null, $status, [
             'score'  => round($score, 4),
             'log_id' => $log->id,
         ]);
+
+        // ── Access denied: identity found, records withheld, zero PII ─────────
+        if ($status === 'access_restricted') {
+            return response()->json([
+                'status'    => 'access_restricted',
+                'score'     => round($score, 4),
+                'patient'   => null,
+                'log_id'    => $log->id,
+                'ehr'       => null,
+                'insurance' => null,
+            ]);
+        }
 
         // ── EHR enrichment on confirmed match ─────────────────────────────────
         $ehr = $insurance = null;
@@ -428,25 +449,41 @@ class FaceController extends Controller
      * Returns [status, patient|null].
      * Status values: 'matched', 'needs_review', 'no_match'
      */
-    private function interpretCandidate(array $candidate, int $hospitalId, float $score): array
+    /**
+     * Resolve identity nationally: pick the highest-scoring candidate with a
+     * live template + patient, regardless of hospital. Candidates arrive sorted
+     * by score descending. Returns [status, patient|null, score] where status is
+     * the IDENTITY verdict only ('matched' | 'needs_review' | 'no_match') — the
+     * hospital access decision is applied separately by the caller.
+     */
+    private function resolveIdentity(array $candidates): array
     {
         $threshold       = FaceService::IDENTIFY_THRESHOLD;
         $reviewThreshold = $threshold - 0.08; // borderline band below the main threshold
 
-        if ($score < $reviewThreshold) {
-            return ['no_match', null];
+        foreach ($candidates as $candidate) {
+            $score = (float) $candidate['score'];
+
+            // Sorted descending — once below the review band, nothing qualifies.
+            if ($score < $reviewThreshold) {
+                break;
+            }
+
+            // hospital_id is required for the access-control check below.
+            $ft = FaceTemplate::with('patient:id,hospital_id,full_name,date_of_birth,nida,gender,phone')
+                ->find($candidate['template_id']);
+
+            // Skip stale/orphaned templates and keep scanning down the list.
+            if (! $ft || ! $ft->patient) {
+                continue;
+            }
+
+            $status = $score >= $threshold ? 'matched' : 'needs_review';
+            return [$status, $ft->patient, $score];
         }
 
-        // Load the patient and verify they belong to this hospital
-        $ft = FaceTemplate::with('patient:id,full_name,date_of_birth,nida,gender,phone')
-            ->find($candidate['template_id']);
-
-        if (! $ft || $ft->hospital_id !== $hospitalId || ! $ft->patient) {
-            return ['no_match', null];
-        }
-
-        $status = $score >= $threshold ? 'matched' : 'needs_review';
-        return [$status, $ft->patient];
+        $topScore = ! empty($candidates) ? (float) (reset($candidates)['score'] ?? 0.0) : 0.0;
+        return ['no_match', null, $topScore];
     }
 
     private function writeLog(

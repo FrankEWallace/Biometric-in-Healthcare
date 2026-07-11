@@ -44,6 +44,7 @@ class AuditLog extends Model
     public const ACTION_STAGE_VERIFIED             = 'stage_verified';
     public const ACTION_STAGE_OVERRIDE_REQUESTED   = 'stage_override_requested';
     public const ACTION_STAGE_OVERRIDE_RESOLVED    = 'stage_override_resolved';
+    public const ACTION_ACCESS_RESTRICTED          = 'access_restricted';
 
     protected $fillable = [
         'staff_id',

@@ -64,6 +64,9 @@ class FaceVerifyResult {
   bool get isMatch       => status == 'matched';
   bool get isNeedsReview => status == 'needs_review';
   bool get isError       => status == 'error';
+  // Identity resolved nationally, but this facility is not authorized to view
+  // the record (plan 005). No patient PII is present in this case.
+  bool get isAccessRestricted => status == 'access_restricted';
 
   String get patientName =>
       (patient?['full_name'] as String?) ?? 'Unknown';
