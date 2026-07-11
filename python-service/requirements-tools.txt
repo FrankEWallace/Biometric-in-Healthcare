@@ -1,0 +1,4 @@
+# Offline calibration/plotting tooling — NOT part of the runtime service image.
+# Install with:  pip install -r requirements-tools.txt
+-r requirements.txt
+matplotlib>=3.8  # used only by tools/calibrate_far_frr.py and tools/plot_calibration.py
