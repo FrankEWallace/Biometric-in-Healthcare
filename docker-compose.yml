@@ -5,8 +5,8 @@ services:
     environment:
       MYSQL_DATABASE: ${DB_DATABASE:-bih_db}
       MYSQL_USER: ${DB_USERNAME:-bih_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-secret}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD must be set}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -22,6 +22,10 @@ services:
     restart: unless-stopped
     env_file:
       - ./python-service/.env
+    environment:
+      # Force production regardless of .env so the interactive /docs and /redoc
+      # API explorers stay disabled in the deployed stack (mirrors laravel).
+      ENVIRONMENT: production
     volumes:
       - ./python-service/models:/app/models:ro
       - face_index_data:/app/face_index
