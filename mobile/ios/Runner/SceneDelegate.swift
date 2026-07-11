@@ -15,6 +15,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let engine = FlutterEngine(name: "main")
         engine.run()
         GeneratedPluginRegistrant.register(with: engine)
+        HandLandmarkerBridge.register(with: engine.binaryMessenger)
         self.engine = engine
 
         let controller = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
