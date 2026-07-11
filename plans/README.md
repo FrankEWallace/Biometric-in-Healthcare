@@ -29,8 +29,35 @@ against the live code before a plan was written.
 | 014 | Fix the Visit model/migration timestamp mismatch | P0 | S | — | DONE (2026-07-10 — `Visit::$timestamps = false`; bug reproduced then fixed against dev MySQL via tinker; new `VisitControllerTest` covers open/close/reopen; `VisitStageVerifyTest` workaround removed, now uses real `Visit::create()`; `composer test` 116 passing) |
 | 015 | Establish Flutter test infrastructure | P3 | M | — | TODO |
 | 016 | Next.js admin/superadmin web dashboard | P2 | L | — | DONE (2026-07-10 — all 11 tasks complete: every screen wired to the real API. Task 9 reused the existing Hospital geofence fields (single SSID + GPS circle via `PUT /api/hospitals`, per STOP condition) instead of a new table, and added read-only `GET /api/devices` derived from audit logs; Task 11 is a read-only `GET /api/matcher-config` display since thresholds are env/code-backed. New endpoints feature-tested; `composer test` 112 passing, `npm run build`/`check` clean) |
+| 017 | Calibrate & enable the contactless four-finger match threshold | P1 | M | — | TODO |
+| 018 | Wire the per-hospital client geofence; demote the 20 km fallback anchor | P1 | S–M | — | TODO |
+| 019 | Bring multimodal verify under the ADR-013 national-identity access gate | P1 | M | — | TODO |
+| 020 | Harden web-admin auth (token/cookies/server role gate) + add its CI & typecheck | P1 | L | — | TODO |
+| 021 | Fix web-admin data-layer correctness (401, load races, pagination, render guard) | P2 | M | 020 | TODO |
+| 012b | Flutter dead-code & duplication cleanup (addendum inside plan 012) | P3 | M | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
+
+## Round 2 (2026-07-11, audited against commit `d25ce31` = content-identical to `origin/main`)
+
+A follow-up standard-effort audit after the four-finger pipeline unification
+(plans 002/010) landed on `main`. Scope covered: the `laravel/` delta since the
+last audit, the whole new `web-admin/` Next.js app (never audited before), the
+changed `mobile/` screens, and a cross-cutting tests/deps/DX/direction sweep.
+Plans 017–021 above are the result; 012 gained a Flutter addendum (see "012b"
+row — same file, separate branch). **The default top-5 selection was applied
+non-interactively** (the interactive picker was unavailable), recorded here.
+
+Priority rationale for the new plans:
+- **017** is P1 because it is the single operational fact that the app's core
+  feature is disabled in production — every hand verification returns
+  `needs_review` until the threshold is calibrated and set.
+- **018/019** are P1 defence-in-depth / access-control-consistency fixes: the
+  client geofence is currently fiction (018), and one of four verify paths
+  (multimodal) contradicts the accepted ADR-013 access model (019).
+- **020** is P1 because web-admin holds an admin API token in JS-readable
+  storage and is the only service with no CI gate.
+- **021** is P2 correctness on the same dashboard; depends on 020's CI/typecheck.
 
 ## Dependency notes
 
@@ -101,6 +128,24 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED 
 - **P3** items are performance and cleanup that matter at scale, not for a pilot
   demo (011, 012, 015).
 
+## Dependency notes (round 2)
+
+- **021 depends on 020**: 021's verification relies on the `typecheck` script
+  and the web-admin CI job that 020 introduces. Not a hard code dependency —
+  they touch mostly different files — but land 020 first so 021 has a gate.
+- **017 is independent but unblocks the demo**: until it lands, 018/019 are
+  correct but the end-to-end verify still returns `needs_review` for everyone.
+  Sequence 017 first if the goal is a working auto-accept demo.
+- **018 and 019 are independent** of each other and of 017 (different layers:
+  client geofence, server access gate, matcher threshold).
+- **012b (Flutter cleanup) should run AFTER 019**: plan 019 deliberately copies
+  `_showAccessRestrictedDialog` into the multimodal screen; 012b's part C then
+  consolidates all such duplicates in one pass. Running 012b first would force
+  019 to reconcile against a moved widget.
+- **012b part D (double `verifyHand` call)** is a correctness follow-up, not
+  cleanup — flagged so the part-C consolidation doesn't cement the double-call
+  into a shared helper.
+
 ## Findings considered and rejected
 
 - **"Python biometric service is unauthenticated"** — refuted. `INTERNAL_API_KEY`
@@ -121,3 +166,41 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED 
 - **Flutter god-screen refactor (DEBT-03)** — not planned. LOW confidence
   (duplication smelled but not line-verified) and L effort; revisit only if the
   capture UX is actively reworked.
+
+### Round 2 (2026-07-11)
+
+- **"Laravel tests / web-admin not in CI"** — partially refuted. `.github/workflows/ci.yml`
+  runs `python` (pytest), `laravel` (`composer test`), and `flutter` jobs — all
+  three original services ARE gated. Only `web-admin` was missing a job; that
+  real gap is folded into plan 020, not a standalone finding.
+- **"Mobile verify attempt-limit is client-only / inconsistent"** — downgraded,
+  not planned as security. The server enforces `throttle:20,1` on the verify
+  routes (`laravel/routes/api.php`), which is the real control; the client
+  `_maxAttempts=3` is UX. (The related double-`verifyHand` call IS tracked —
+  plan 012 addendum part D.)
+- **`dangerouslySetInnerHTML` in web-admin** — refuted. The two sites
+  (`theme-boot.tsx`, `chart.tsx`) are fed only static developer config, never
+  API/user data.
+- **web-admin logout doesn't revoke server-side** — refuted. `logout()` calls
+  `POST /auth/logout` before clearing local cookies.
+- **PERF-01 unbounded staff/devices/facilities list fetches** — real but
+  deferred (noted in plan 021 maintenance notes), not its own plan; matters at
+  national scale, fine at pilot size.
+- **CORRECT-03 audit-log `actionLabel` throw** and **CORRECT-04 patients page-1-only**
+  — folded into plan 021 (steps 5–6), not standalone.
+- **DEPS: mobile MediaPipe/JNI major bumps** (`hand_landmarker` 2→3, `jni`
+  0.15→1.0) — explicitly DEFER. No EOL/security driver; a mistimed bump on the
+  capture-critical path mid-iOS-MediaPipe-work risks a double migration. Bump
+  after the iOS path lands, gated on manual on-device capture verification.
+  Rest of the dependency surface (Laravel 13 / Next 16 / React 19 / faiss /
+  onnxruntime / insightface) is current — nothing to do.
+- **Direction items not selected for plans this round** (recorded so they're
+  not re-audited as bugs): DIR-01 ADR-013 phase-2 consent/referral/break-glass
+  engine (largest deployability gap — a referred/unconscious cross-hospital
+  patient currently cannot be accessed at all; L, design/spike, maintainer's
+  strategic call); DIR-02 NIDA national-identity seam (roadmap Phase 4,
+  external dependency); DIR-03 per-finger quality feedback into re-enrollment
+  (the enroll endpoint returns only aggregate quality though `per_finger` data
+  exists on the verify path); DIR-04 offline/store-and-forward outbox for
+  writes (intermittent-WiFi hospitals). See the Direction section of the
+  round-2 audit report for evidence and trade-offs; promote to plans on request.

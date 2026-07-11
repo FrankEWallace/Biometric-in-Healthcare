@@ -30,6 +30,11 @@ target 'Runner' do
   use_frameworks!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # Four-finger capture guidance on iOS uses Apple's built-in Vision framework
+  # (VNDetectHumanHandPoseRequest) via HandLandmarkerBridge — no third-party pod
+  # or bundled model needed. The hand_landmarker Flutter plugin is Android-only.
+
   target 'RunnerTests' do
     inherit! :search_paths
   end

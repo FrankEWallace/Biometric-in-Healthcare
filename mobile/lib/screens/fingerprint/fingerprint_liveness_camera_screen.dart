@@ -93,9 +93,9 @@ class _FingerprintLivenessCameraScreenState
   // Realtime quality indicator fed by the image stream (0.0–1.0).
   double _liveQuality = 0.0;
 
-  // Four-finger guidance (MediaPipe hand tracking). Null when unavailable
-  // (iOS/web, native init failure, single-finger mode) — the auto-trigger
-  // then falls back to the sharpness-only gate.
+  // Four-finger guidance (MediaPipe hand tracking on both Android and iOS).
+  // Null only on web or in single-finger mode — the auto-trigger then falls
+  // back to the sharpness-only gate.
   FingerGuidanceController? _guidance;
   StreamSubscription<FingerGuidanceState>? _guidanceSub;
   FingerGuidanceState _guidanceState = FingerGuidanceState.searching;

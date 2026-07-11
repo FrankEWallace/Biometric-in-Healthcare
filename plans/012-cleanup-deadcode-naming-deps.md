@@ -175,3 +175,84 @@ Stop and report back if:
   actually adopted.
 - Reviewer should confirm the diff contains no logic changes — only deletions,
   renames, imports, comments, and requirements files.
+
+---
+
+## Addendum (2026-07-11, commit `d25ce31`) — Flutter dead-code & duplication
+
+> Added after the four-finger pipeline unification (plans 002/010) orphaned the
+> legacy single-finger mobile surface. This is a SEPARATE, self-contained work
+> item from the Python cleanup above — do it on its own branch
+> (`advisor/012b-flutter-deadcode`) with its own drift check:
+> `git diff --stat d25ce31..HEAD -- mobile/lib/`. All "no caller" claims below
+> were grep-verified at `d25ce31`; **re-verify each before deleting** (STOP if
+> any importer appears). Commands: `cd mobile && dart analyze` (0 errors, 9
+> pre-existing info lints OK) and `flutter test` (smoke test must pass) gate
+> every step.
+
+### A. Dead single-finger service + screen chain (grep-verified no callers)
+
+- `mobile/lib/services/fingerprint_service.dart` — `enrollGallery()` (~:352),
+  `verifyFingerprint()` (~:408): **zero callers** in `lib/`.
+- `registerFingerprint()` (~:304): only caller is
+  `mobile/lib/screens/camera_screen.dart:271`; `CameraScreen` is only
+  constructed by `mobile/lib/screens/fingerprint_capture_screen.dart`, which
+  has **no external references**. The whole chain
+  `fingerprint_capture_screen.dart → camera_screen.dart → registerFingerprint()`
+  (including `CameraScreen`'s `showFingerprintOverlay` mode) is unreachable.
+- Orphaned result models in `fingerprint_service.dart` with no references
+  outside that file: `FingerprintRegisterResult`, `FingerprintGalleryEnrollResult`,
+  `FingerprintVerifyResult` (+ any `FingerprintErrorKind` values used only by them).
+- **Action**: delete `fingerprint_capture_screen.dart` and `camera_screen.dart`;
+  remove the three methods and three orphaned models. Confirm with
+  `grep -rn "CameraScreen\|verifyFingerprint\|enrollGallery\|registerFingerprint\|FingerprintCaptureScreen" mobile/lib --include="*.dart"` → only self-references remain, then `dart analyze` clean. Effort S, risk LOW.
+- **STOP** if any real screen still imports `CameraScreen` (the four-finger
+  screens use `FingerprintLivenessCameraScreen`, not `CameraScreen` — but the
+  in-flight iOS work is uncommitted; re-grep against the live tree).
+
+### B. Dead gallery multi-shot path in FingerprintLivenessCameraScreen
+
+- Both `galleryMode: true` call sites pass `galleryTarget: 1`
+  (`mobile/lib/screens/patient_registration_screen.dart:130-131`,
+  `mobile/lib/screens/clerk/fingerprint_enroll_screen.dart:47-48`); no other
+  `galleryMode` construction exists. With target 1 the multi-shot loop
+  (`fingerprint_liveness_camera_screen.dart` ~:485-513) never runs, so
+  `_ScreenState.repositioning`, `_GalleryProgressBar`'s reposition branch, and
+  the "shift your hand" instruction are unreachable.
+- `FingerprintGalleryResult.livenessToken` is populated but **never consumed**
+  (both callers use only `capture.captures.first` and call `enrollHand()`,
+  which takes no liveness token) — the gallery-enroll endpoint it was built for
+  is the dead `enrollGallery()` from part A.
+- **Action** (effort M, risk MED — interwoven with the live capture state
+  machine): collapse `galleryMode` to a single-capture pop (or remove it and
+  have the two enroll screens consume the plain `XFile`), dropping
+  `galleryTarget`, `_GalleryProgressBar`, `_ScreenState.repositioning`, and the
+  `livenessToken` plumbing. Do this AFTER part A. **STOP** if collapsing risks
+  the single-capture path — report and leave as-is.
+
+### C. Consolidate duplicated private widgets/helpers
+
+Grep-verified duplicate sites (extract into `mobile/lib/widgets/`, effort M,
+risk LOW–MED — mechanical, watch for silently-drifted copies):
+
+- `_HandOption` ×4: `verification_screen.dart:551`,
+  `verify/multimodal_verification_screen.dart:369`,
+  `verify/hand_verification_screen.dart:410`, `visit/stage_verify_screen.dart:697`.
+- `_verifyHandBothSides` ×2 (identical bodies): `clerk/clerk_scan_screen.dart:144`,
+  `clerk/visit_detail_screen.dart:123` — extract to a `FingerprintService`
+  method or shared helper (also relevant to CORRECT: a fix must currently be
+  applied twice).
+- `_ErrorBanner` ×6, `_VerifyingView` ×4, `_Badge` ×3 (locations in the audit
+  notes; re-grep to confirm before touching).
+- Note: plan 019 intentionally copies `_showAccessRestrictedDialog` into the
+  multimodal screen; fold that into this consolidation too.
+
+### D. Related correctness note (not a deletion — see also)
+
+`_verifyHandBothSides` issues TWO full `/verify/hand` 1:N calls per user
+"attempt" on a right-hand no-match (one right, one left), so one attempt can
+produce two server verification-log rows and double the server throttle spend,
+while the client `_attempts` counter increments once. Consider a single
+both-hands server match or an explicit "try other hand" action. Track as a
+correctness follow-up; out of scope for pure cleanup but flagged here so the
+consolidation in part C doesn't cement the double-call into a shared helper.

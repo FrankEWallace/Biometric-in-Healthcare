@@ -120,7 +120,12 @@ class _LivenessCameraScreenState extends State<LivenessCameraScreen>
       camera,
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.nv21, // Android; iOS ignores this
+      // ML Kit needs bgra8888 on iOS (single plane) and nv21 on Android.
+      // Passing nv21 on iOS yields a 2-plane YUV420 stream whose raw format
+      // InputImageFormatValue rejects, so every frame is dropped and no face
+      // is ever detected.
+      imageFormatGroup:
+          Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
     );
     _controller = ctrl;
 
