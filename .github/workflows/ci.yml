@@ -51,3 +51,23 @@ jobs:
       - name: Run tests
         working-directory: mobile
         run: flutter test
+
+  web-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: web-admin
+        run: npm ci
+      - name: Check
+        working-directory: web-admin
+        run: npm run check
+      - name: Typecheck
+        working-directory: web-admin
+        run: npm run typecheck
+      - name: Build
+        working-directory: web-admin
+        run: npm run build
