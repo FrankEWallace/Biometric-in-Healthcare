@@ -33,17 +33,9 @@ Entry point after login. Shows role-appropriate action cards. Displays the logge
 
 Allows a nurse to verify a patient by:
 1. Entering or scanning a patient ID
-2. Triggering `FingerprintCaptureScreen`
+2. Triggering `FingerprintLivenessCameraScreen`
 3. Submitting to `POST /api/verify`
 4. Navigating to `ResultScreen`
-
----
-
-## FingerprintCaptureScreen
-
-**File:** `lib/screens/fingerprint_capture_screen.dart`
-
-Opens the device camera in a guided overlay. Instructs the user to position their finger and captures on tap. Passes the image path to `FingerprintPreviewScreen`.
 
 ---
 
@@ -52,7 +44,7 @@ Opens the device camera in a guided overlay. Instructs the user to position thei
 **File:** `lib/screens/fingerprint_preview_screen.dart`
 
 Displays the captured image. Allows the user to:
-- **Retake** — go back to `FingerprintCaptureScreen`
+- **Retake** — go back to `FingerprintLivenessCameraScreen`
 - **Confirm** — upload the image to the appropriate API endpoint
 
 ---
@@ -85,14 +77,6 @@ Form for registering a new patient. Fields:
 - Notes
 
 Submits to `POST /api/patients`. On success, optionally proceeds to fingerprint enrollment.
-
----
-
-## CameraScreen
-
-**File:** `lib/screens/camera_screen.dart`
-
-General-purpose camera screen used during patient registration to capture the fingerprint image for initial enrollment.
 
 ---
 

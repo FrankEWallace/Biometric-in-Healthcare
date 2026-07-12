@@ -81,6 +81,14 @@ Four-finger ("hand slap") fused verification — the mobile app captures one han
 
 **Roles:** nurse — **Rate limit:** 30 req / min
 
+**Request fields**
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `image` | string (base64) | — | Whole-hand photo. Required. |
+| `hand` | `right` \| `left` \| `both` | `right` | `both` segments the photo as each hand server-side and keeps the better fused match — one request, one 1:N spend, one verification log. Use it when the flow doesn't ask which hand was photographed (e.g. the clerk check-in/checkout scans). |
+| `gps_latitude`, `gps_longitude`, `wifi_ssid` | — | — | Optional geofence context. |
+
 <Note>
   Advisory only (`needs_review`) until a learned contactless embedding matcher and a calibrated `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` are installed for the deployment — it never auto-accepts on minutiae scores alone, since minutiae is non-discriminative on finger photos (RidgeBase EER ~46%).
 </Note>
