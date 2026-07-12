@@ -11,6 +11,11 @@ import '../../widgets/primary_button.dart';
 import '../ehr_screen.dart';
 import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 import '../result_screen.dart';
+import '../../widgets/access_restricted_dialog.dart';
+import '../../widgets/capture_badge.dart';
+import '../../widgets/error_banner.dart';
+import '../../widgets/hand_option.dart';
+import '../../widgets/verifying_view.dart';
 
 /// Four-finger ("hand slap") patient identification.
 ///
@@ -110,7 +115,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
         if (mounted) setState(() => _capturedImage = null);
       } else if (result.isAccessRestricted) {
         setState(() => _isVerifying = false);
-        await _showAccessRestrictedDialog();
+        await showAccessRestrictedDialog(context);
         if (mounted) setState(() => _capturedImage = null);
       } else {
         await Navigator.push(
@@ -195,34 +200,6 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
     );
   }
 
-  /// access_restricted (plan 005): the patient was identified nationally, but
-  /// this facility is not authorized to view their record. The server sends no
-  /// PII — never display patient details here.
-  Future<void> _showAccessRestrictedDialog() {
-    return showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.lock_outline, color: Color(0xFF6B7280), size: 22),
-          SizedBox(width: 8),
-          Text('Access Restricted'),
-        ]),
-        content: const Text(
-          'This patient was identified, but they are registered at another '
-          'facility. You are not authorized to view their records here. '
-          'Request access through a referral or the patient\'s consent.',
-          style: TextStyle(fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _verifyErrorMessage(FingerprintException e) {
     switch (e.kind) {
       case FingerprintErrorKind.network:
@@ -250,7 +227,12 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Identify by Hand')),
       body: SafeArea(
-        child: _isVerifying ? const _VerifyingView() : _buildContent(),
+        child: _isVerifying
+            ? const VerifyingView(
+                title: 'Identifying patient…',
+                subtitle:
+                    'Segmenting 4 fingers and matching against enrolled patients')
+            : _buildContent(),
       ),
     );
   }
@@ -289,7 +271,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
           const SizedBox(height: 20),
 
           if (_error != null) ...[
-            _ErrorBanner(
+            ErrorBanner(
                 message: _error!,
                 onDismiss: () => setState(() => _error = null)),
             const SizedBox(height: 16),
@@ -304,7 +286,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
           const SizedBox(height: 10),
           Row(
             children: [
-              _HandOption(
+              HandOption(
                 label: 'Right Hand',
                 selected: _hand == 'right',
                 onTap: () => setState(() {
@@ -313,7 +295,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
                 }),
               ),
               const SizedBox(width: 12),
-              _HandOption(
+              HandOption(
                 label: 'Left Hand',
                 selected: _hand == 'left',
                 onTap: () => setState(() {
@@ -373,7 +355,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
                 Positioned(
                   top: 12,
                   left: 12,
-                  child: _Badge(
+                  child: CaptureBadge(
                       icon: Icons.check_circle,
                       label: 'Captured',
                       color: AppColors.success),
@@ -383,7 +365,7 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
                   right: 12,
                   child: GestureDetector(
                     onTap: _openCamera,
-                    child: const _Badge(
+                    child: const CaptureBadge(
                         icon: Icons.refresh,
                         label: 'Retake',
                         color: Colors.white70),
@@ -407,135 +389,6 @@ class _HandVerificationScreenState extends State<HandVerificationScreen> {
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
 
-class _HandOption extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
 
-  const _HandOption(
-      {required this.label, required this.selected, required this.onTap});
 
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.primary.withValues(alpha: 0.1)
-                : AppColors.secondary,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected ? AppColors.primary : AppColors.divider,
-              width: selected ? 1.5 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.back_hand_outlined,
-                color:
-                    selected ? AppColors.primary : AppColors.textSecondary,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color:
-                      selected ? AppColors.primary : AppColors.textSecondary,
-                  fontSize: 13,
-                  fontWeight:
-                      selected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
-class _VerifyingView extends StatelessWidget {
-  const _VerifyingView();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        CircularProgressIndicator(color: AppColors.primary),
-        SizedBox(height: 20),
-        Text('Identifying patient…',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
-        SizedBox(height: 6),
-        Text('Segmenting 4 fingers and matching against enrolled patients',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-      ]),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  const _Badge({required this.icon, required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, color: color, size: 14),
-        const SizedBox(width: 5),
-        Text(label,
-            style: TextStyle(
-                color: color, fontSize: 12, fontWeight: FontWeight.w500)),
-      ]),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  final String message;
-  final VoidCallback onDismiss;
-  const _ErrorBanner({required this.message, required this.onDismiss});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-      ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Padding(
-            padding: EdgeInsets.only(top: 1),
-            child:
-                Icon(Icons.error_outline, color: AppColors.error, size: 18)),
-        const SizedBox(width: 8),
-        Expanded(
-            child: Text(message,
-                style: const TextStyle(
-                    color: AppColors.error, fontSize: 13, height: 1.4))),
-        GestureDetector(
-            onTap: onDismiss,
-            child: const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Icon(Icons.close, color: AppColors.error, size: 16))),
-      ]),
-    );
-  }
-}
