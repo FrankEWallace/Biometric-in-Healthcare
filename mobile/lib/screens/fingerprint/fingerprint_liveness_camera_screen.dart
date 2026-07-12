@@ -14,31 +14,19 @@ import '../../widgets/fingerprint_overlay.dart';
 
 /// Full-screen fingerprint capture with server-side optical-flow liveness check.
 ///
-/// Two modes:
-///   • Single (default): captures [_frameTarget] stills in rapid succession,
-///     runs liveness, and — if live — pops with the last [XFile]. Used by
-///     verification and legacy single-finger enrollment.
-///   • Gallery ([galleryMode] = true): auto-triggers [galleryTarget] captures
-///     of the same finger in ONE session (with an advisory reposition nudge
-///     between shots), runs liveness ONCE, and pops a [FingerprintGalleryResult]
-///     carrying all captures + the liveness verdict. Used by gallery enrollment.
+/// Captures [_frameTarget] stills in rapid succession, runs the liveness check,
+/// and — if live — pops with the last [XFile]. Used by verification and by hand
+/// enrollment (the server segments four fingers from the single hand photo).
 ///
 /// Returns `null` if the user cancels.
 class FingerprintLivenessCameraScreen extends StatefulWidget {
   final bool isHandCapture;
   final String? fingerLabel;
 
-  /// When true, capture a gallery of [galleryTarget] stills and pop a
-  /// [FingerprintGalleryResult]; otherwise pop a single [XFile].
-  final bool galleryMode;
-  final int galleryTarget;
-
   const FingerprintLivenessCameraScreen({
     super.key,
     this.isHandCapture = true,
     this.fingerLabel,
-    this.galleryMode = false,
-    this.galleryTarget = 3,
   });
 
   @override
@@ -46,21 +34,9 @@ class FingerprintLivenessCameraScreen extends StatefulWidget {
       _FingerprintLivenessCameraScreenState();
 }
 
-/// Result of a gallery-mode capture session: the captured stills (1–N) plus the
-/// single-use server token proving the session passed liveness.
-class FingerprintGalleryResult {
-  final List<XFile> captures;
-  final String livenessToken;
-
-  const FingerprintGalleryResult({
-    required this.captures,
-    required this.livenessToken,
-  });
-}
-
 // ── State ──────────────────────────────────────────────────────────────────────
 
-enum _ScreenState { initializing, ready, capturing, repositioning, checking, success, failed }
+enum _ScreenState { initializing, ready, capturing, checking, success, failed }
 
 class _FingerprintLivenessCameraScreenState
     extends State<FingerprintLivenessCameraScreen>
@@ -76,9 +52,6 @@ class _FingerprintLivenessCameraScreenState
   int _capturedCount = 0;
   static const int _frameTarget = 6;
   static const Duration _frameInterval = Duration(milliseconds: 120);
-
-  // Gallery mode: how many stills have been collected this session.
-  int _galleryShots = 0;
 
   // A3: sharpness gate — variance of 0-255 grayscale values on a 320px thumbnail.
   // Below this value the image is too blurry to send for liveness check.
@@ -218,11 +191,7 @@ class _FingerprintLivenessCameraScreenState
         // Stop the stream before taking still pictures.
         await _controller?.stopImageStream();
         if (mounted && _screenState == _ScreenState.ready) {
-          if (widget.galleryMode) {
-            _startGalleryCapture();
-          } else {
-            _startCapture();
-          }
+          _startCapture();
         }
       }
     } else {
@@ -405,167 +374,12 @@ class _FingerprintLivenessCameraScreenState
     Navigator.pop(context, popResult);
   }
 
-  // ── Gallery capture (multi-shot, one session) ───────────────────────────────
-
-  /// Capture [widget.galleryTarget] stills of the same finger in one session,
-  /// run liveness ONCE, then pop a [FingerprintGalleryResult].
-  ///
-  /// Shot 1 reuses the last frame of the liveness burst (already verified sharp);
-  /// subsequent shots are taken after a short advisory "reposition" pause so the
-  /// gallery captures slightly different ridge coverage. Blurry extra shots are
-  /// silently skipped — the server enforces the floor-of-1 rule.
-  Future<void> _startGalleryCapture() async {
-    final ctrl = _controller;
-    if (ctrl == null || !ctrl.value.isInitialized) return;
-
-    setState(() {
-      _screenState      = _ScreenState.capturing;
-      _capturedCount    = 0;
-      _galleryShots     = 0;
-      _errorMessage     = null;
-      _meanDisplacement = null;
-    });
-
-    // Lock focus + exposure to the centre so the first burst is sharp.
-    try {
-      final size = ctrl.value.previewSize;
-      if (size != null) {
-        final center = Offset(size.height / 2, size.width / 2);
-        await ctrl.setFocusPoint(center);
-        await ctrl.setExposurePoint(center);
-      }
-      await ctrl.setFocusMode(FocusMode.locked);
-    } catch (_) {}
-    await Future.delayed(const Duration(milliseconds: 400));
-
-    // ── Liveness burst (once per session) ──────────────────────────────────
-    final livenessFrames = <XFile>[];
-    for (int i = 0; i < _frameTarget; i++) {
-      if (!mounted) return;
-      try {
-        final file = await ctrl.takePicture();
-        livenessFrames.add(file);
-
-        // Fast-reject a blurry session on the first frame.
-        if (i == 0) {
-          final sharpness = await _estimateSharpness(file);
-          if (sharpness < _sharpnessThreshold) {
-            ctrl.setFocusMode(FocusMode.auto).catchError((_) {});
-            if (mounted) {
-              setState(() {
-                _screenState  = _ScreenState.failed;
-                _errorMessage = 'Image too blurry. Hold steady, ensure good '
-                    'lighting, and try again.';
-              });
-            }
-            return;
-          }
-        }
-
-        if (mounted) setState(() => _capturedCount = i + 1);
-        if (i < _frameTarget - 1) await Future.delayed(_frameInterval);
-      } catch (_) {
-        break;
-      }
-    }
-
-    if (!mounted) return;
-    if (livenessFrames.length < 2) {
-      ctrl.setFocusMode(FocusMode.auto).catchError((_) {});
-      setState(() {
-        _screenState  = _ScreenState.failed;
-        _errorMessage = 'Could not capture enough frames. Try again.';
-      });
-      return;
-    }
-
-    // ── Gallery stills ─────────────────────────────────────────────────────
-    // Shot 1 = last (sharp) liveness frame; then capture the rest with an
-    // advisory reposition pause between each.
-    final gallery = <XFile>[livenessFrames.last];
-    if (mounted) setState(() => _galleryShots = gallery.length);
-
-    for (int shot = gallery.length; shot < widget.galleryTarget; shot++) {
-      if (!mounted) return;
-
-      // Advisory reposition nudge (not enforced) + let the lens re-focus so the
-      // next still has slightly different coverage.
-      setState(() => _screenState = _ScreenState.repositioning);
-      try {
-        await ctrl.setFocusMode(FocusMode.auto);
-      } catch (_) {}
-      await Future.delayed(const Duration(milliseconds: 900));
-      if (!mounted) return;
-
-      setState(() => _screenState = _ScreenState.capturing);
-      try {
-        await ctrl.setFocusMode(FocusMode.locked);
-        await Future.delayed(const Duration(milliseconds: 250));
-        final file      = await ctrl.takePicture();
-        final sharpness = await _estimateSharpness(file);
-        if (sharpness >= _sharpnessThreshold) {
-          gallery.add(file);
-          if (mounted) setState(() => _galleryShots = gallery.length);
-        }
-      } catch (_) {
-        // Skip a failed/blurry shot — floor-of-1 is enforced server-side.
-      }
-    }
-
-    ctrl.setFocusMode(FocusMode.auto).catchError((_) {});
-    if (!mounted) return;
-
-    // ── Liveness check (once) ──────────────────────────────────────────────
-    setState(() => _screenState = _ScreenState.checking);
-
-    final token = context.read<AuthProvider>().user?.token ?? '';
-
-    try {
-      final result = await FingerprintService().checkLiveness(
-        livenessFrames,
-        token: token,
-      );
-
-      if (!mounted) return;
-
-      if (result.isLive) {
-        await _showSuccessThenPop(
-          FingerprintGalleryResult(
-            captures: gallery,
-            livenessToken: result.livenessToken ?? '',
-          ),
-        );
-      } else {
-        setState(() {
-          _screenState      = _ScreenState.failed;
-          _meanDisplacement = result.meanDisplacement;
-          _errorMessage     = _livenessFailureMessage(result.reason);
-        });
-      }
-    } on FingerprintException catch (e) {
-      if (mounted) {
-        setState(() {
-          _screenState  = _ScreenState.failed;
-          _errorMessage = e.message;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _screenState  = _ScreenState.failed;
-          _errorMessage = 'Liveness check failed unexpectedly. Please try again.';
-        });
-      }
-    }
-  }
-
   void _retry() {
     setState(() {
       _screenState      = _ScreenState.ready;
       _errorMessage     = null;
       _meanDisplacement = null;
       _capturedCount    = 0;
-      _galleryShots     = 0;
       _goodFrameStreak  = 0;
       _liveQuality      = 0.0;
     });
@@ -706,7 +520,6 @@ class _FingerprintLivenessCameraScreenState
                 width:         overlayW,
                 height:        overlayH,
                 isScanning:    _screenState == _ScreenState.capturing ||
-                               _screenState == _ScreenState.repositioning ||
                                _screenState == _ScreenState.checking,
                 isHandCapture: widget.isHandCapture,
                 liveQuality:   _liveQuality,
@@ -732,9 +545,6 @@ class _FingerprintLivenessCameraScreenState
               frameTarget:    _frameTarget,
               fingerLabel:    widget.fingerLabel,
               isHandCapture:  widget.isHandCapture,
-              galleryMode:    widget.galleryMode,
-              galleryShots:   _galleryShots,
-              galleryTarget:  widget.galleryTarget,
               guidanceStatus: _guidance != null ? _guidanceState.status : null,
             ),
           ),
@@ -757,24 +567,9 @@ class _FingerprintLivenessCameraScreenState
         );
 
       case _ScreenState.capturing:
-        if (widget.galleryMode) {
-          return _GalleryProgressBar(
-            shots:  _galleryShots,
-            target: widget.galleryTarget,
-            label:  'Hold still… capturing shot ${_galleryShots + 1}'
-                ' of ${widget.galleryTarget}',
-          );
-        }
         return _ProgressBar(
           capturedCount: _capturedCount,
           frameTarget:   _frameTarget,
-        );
-
-      case _ScreenState.repositioning:
-        return _GalleryProgressBar(
-          shots:  _galleryShots,
-          target: widget.galleryTarget,
-          label:  'Shift your hand slightly for the next shot…',
         );
 
       case _ScreenState.checking:
@@ -881,43 +676,6 @@ class _ProgressBar extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             'Hold still… capturing $capturedCount / $frameTarget',
-            style: const TextStyle(color: Colors.white70, fontSize: 13),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GalleryProgressBar extends StatelessWidget {
-  final int shots;
-  final int target;
-  final String label;
-  const _GalleryProgressBar({
-    required this.shots,
-    required this.target,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black,
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          LinearProgressIndicator(
-            value: target == 0 ? 0 : shots / target,
-            backgroundColor: Colors.white12,
-            valueColor: const AlwaysStoppedAnimation(AppColors.primary),
-            minHeight: 4,
-            borderRadius: BorderRadius.circular(2),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white70, fontSize: 13),
           ),
         ],
@@ -1081,9 +839,6 @@ class _InstructionBanner extends StatelessWidget {
   final int frameTarget;
   final String? fingerLabel;
   final bool isHandCapture;
-  final bool galleryMode;
-  final int galleryShots;
-  final int galleryTarget;
 
   /// Live hand-tracking verdict — null when guidance is unavailable.
   final GuidanceStatus? guidanceStatus;
@@ -1094,9 +849,6 @@ class _InstructionBanner extends StatelessWidget {
     required this.frameTarget,
     required this.fingerLabel,
     required this.isHandCapture,
-    this.galleryMode = false,
-    this.galleryShots = 0,
-    this.galleryTarget = 3,
     this.guidanceStatus,
   });
 
@@ -1105,11 +857,7 @@ class _InstructionBanner extends StatelessWidget {
     final (String main, String? sub) = switch (screenState) {
       _ScreenState.capturing => (
           'Hold still…',
-          galleryMode ? 'Shot ${galleryShots + 1} of $galleryTarget' : null,
-        ),
-      _ScreenState.repositioning => (
-          'Shift your hand slightly',
-          'Capturing a few angles for a stronger match',
+          null,
         ),
       _ScreenState.checking => (
           'Analysing movement…',
