@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:image/image.dart' as img;
 
 // ── Error kind ────────────────────────────────────────────────────────────────
@@ -60,64 +59,6 @@ class FingerprintException implements Exception {
 }
 
 // ── Result models ─────────────────────────────────────────────────────────────
-
-class FingerprintRegisterResult {
-  final int fingerprintId;
-  final double qualityScore;
-  final int keypointCount;
-  final String featureStatus;
-  final String message;
-
-  const FingerprintRegisterResult({
-    required this.fingerprintId,
-    required this.qualityScore,
-    required this.keypointCount,
-    required this.featureStatus,
-    required this.message,
-  });
-
-  factory FingerprintRegisterResult.fromJson(Map<String, dynamic> json) {
-    return FingerprintRegisterResult(
-      fingerprintId: json['fingerprint_id'] as int? ?? 0,
-      qualityScore:  (json['quality_score'] as num?)?.toDouble() ?? 0.0,
-      keypointCount: json['keypoint_count'] as int? ?? 0,
-      featureStatus: json['feature_status'] as String? ?? 'unknown',
-      message:       json['message'] as String? ?? 'Registered successfully.',
-    );
-  }
-}
-
-class FingerprintGalleryEnrollResult {
-  final String message;
-  final int gallerySize;       // number of captures actually stored (1–3)
-  final int requested;         // number of captures uploaded
-  final int? leadFingerprintId;
-  final double? leadQualityScore;
-  final bool isPrimary;
-  final bool needsReenrollment; // true when fewer than a full gallery landed
-
-  const FingerprintGalleryEnrollResult({
-    required this.message,
-    required this.gallerySize,
-    required this.requested,
-    required this.leadFingerprintId,
-    required this.leadQualityScore,
-    required this.isPrimary,
-    required this.needsReenrollment,
-  });
-
-  factory FingerprintGalleryEnrollResult.fromJson(Map<String, dynamic> json) {
-    return FingerprintGalleryEnrollResult(
-      message:           json['message']             as String? ?? 'Enrolled.',
-      gallerySize:       json['gallery_size']        as int?    ?? 0,
-      requested:         json['requested']           as int?    ?? 0,
-      leadFingerprintId: json['lead_fingerprint_id'] as int?,
-      leadQualityScore:  (json['lead_quality_score'] as num?)?.toDouble(),
-      isPrimary:         json['is_primary']          as bool?   ?? false,
-      needsReenrollment: json['needs_reenrollment']  as bool?   ?? false,
-    );
-  }
-}
 
 class FingerprintLivenessResult {
   final bool isLive;
@@ -242,52 +183,6 @@ class HandVerifyResult {
   }
 }
 
-class FingerprintVerifyResult {
-  final String verdict;        // "MATCH" | "NO MATCH"
-  final double score;          // 0.0–100.0
-  final int    probeKeypoints;
-  final String featureStatus;
-  final String patientName;
-  final int    patientId;
-  final String matchedFinger;
-  final int?   verificationLogId; // ID of the created VerificationLog record
-
-  // GoT-HoMIS enrichment (null when unavailable or no match)
-  final Map<String, dynamic>? ehr;
-  final Map<String, dynamic>? insurance;
-
-  const FingerprintVerifyResult({
-    required this.verdict,
-    required this.score,
-    required this.probeKeypoints,
-    required this.featureStatus,
-    required this.patientName,
-    required this.patientId,
-    required this.matchedFinger,
-    this.verificationLogId,
-    this.ehr,
-    this.insurance,
-  });
-
-  bool get isMatch => verdict == 'MATCH';
-
-  factory FingerprintVerifyResult.fromJson(Map<String, dynamic> json) {
-    final patient = json['patient'] as Map<String, dynamic>? ?? {};
-    return FingerprintVerifyResult(
-      verdict:             json['verdict']              as String? ?? 'NO MATCH',
-      score:               (json['score'] as num?)?.toDouble() ?? 0.0,
-      probeKeypoints:      json['probe_keypoints']      as int?    ?? 0,
-      featureStatus:       json['feature_status']       as String? ?? 'unknown',
-      verificationLogId:   json['verification_log_id']  as int?,
-      patientName:         patient['full_name']         as String? ?? 'Unknown',
-      patientId:           patient['id']                as int?    ?? 0,
-      matchedFinger:       json['matched_finger']       as String? ?? '',
-      ehr:                 json['ehr']       as Map<String, dynamic>?,
-      insurance:           json['insurance'] as Map<String, dynamic>?,
-    );
-  }
-}
-
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class FingerprintService {
@@ -297,148 +192,6 @@ class FingerprintService {
         ...AppConfig.defaultHeaders,
         'Authorization': 'Bearer $token',
       };
-
-  // ── Register ──────────────────────────────────────────────────────────────
-
-  /// POST /api/fingerprint/register
-  Future<FingerprintRegisterResult> registerFingerprint(
-    File image, {
-    required String token,
-    required String patientId,
-    String fingerPosition = 'right_index',
-    bool isPrimary = false,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/fingerprint/register');
-
-    final request = http.MultipartRequest('POST', uri)
-      ..headers.addAll(_authHeaders(token))
-      ..fields['patient_id']      = patientId
-      ..fields['finger_position'] = fingerPosition
-      ..fields['is_primary']      = isPrimary ? '1' : '0';
-
-    request.files.add(await _imageUploadPart(image));
-
-    final streamed = await _send(request);
-    final json     = await _parseJson(streamed);
-
-    if (streamed.statusCode == 201) {
-      return FingerprintRegisterResult.fromJson(json);
-    }
-
-    final msg = _extractMessage(json);
-    throw FingerprintException(
-      msg,
-      statusCode: streamed.statusCode,
-      kind: _kindFromStatus(streamed.statusCode, msg),
-    );
-  }
-
-  // ── Gallery enrollment ──────────────────────────────────────────────────────
-
-  /// POST /api/fingerprint/enroll-gallery
-  ///
-  /// Uploads up to 3 captures of a single finger (the "gallery"), captured in
-  /// one auto-trigger session. The server keeps the usable captures, flags the
-  /// highest-quality one as the gallery lead (the 1:N representative), and
-  /// applies the floor-of-1 / needs_reenrollment rules.
-  ///
-  /// [livenessToken] is the single-use token returned by the server's
-  /// liveness check for this capture session; the server rejects the batch
-  /// when it is missing, expired, or already used.
-  ///
-  /// Throws [FingerprintException] with kind [FingerprintErrorKind.noFeatures]
-  /// (server code `no_usable_capture`) when none of the captures were usable —
-  /// callers should fall back to face enrollment.
-  Future<FingerprintGalleryEnrollResult> enrollGallery(
-    List<File> captures, {
-    required String token,
-    required String patientId,
-    required String livenessToken,
-    String fingerPosition = 'right_index',
-    bool isPrimary = false,
-    double? gpsLatitude,
-    double? gpsLongitude,
-    String? wifiSsid,
-  }) async {
-    if (captures.isEmpty) {
-      throw const FingerprintException(
-        'No captures to enroll.',
-        kind: FingerprintErrorKind.noFeatures,
-      );
-    }
-
-    final uri = Uri.parse('$_baseUrl/fingerprint/enroll-gallery');
-
-    final request = http.MultipartRequest('POST', uri)
-      ..headers.addAll(_authHeaders(token))
-      ..fields['patient_id']      = patientId
-      ..fields['finger_position'] = fingerPosition
-      ..fields['is_primary']      = isPrimary ? '1' : '0'
-      ..fields['liveness_token']  = livenessToken;
-
-    if (gpsLatitude  != null) request.fields['gps_latitude']  = gpsLatitude.toString();
-    if (gpsLongitude != null) request.fields['gps_longitude'] = gpsLongitude.toString();
-    if (wifiSsid     != null) request.fields['wifi_ssid']     = wifiSsid;
-
-    for (final capture in captures) {
-      request.files.add(await _imageUploadPart(capture, field: 'captures[]'));
-    }
-
-    final streamed = await _send(request);
-    final json     = await _parseJson(streamed);
-
-    if (streamed.statusCode == 201) {
-      return FingerprintGalleryEnrollResult.fromJson(json);
-    }
-
-    final msg  = _extractMessage(json);
-    final code = json['code'] as String?;
-    throw FingerprintException(
-      msg,
-      statusCode: streamed.statusCode,
-      kind: code == 'no_usable_capture'
-          ? FingerprintErrorKind.noFeatures
-          : _kindFromStatus(streamed.statusCode, msg),
-    );
-  }
-
-  // ── Verify ────────────────────────────────────────────────────────────────
-
-  /// POST /api/fingerprint/verify
-  Future<FingerprintVerifyResult> verifyFingerprint(
-    File image, {
-    required String token,
-    required String patientId,
-    double? gpsLatitude,
-    double? gpsLongitude,
-    String? wifiSsid,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/fingerprint/verify');
-
-    final request = http.MultipartRequest('POST', uri)
-      ..headers.addAll(_authHeaders(token))
-      ..fields['patient_id'] = patientId;
-
-    if (gpsLatitude  != null) request.fields['gps_latitude']  = gpsLatitude.toString();
-    if (gpsLongitude != null) request.fields['gps_longitude'] = gpsLongitude.toString();
-    if (wifiSsid     != null) request.fields['wifi_ssid']     = wifiSsid;
-
-    request.files.add(await _imageUploadPart(image));
-
-    final streamed = await _send(request);
-    final json     = await _parseJson(streamed);
-
-    if (streamed.statusCode == 200) {
-      return FingerprintVerifyResult.fromJson(json);
-    }
-
-    final msg = _extractMessage(json);
-    throw FingerprintException(
-      msg,
-      statusCode: streamed.statusCode,
-      kind: _kindFromStatus(streamed.statusCode, msg),
-    );
-  }
 
   // ── Four-finger ("hand slap") enroll + verify ─────────────────────────────
 
@@ -638,7 +391,8 @@ class FingerprintService {
     }
   }
 
-  /// Decode a non-streamed response body as JSON, mirroring [_parseJson].
+  /// Decode a non-streamed response body as JSON, raising a typed
+  /// [FingerprintException] on an empty body or non-JSON (e.g. HTML) response.
   Map<String, dynamic> _decodeJson(http.Response response) {
     if (response.body.isEmpty) {
       throw FingerprintException(
@@ -664,35 +418,12 @@ class FingerprintService {
     }
   }
 
-  /// Build the multipart part for a captured fingerprint image.
-  ///
-  /// The camera captures at high resolution and the raw JPEG can exceed the
-  /// server's PHP upload limit (`upload_max_filesize`), which makes the dev
-  /// server reset the connection mid-upload — surfacing to the user as a
-  /// generic "Could not reach the server". To avoid that we re-encode here:
-  /// downscale the longest edge to <= 1280 px (the processing pipeline
+  /// Read [image] and re-encode it as a payload-safe JPEG: the camera captures
+  /// at high resolution and the raw JPEG can exceed the server's upload limit,
+  /// so we downscale the longest edge to <= 1280 px (the processing pipeline
   /// downsamples anyway, so ridge detail is preserved) and step the JPEG
-  /// quality down until the payload is comfortably under the limit.
-  ///
-  /// If the bytes can't be decoded we fall back to sending them unchanged.
-  ///
-  /// [field] is the multipart field name — defaults to `fingerprint` for the
-  /// single-capture endpoints; pass `captures[]` for the gallery endpoint.
-  Future<http.MultipartFile> _imageUploadPart(
-    File image, {
-    String field = 'fingerprint',
-  }) async {
-    return http.MultipartFile.fromBytes(
-      field,
-      await _compressedJpegBytes(image),
-      filename: 'fingerprint.jpg',
-      contentType: MediaType('image', 'jpeg'),
-    );
-  }
-
-  /// Read [image] and re-encode it as a payload-safe JPEG (see
-  /// [_imageUploadPart] for why). Falls back to the raw bytes when the image
-  /// can't be decoded.
+  /// quality down until the payload is comfortably under the limit. Falls back
+  /// to the raw bytes when the image can't be decoded.
   Future<List<int>> _compressedJpegBytes(File image) async {
     final raw = await image.readAsBytes();
 
@@ -716,76 +447,6 @@ class FingerprintService {
     }
 
     return jpg;
-  }
-
-  /// Send a [MultipartRequest] and return the response.
-  /// Distinguishes timeout, no-connection, and other transport errors.
-  Future<http.StreamedResponse> _send(http.MultipartRequest request) async {
-    try {
-      return await request.send().timeout(const Duration(seconds: 45));
-    } on TimeoutException {
-      throw const FingerprintException(
-        'Request timed out. The server is taking too long — please try again.',
-        kind: FingerprintErrorKind.network,
-      );
-    } on SocketException {
-      throw const FingerprintException(
-        'No internet connection. Check your network and try again.',
-        kind: FingerprintErrorKind.network,
-      );
-    } on HandshakeException {
-      throw const FingerprintException(
-        'Secure connection failed. Check the server certificate.',
-        kind: FingerprintErrorKind.network,
-      );
-    } catch (_) {
-      throw const FingerprintException(
-        'Could not reach the server. Check your connection.',
-        kind: FingerprintErrorKind.network,
-      );
-    }
-  }
-
-  /// Read and decode the response body as JSON.
-  /// Throws [FingerprintException] with [FingerprintErrorKind.invalidResponse]
-  /// when the body is empty or not valid JSON (e.g., an HTML gateway error).
-  Future<Map<String, dynamic>> _parseJson(
-      http.StreamedResponse streamed) async {
-    late String body;
-    try {
-      body = await streamed.stream.bytesToString();
-    } catch (_) {
-      throw FingerprintException(
-        'Failed to read the server response (${streamed.statusCode}).',
-        statusCode: streamed.statusCode,
-        kind: FingerprintErrorKind.invalidResponse,
-      );
-    }
-
-    if (body.isEmpty) {
-      throw FingerprintException(
-        'The server returned an empty response (${streamed.statusCode}).',
-        statusCode: streamed.statusCode,
-        kind: streamed.statusCode >= 500
-            ? FingerprintErrorKind.serverError
-            : FingerprintErrorKind.invalidResponse,
-      );
-    }
-
-    try {
-      return jsonDecode(body) as Map<String, dynamic>;
-    } on FormatException {
-      // Server returned an HTML error page (e.g., nginx 502/504).
-      throw FingerprintException(
-        streamed.statusCode >= 500
-            ? 'Server error (${streamed.statusCode}). Please try again later.'
-            : 'Unexpected response from the server (${streamed.statusCode}).',
-        statusCode: streamed.statusCode,
-        kind: streamed.statusCode >= 500
-            ? FingerprintErrorKind.serverError
-            : FingerprintErrorKind.invalidResponse,
-      );
-    }
   }
 
   /// Extract the human-readable error string from a JSON body.
