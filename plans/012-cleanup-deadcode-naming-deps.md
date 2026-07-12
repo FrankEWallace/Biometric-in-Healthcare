@@ -234,7 +234,18 @@ Stop and report back if:
   `livenessToken` plumbing. Do this AFTER part A. **STOP** if collapsing risks
   the single-capture path — report and leave as-is.
 
-### C. Consolidate duplicated private widgets/helpers
+### C. Consolidate duplicated private widgets/helpers — DONE
+
+> **Status (2026-07-12): DONE** — after plan 019 merged (so its copied
+> `_showAccessRestrictedDialog` folded into the consolidation). Extracted five
+> shared widgets into `mobile/lib/widgets/`: `HandOption`, `ErrorBanner` (superset
+> with optional `onRetry`), `VerifyingView` (parameterized `title`/`subtitle` —
+> the copies had drifted per-screen), `CaptureBadge` (renamed from `_Badge` to
+> avoid Material's `Badge`), and `showAccessRestrictedDialog()`. Removed the four
+> `_showAccessRestrictedDialog` copies and all private duplicates across 7 screens
+> (−731 lines). Minor reconciliations: `patient_registration`'s error banner
+> adopted the canonical padding, and `verification_screen`'s access dialog gained
+> the referral sentence. `dart analyze` 0 errors; `flutter test` passes.
 
 Grep-verified duplicate sites (extract into `mobile/lib/widgets/`, effort M,
 risk LOW–MED — mechanical, watch for silently-drifted copies):

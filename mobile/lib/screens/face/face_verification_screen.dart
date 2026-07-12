@@ -11,6 +11,10 @@ import '../../widgets/primary_button.dart';
 import 'liveness_camera_screen.dart';
 import '../ehr_screen.dart';
 import '../result_screen.dart';
+import '../../widgets/access_restricted_dialog.dart';
+import '../../widgets/capture_badge.dart';
+import '../../widgets/error_banner.dart';
+import '../../widgets/verifying_view.dart';
 
 /// Hospital-wide face identification.
 ///
@@ -133,7 +137,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
         // Identity resolved nationally, but this facility isn't authorized to
         // view the record (plan 005). No PII is present — show a lock message.
         setState(() => _isVerifying = false);
-        await _showAccessRestrictedDialog();
+        await showAccessRestrictedDialog(context);
         if (mounted) setState(() => _capturedImage = null);
       } else {
         await Navigator.push(
@@ -243,30 +247,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
 
   /// access_restricted (plan 005): patient identified nationally, but this
   /// facility is not authorized to view their record. The server sends no PII.
-  Future<void> _showAccessRestrictedDialog() {
-    return showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.lock_outline, color: Color(0xFF6B7280), size: 22),
-          SizedBox(width: 8),
-          Text('Access Restricted'),
-        ]),
-        content: const Text(
-          'This patient was identified, but they are registered at another '
-          'facility. You are not authorized to view their records here. '
-          'Request access through a referral or the patient\'s consent.',
-          style: TextStyle(fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _retake() => setState(() { _capturedImage = null; _error = null; });
 
@@ -278,7 +258,9 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
       appBar: AppBar(title: const Text('Face Verification')),
       body: SafeArea(
         child: _isVerifying
-            ? const _VerifyingView()
+            ? const VerifyingView(
+                title: 'Identifying patient…',
+                subtitle: 'Comparing against enrolled faces')
             : _buildContent(),
       ),
     );
@@ -316,7 +298,7 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
 
           // Error banner
           if (_error != null) ...[
-            _ErrorBanner(message: _error!, onDismiss: () => setState(() => _error = null)),
+            ErrorBanner(message: _error!, onDismiss: () => setState(() => _error = null)),
             const SizedBox(height: 16),
           ],
 
@@ -347,23 +329,6 @@ class _FaceVerificationScreenState extends State<FaceVerificationScreen> {
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
 
-class _VerifyingView extends StatelessWidget {
-  const _VerifyingView();
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        CircularProgressIndicator(color: AppColors.primary),
-        SizedBox(height: 20),
-        Text('Identifying patient…',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
-        SizedBox(height: 6),
-        Text('Comparing against enrolled faces',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-      ]),
-    );
-  }
-}
 
 class _FaceScanPrompt extends StatelessWidget {
   final VoidCallback onTap;
@@ -415,14 +380,14 @@ class _CapturedPreview extends StatelessWidget {
         ),
         Positioned(
           top: 12, left: 12,
-          child: _Badge(
+          child: CaptureBadge(
               icon: Icons.check_circle, label: 'Captured', color: AppColors.success),
         ),
         Positioned(
           top: 12, right: 12,
           child: GestureDetector(
             onTap: onRetake,
-            child: _Badge(icon: Icons.refresh, label: 'Retake', color: Colors.white70),
+            child: CaptureBadge(icon: Icons.refresh, label: 'Retake', color: Colors.white70),
           ),
         ),
       ],
@@ -430,56 +395,4 @@ class _CapturedPreview extends StatelessWidget {
   }
 }
 
-class _Badge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  const _Badge({required this.icon, required this.label, required this.color});
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, color: color, size: 14),
-        const SizedBox(width: 5),
-        Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500)),
-      ]),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  final String message;
-  final VoidCallback onDismiss;
-  const _ErrorBanner({required this.message, required this.onDismiss});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-      ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Padding(
-            padding: EdgeInsets.only(top: 1),
-            child: Icon(Icons.error_outline, color: AppColors.error, size: 18)),
-        const SizedBox(width: 8),
-        Expanded(child: Text(message,
-            style: const TextStyle(color: AppColors.error, fontSize: 13, height: 1.4))),
-        GestureDetector(
-            onTap: onDismiss,
-            child: const Padding(padding: EdgeInsets.only(left: 8),
-                child: Icon(Icons.close, color: AppColors.error, size: 16))),
-      ]),
-    );
-  }
-}

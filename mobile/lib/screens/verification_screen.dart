@@ -14,6 +14,10 @@ import '../widgets/primary_button.dart';
 import 'ehr_screen.dart';
 import 'fingerprint/fingerprint_liveness_camera_screen.dart';
 import 'result_screen.dart';
+import '../widgets/access_restricted_dialog.dart';
+import '../widgets/error_banner.dart';
+import '../widgets/hand_option.dart';
+import '../widgets/verifying_view.dart';
 
 class VerificationScreen extends StatefulWidget {
   const VerificationScreen({super.key});
@@ -176,7 +180,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
       if (result.isAccessRestricted) {
         setState(() => _isVerifying = false);
-        await _showAccessRestrictedDialog();
+        await showAccessRestrictedDialog(context);
         if (mounted) setState(() => _capturedImage = null);
         return;
       }
@@ -321,29 +325,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
   /// access_restricted (plan 005): the patient was identified nationally, but
   /// this facility is not authorized to view their record. The server sends
   /// no PII in this case.
-  Future<void> _showAccessRestrictedDialog() {
-    return showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.lock_outline, color: Color(0xFF6B7280), size: 22),
-          SizedBox(width: 8),
-          Text('Access Restricted'),
-        ]),
-        content: const Text(
-          'This patient was identified, but they are registered at another '
-          'facility. You are not authorized to view their records here.',
-          style: TextStyle(fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
 
   /// Returns an actionable, user-facing message for each error kind.
   String _verifyErrorMessage(FingerprintException e) {
@@ -385,7 +366,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
       appBar: AppBar(title: const Text('Verify Patient')),
       body: SafeArea(
         child: _isVerifying
-            ? const _VerifyingView()
+            ? const VerifyingView(
+                title: 'Verifying fingerprint…',
+                subtitle: 'Comparing against stored template')
             : _buildContent(),
       ),
     );
@@ -434,7 +417,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
             // ── Error banner ────────────────────────────────────────────
             if (_error != null) ...[
-              _ErrorBanner(
+              ErrorBanner(
                 message: _error!,
                 onDismiss: () => setState(() => _error = null),
                 onRetry: _capturedImage != null ? _verify : null,
@@ -483,7 +466,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
             const SizedBox(height: 10),
             Row(
               children: [
-                _HandOption(
+                HandOption(
                   label: 'Right Hand',
                   selected: _hand == 'right',
                   onTap: () => setState(() {
@@ -492,7 +475,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   }),
                 ),
                 const SizedBox(width: 12),
-                _HandOption(
+                HandOption(
                   label: 'Left Hand',
                   selected: _hand == 'left',
                   onTap: () => setState(() {
@@ -548,87 +531,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
 
-class _HandOption extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
 
-  const _HandOption(
-      {required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.primary.withValues(alpha: 0.1)
-                : AppColors.secondary,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected ? AppColors.primary : AppColors.divider,
-              width: selected ? 1.5 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.back_hand_outlined,
-                color:
-                    selected ? AppColors.primary : AppColors.textSecondary,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color:
-                      selected ? AppColors.primary : AppColors.textSecondary,
-                  fontSize: 13,
-                  fontWeight:
-                      selected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _VerifyingView extends StatelessWidget {
-  const _VerifyingView();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(color: AppColors.primary),
-          SizedBox(height: 20),
-          Text(
-            'Verifying fingerprint…',
-            style: TextStyle(
-                color: AppColors.textSecondary, fontSize: 15),
-          ),
-          SizedBox(height: 6),
-          Text(
-            'Comparing against stored template',
-            style: TextStyle(
-                color: AppColors.textSecondary, fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _ScanPrompt extends StatelessWidget {
   final VoidCallback onTap;
@@ -756,85 +659,6 @@ class _CapturedPreview extends StatelessWidget {
   }
 }
 
-class _ErrorBanner extends StatelessWidget {
-  final String message;
-  final VoidCallback onDismiss;
-
-  /// When provided, shows a "Retry" button inside the banner.
-  final VoidCallback? onRetry;
-
-  const _ErrorBanner({
-    required this.message,
-    required this.onDismiss,
-    this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 1),
-                child: Icon(Icons.error_outline,
-                    color: AppColors.error, size: 18),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                      color: AppColors.error, fontSize: 13, height: 1.4),
-                ),
-              ),
-              GestureDetector(
-                onTap: onDismiss,
-                child: const Padding(
-                  padding: EdgeInsets.only(left: 8),
-                  child: Icon(Icons.close, color: AppColors.error, size: 16),
-                ),
-              ),
-            ],
-          ),
-          if (onRetry != null) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: GestureDetector(
-                onTap: onRetry,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: AppColors.error,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'Retry',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 // Shows the confirmed patient as a dismissible tile.
 class _SelectedPatientChip extends StatelessWidget {
