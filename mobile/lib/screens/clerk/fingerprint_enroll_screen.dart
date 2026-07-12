@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/patient.dart';
@@ -38,14 +39,12 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
 
   Future<void> _openCamera() async {
     setState(() => _error = null);
-    final result = await Navigator.push<FingerprintGalleryResult?>(
+    final result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
         builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
           fingerLabel: _steps[_currentIndex].label,
-          galleryMode: true,
-          galleryTarget: 1,
         ),
       ),
     );
@@ -53,14 +52,14 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
     await _upload(result);
   }
 
-  Future<void> _upload(FingerprintGalleryResult capture) async {
+  Future<void> _upload(XFile capture) async {
     setState(() { _uploading = true; _error = null; });
     try {
       final position = await LocationService().getCurrentPosition();
       final wifiSsid = await NetworkService().getCurrentSsid();
 
       final res = await _fpService.enrollHand(
-        File(capture.captures.first.path),
+        File(capture.path),
         token:        _token,
         patientId:    widget.patient.id.toString(),
         hand:         _steps[_currentIndex].hand,

@@ -190,9 +190,9 @@ Stop and report back if:
 > pre-existing info lints OK) and `flutter test` (smoke test must pass) gate
 > every step.
 
-> **Status (2026-07-12): Parts A + D DONE** — merged to `main` via PR #21 on
-> branch `advisor/012b-flutter-deadcode`. Parts B and C remain TODO (C must run
-> after plan 019, per the README dependency notes).
+> **Status (2026-07-12): Parts A, B, C, D DONE** — A + D merged via PR #21;
+> C after plan 019; B (this addendum) collapses the dead gallery path. All four
+> parts of the 012b addendum are now complete.
 
 ### A. Dead single-finger service + screen chain (grep-verified no callers) — DONE
 
@@ -214,7 +214,18 @@ Stop and report back if:
   screens use `FingerprintLivenessCameraScreen`, not `CameraScreen` — but the
   in-flight iOS work is uncommitted; re-grep against the live tree).
 
-### B. Dead gallery multi-shot path in FingerprintLivenessCameraScreen
+### B. Dead gallery multi-shot path in FingerprintLivenessCameraScreen — DONE
+
+> **Status (2026-07-12): DONE** — premise re-verified against the live tree
+> (both callers pass `galleryTarget: 1` and read only `capture.captures.first`,
+> never `livenessToken`). Removed `galleryMode`/`galleryTarget`, the
+> `FingerprintGalleryResult` class, `_startGalleryCapture()`,
+> `_ScreenState.repositioning`, `_GalleryProgressBar`, `_galleryShots`, and the
+> "shift your hand" reposition UI. Both enroll screens now consume the popped
+> `XFile` directly (`File(capture.path)`). The single-capture path
+> (`_startCapture` → pops `frames.last`) is unchanged and is now the only path,
+> so the STOP condition did not trigger. `dart analyze` 0 errors (9 pre-existing
+> info lints); `flutter test` green. Mobile-only — no server/VPS change.
 
 - Both `galleryMode: true` call sites pass `galleryTarget: 1`
   (`mobile/lib/screens/patient_registration_screen.dart:130-131`,

@@ -122,14 +122,12 @@ class _PatientRegistrationScreenState
   Future<void> _openCameraForCurrentFinger(PatientModel patient) async {
     final handStep = _handSteps[_currentFingerIndex];
 
-    final result = await Navigator.push<FingerprintGalleryResult?>(
+    final result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
         builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
           fingerLabel: handStep.label,
-          galleryMode: true,
-          galleryTarget: 1,
         ),
       ),
     );
@@ -155,7 +153,7 @@ class _PatientRegistrationScreenState
   Future<void> _enrollHand(
     PatientModel patient,
     _HandStep handStep,
-    FingerprintGalleryResult capture,
+    XFile capture,
   ) async {
     setState(() {
       _fingerUploading = true;
@@ -170,7 +168,7 @@ class _PatientRegistrationScreenState
       final wifiSsid = await NetworkService().getCurrentSsid();
 
       final res = await FingerprintService().enrollHand(
-        File(capture.captures.first.path),
+        File(capture.path),
         token:        token,
         patientId:    patient.id.toString(),
         hand:         handStep.hand,
