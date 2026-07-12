@@ -422,7 +422,10 @@ class VerificationController extends Controller
     {
         $data = $request->validate([
             'image'         => 'required|string',
-            'hand'          => 'nullable|in:right,left',
+            // 'both' segments the photo as each hand server-side and keeps the
+            // better match, so the caller need not know which hand was shot —
+            // one request, one 1:N spend, one verification log for the attempt.
+            'hand'          => 'nullable|in:right,left,both',
             'gps_latitude'  => 'nullable|numeric|between:-90,90',
             'gps_longitude' => 'nullable|numeric|between:-180,180',
             'wifi_ssid'     => 'nullable|string|max:100',
@@ -444,46 +447,51 @@ class VerificationController extends Controller
             ], 403);
         }
 
-        // 2. Segment + extract the four probe fingers
-        try {
-            $processed = $this->fingerprint->processHand($data['image'], $hand, 'contactless');
-        } catch (\Throwable $e) {
-            $this->writeLog($operator->id, $hospital->id, null, null, null, 'error', $data, $e->getMessage(), 'hand');
-            return response()->json(['error' => 'Hand processing failed: ' . $e->getMessage()], 422);
+        // 2–3. Segment + fuse-match. The probe photo's hand is unknown to the
+        //       clerk flow, so hand='both' scores each orientation and keeps the
+        //       higher fused result — a SINGLE 1:N spend and one verification log
+        //       per attempt (replaces the client firing two /verify/hand calls).
+        $orientations = $hand === 'both' ? ['right', 'left'] : [$hand];
+        $candidates   = $this->loadCandidateHands();
+
+        $attempts        = [];
+        $processingError = null;
+        foreach ($orientations as $orientation) {
+            try {
+                $attempts[] = $this->scoreHandOrientation($data['image'], $orientation, $candidates);
+            } catch (\Throwable $e) {
+                $processingError = $e; // only fatal if EVERY orientation fails to process
+            }
         }
 
-        $probe = [];
-        foreach ($processed['fingers'] ?? [] as $finger) {
-            $probe[$finger['finger_position']] = $finger['template'];
+        // Every orientation failed to segment — mirror the single-hand error path.
+        if (empty($attempts)) {
+            $message = $processingError?->getMessage() ?? 'unknown error';
+            $this->writeLog($operator->id, $hospital->id, null, null, null, 'error', $data, $message, 'hand');
+            return response()->json(['error' => 'Hand processing failed: ' . $message], 422);
         }
 
-        if (count($probe) < self::MIN_HAND_FINGERS) {
+        // Keep orientations that yielded enough usable fingers; if none cleared
+        // the floor it's a retake (report the best usable count for guidance).
+        $usable = array_filter($attempts, fn ($a) => $a['usable'] >= self::MIN_HAND_FINGERS);
+        if (empty($usable)) {
+            $bestUsable = collect($attempts)->max('usable');
             return response()->json([
                 'error'          => 'Too few usable fingers in the probe photo. Please retake.',
-                'usable_fingers' => count($probe),
+                'usable_fingers' => $bestUsable,
                 'required'       => self::MIN_HAND_FINGERS,
             ], 422);
         }
 
-        // 3. Build candidate hands (one per enrolled patient) and fuse-match
-        $candidates = $this->loadCandidateHands();
+        // Winner = highest fused score across the scored orientations.
+        $best = collect($usable)->sortByDesc('score')->first();
 
-        $fusedScore = 0.0;
-        $matchedPatientId = null;
-        $matcherName = $processed['matcher'] ?? 'unknown';
-        $perFinger = [];
-
-        if (! empty($candidates)) {
-            try {
-                $result = $this->fingerprint->matchHand($probe, $candidates, 'contactless');
-                $fusedScore       = (float) ($result['score'] ?? 0.0);
-                $matchedPatientId = $result['patient_id'] ?? null;
-                $matcherName      = $result['matcher'] ?? $matcherName;
-                $perFinger        = $result['per_finger'] ?? [];
-            } catch (\Throwable $e) {
-                // Non-fatal — fall through to needs_review with score 0.
-            }
-        }
+        $probe            = $best['probe'];
+        $fusedScore       = $best['score'];
+        $matchedPatientId = $best['patient_id'];
+        $matcherName      = $best['matcher'];
+        $perFinger        = $best['per_finger'];
+        $fingersUsed      = $best['fingers_used'];
 
         // 4. Placeholder-safe decision
         $threshold = config('services.fingerprint.contactless_match_threshold'); // null until embedding lands
@@ -541,7 +549,7 @@ class VerificationController extends Controller
                 'log_id'       => $log->id,
                 'fused_score'  => round($fusedScore, 2),
                 'matcher'      => $matcherName,
-                'fingers_used' => $result['fingers_used'] ?? array_keys($probe),
+                'fingers_used' => $fingersUsed,
             ],
         );
 
@@ -560,6 +568,55 @@ class VerificationController extends Controller
                   . 'Install a learned embedding matcher + calibrated threshold to auto-decide.'
                 : null,
         ]);
+    }
+
+    /**
+     * Segment one hand-orientation reading of the probe photo and fuse-match it
+     * against the pre-loaded candidate hands. Stateless per call (candidates are
+     * loaded once by the caller), so verifyHand can score each orientation for
+     * the 'both' convenience without altering single-hand behavior: a right/left
+     * request still runs exactly one processHand + one matchHand.
+     *
+     * @param  array  $candidates  Output of loadCandidateHands(), loaded once.
+     * @return array{probe: array, usable: int, score: float, patient_id: ?int, matcher: string, per_finger: array, fingers_used: array}
+     * @throws \Throwable when the Python segmentation call itself fails.
+     */
+    private function scoreHandOrientation(string $image, string $hand, array $candidates): array
+    {
+        $processed = $this->fingerprint->processHand($image, $hand, 'contactless');
+
+        $probe = [];
+        foreach ($processed['fingers'] ?? [] as $finger) {
+            $probe[$finger['finger_position']] = $finger['template'];
+        }
+
+        $out = [
+            'probe'        => $probe,
+            'usable'       => count($probe),
+            'score'        => 0.0,
+            'patient_id'   => null,
+            'matcher'      => $processed['matcher'] ?? 'unknown',
+            'per_finger'   => [],
+            'fingers_used' => array_keys($probe),
+        ];
+
+        // Too few fingers, or an empty gallery — nothing to match against.
+        if ($out['usable'] < self::MIN_HAND_FINGERS || empty($candidates)) {
+            return $out;
+        }
+
+        try {
+            $result = $this->fingerprint->matchHand($probe, $candidates, 'contactless');
+            $out['score']        = (float) ($result['score'] ?? 0.0);
+            $out['patient_id']   = $result['patient_id'] ?? null;
+            $out['matcher']      = $result['matcher'] ?? $out['matcher'];
+            $out['per_finger']   = $result['per_finger'] ?? [];
+            $out['fingers_used'] = $result['fingers_used'] ?? $out['fingers_used'];
+        } catch (\Throwable $e) {
+            // Non-fatal — leave score 0 so this orientation loses to any real match.
+        }
+
+        return $out;
     }
 
     /**
