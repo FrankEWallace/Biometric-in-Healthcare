@@ -190,7 +190,11 @@ Stop and report back if:
 > pre-existing info lints OK) and `flutter test` (smoke test must pass) gate
 > every step.
 
-### A. Dead single-finger service + screen chain (grep-verified no callers)
+> **Status (2026-07-12): Parts A + D DONE** — merged to `main` via PR #21 on
+> branch `advisor/012b-flutter-deadcode`. Parts B and C remain TODO (C must run
+> after plan 019, per the README dependency notes).
+
+### A. Dead single-finger service + screen chain (grep-verified no callers) — DONE
 
 - `mobile/lib/services/fingerprint_service.dart` — `enrollGallery()` (~:352),
   `verifyFingerprint()` (~:408): **zero callers** in `lib/`.
@@ -247,12 +251,19 @@ risk LOW–MED — mechanical, watch for silently-drifted copies):
 - Note: plan 019 intentionally copies `_showAccessRestrictedDialog` into the
   multimodal screen; fold that into this consolidation too.
 
-### D. Related correctness note (not a deletion — see also)
+### D. Related correctness note (not a deletion — see also) — DONE
 
-`_verifyHandBothSides` issues TWO full `/verify/hand` 1:N calls per user
-"attempt" on a right-hand no-match (one right, one left), so one attempt can
+`_verifyHandBothSides` issued TWO full `/verify/hand` 1:N calls per user
+"attempt" on a right-hand no-match (one right, one left), so one attempt could
 produce two server verification-log rows and double the server throttle spend,
-while the client `_attempts` counter increments once. Consider a single
-both-hands server match or an explicit "try other hand" action. Track as a
-correctness follow-up; out of scope for pure cleanup but flagged here so the
-consolidation in part C doesn't cement the double-call into a shared helper.
+while the client `_attempts` counter incremented once.
+
+**Resolved (2026-07-12, PR #21) via the "single both-hands server match" option:**
+`VerificationController::verifyHand` now accepts `hand='both'`. It loads the
+candidate gallery once, scores each orientation with a stateless
+`scoreHandOrientation()` helper, keeps the higher fused score, and writes a
+**single** verification log + audit row per attempt. A `right`/`left` request is
+unchanged (exactly one `processHand` + one `matchHand`). Both clerk
+`_verifyHandBothSides` helpers collapse to one `verifyHand(hand: 'both')` call,
+and `HandVerifyAccessControlTest::both_hands_mode_writes_one_verification_log`
+locks in the one-row-per-attempt guarantee.

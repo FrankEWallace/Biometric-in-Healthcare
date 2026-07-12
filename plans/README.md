@@ -34,7 +34,7 @@ against the live code before a plan was written.
 | 019 | Bring multimodal verify under the ADR-013 national-identity access gate | P1 | M | — | TODO |
 | 020 | Harden web-admin auth (token/cookies/server role gate) + add its CI & typecheck | P1 | L | — | TODO |
 | 021 | Fix web-admin data-layer correctness (401, load races, pagination, render guard) | P2 | M | 020 | TODO |
-| 012b | Flutter dead-code & duplication cleanup (addendum inside plan 012) | P3 | M | — | TODO |
+| 012b | Flutter dead-code & duplication cleanup (addendum inside plan 012) | P3 | M | — | PARTIAL (2026-07-12 — parts A+D DONE, merged to `main` via PR #21: A deleted the dead single-finger chain (`camera_screen.dart`, `fingerprint_capture_screen.dart`, 3 `FingerprintService` methods + models, ~1500 lines); D moved the double `verifyHand` 1:N to a server `hand='both'` mode — one request, one verification-log row — with a regression test. Parts B (dead gallery multi-shot path) and C (widget consolidation) still TODO; C must follow 019) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
 
@@ -142,9 +142,11 @@ Priority rationale for the new plans:
   `_showAccessRestrictedDialog` into the multimodal screen; 012b's part C then
   consolidates all such duplicates in one pass. Running 012b first would force
   019 to reconcile against a moved widget.
-- **012b part D (double `verifyHand` call)** is a correctness follow-up, not
-  cleanup — flagged so the part-C consolidation doesn't cement the double-call
-  into a shared helper.
+- **012b part D (double `verifyHand` call)** — DONE (2026-07-12, PR #21). Fixed
+  server-side: `/verify/hand` gained a `hand='both'` mode that scores both
+  orientations in one request and writes a single verification log, so the
+  remaining part-C consolidation has no double-call to cement into a shared
+  helper.
 
 ## Findings considered and rejected
 
