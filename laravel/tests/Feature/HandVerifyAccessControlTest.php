@@ -78,6 +78,30 @@ class HandVerifyAccessControlTest extends TestCase
         });
     }
 
+    /**
+     * hand='both' scores each orientation server-side; the right reading misses
+     * and the left reading is the true match. Mockery returns the two matchHand
+     * results in call order.
+     */
+    private function mockBothHands(int $matchedPatientId, float $rightScore, float $leftScore): void
+    {
+        $this->mock(FingerprintService::class, function ($mock) use ($matchedPatientId, $rightScore, $leftScore) {
+            $mock->shouldReceive('processHand')->twice()->andReturn([
+                'matcher' => 'ridgeformer_embedding',
+                'domain'  => 'contactless',
+                'fingers' => [
+                    ['finger_position' => 'right_index',  'template' => ['format' => 'embedding']],
+                    ['finger_position' => 'right_middle', 'template' => ['format' => 'embedding']],
+                    ['finger_position' => 'right_ring',   'template' => ['format' => 'embedding']],
+                ],
+            ]);
+            $mock->shouldReceive('matchHand')->twice()->andReturn(
+                ['patient_id' => $matchedPatientId, 'score' => $rightScore, 'matcher' => 'ridgeformer_embedding', 'per_finger' => []],
+                ['patient_id' => $matchedPatientId, 'score' => $leftScore,  'matcher' => 'ridgeformer_embedding', 'per_finger' => []],
+            );
+        });
+    }
+
     private function payload(): array
     {
         return ['image' => base64_encode('hand'), 'hand' => 'right'];
@@ -126,5 +150,29 @@ class HandVerifyAccessControlTest extends TestCase
             'status'     => 'access_restricted',
             'modality'   => 'hand',
         ]);
+    }
+
+    /**
+     * Plan 012b part D — hand='both' scores both orientations in ONE request and
+     * keeps the better match, writing a SINGLE verification log for the attempt.
+     * Previously the client fired two /verify/hand calls (right then left),
+     * producing two log rows and doubling the throttle spend per attempt.
+     */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function both_hands_mode_writes_one_verification_log(): void
+    {
+        $patient = Patient::factory()->create(['hospital_id' => $this->hospital->id]);
+        $this->enrollHand($patient);
+        // Right reading is below threshold; left reading is the true match.
+        $this->mockBothHands($patient->id, 40.0, 82.0);
+
+        $this->actingAs($this->nurse)
+            ->postJson(self::URL, ['image' => base64_encode('hand'), 'hand' => 'both'])
+            ->assertStatus(200)
+            ->assertJsonPath('status', 'matched')
+            ->assertJsonPath('patient.id', $patient->id);
+
+        // One attempt = one log row, even though both orientations were scored.
+        $this->assertDatabaseCount('verification_logs', 1);
     }
 }
