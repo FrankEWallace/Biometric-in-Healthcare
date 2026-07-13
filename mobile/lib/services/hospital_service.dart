@@ -35,6 +35,22 @@ class HospitalService {
     throw HospitalException('Failed to load hospitals.');
   }
 
+  Future<Map<String, dynamic>> getHospital({
+    required String token,
+    required int hospitalId,
+  }) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/hospitals/$hospitalId'),
+      headers: _auth(token),
+    ).timeout(const Duration(seconds: 15));
+
+    if (res.statusCode == 200) {
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      return Map<String, dynamic>.from(body['hospital'] as Map);
+    }
+    throw HospitalException('Failed to load hospital.');
+  }
+
   Future<Map<String, dynamic>> createHospital({
     required String token,
     required String name,

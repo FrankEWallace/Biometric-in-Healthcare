@@ -7,20 +7,28 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Restrict access to hospital-network IP ranges only.
+ * Restrict access to each hospital's own allowed IP ranges.
  *
- * Allowed ranges are configured via HOSPITAL_IP_RANGES in .env as a
- * comma-separated list of CIDR blocks or exact IPs, e.g.:
+ * Ranges are configured per hospital (super_admin, via web admin) in
+ * `hospitals.allowed_ip_ranges` — a comma-separated list of CIDR blocks
+ * or exact IPs, e.g.:
  *
- *   HOSPITAL_IP_RANGES=192.168.1.0/24,10.0.0.0/8
+ *   41.222.10.0/24,196.192.55.10
  *
- * Falls back to the default ranges defined in DEFAULTS below when the
- * env variable is absent.  Loopback addresses (127.x, ::1) are always
- * allowed so local development and test suites are never blocked.
+ * For a cloud-hosted API this should normally be the hospital's public
+ * egress/WAN IP (or its range, if static) — not a private RFC1918 range,
+ * since that's what the server actually observes once TRUSTED_PROXIES is
+ * configured correctly (see plan 003).
+ *
+ * A hospital with no ranges configured falls back to DEFAULTS (private
+ * ranges) — this keeps on-prem/local-network deployments working without
+ * per-hospital setup. Users without a hospital (super_admin) are scoped
+ * elsewhere and always pass through. Loopback addresses (127.x, ::1) are
+ * always allowed so local development and test suites are never blocked.
  */
 class CheckHospitalAccess
 {
-    /** Used when HOSPITAL_IP_RANGES is not set in .env */
+    /** Used when a hospital has not configured allowed_ip_ranges. */
     private const DEFAULTS = [
         '192.168.0.0/16',   // class-C private (covers 192.168.x.x)
         '10.0.0.0/8',       // class-A private
@@ -29,9 +37,16 @@ class CheckHospitalAccess
 
     public function handle(Request $request, Closure $next): Response
     {
+        $hospital = $request->user()?->hospital;
+
+        // Users without a hospital (super_admin) are scoped elsewhere.
+        if ($hospital === null) {
+            return $next($request);
+        }
+
         $ip = $request->ip();
 
-        if ($this->isAllowed($ip)) {
+        if ($this->isAllowed($ip, $hospital->allowed_ip_ranges)) {
             return $next($request);
         }
 
@@ -42,14 +57,14 @@ class CheckHospitalAccess
 
     // -------------------------------------------------------------------------
 
-    private function isAllowed(string $ip): bool
+    private function isAllowed(string $ip, ?string $configuredRanges): bool
     {
         // Always permit loopback — localhost / artisan commands / tests.
         if ($this->isLoopback($ip)) {
             return true;
         }
 
-        foreach ($this->allowedRanges() as $range) {
+        foreach ($this->allowedRanges($configuredRanges) as $range) {
             if ($this->ipInRange($ip, trim($range))) {
                 return true;
             }
@@ -58,14 +73,11 @@ class CheckHospitalAccess
         return false;
     }
 
-    /** Returns the configured CIDR list, falling back to DEFAULTS. */
-    private function allowedRanges(): array
+    /** Returns the hospital's configured CIDR list, falling back to DEFAULTS. */
+    private function allowedRanges(?string $configuredRanges): array
     {
-        $env = config('hospital.ip_ranges')
-            ?? env('HOSPITAL_IP_RANGES');
-
-        if (! empty($env)) {
-            return array_filter(array_map('trim', explode(',', $env)));
+        if (! empty($configuredRanges)) {
+            return array_filter(array_map('trim', explode(',', $configuredRanges)));
         }
 
         return self::DEFAULTS;

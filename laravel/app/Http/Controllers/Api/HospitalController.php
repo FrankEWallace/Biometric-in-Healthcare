@@ -37,6 +37,7 @@ class HospitalController extends Controller
             'code'               => 'required|string|max:20|unique:hospitals,code',
             'city'               => 'required|string|max:100',
             'wifi_ssid'          => 'nullable|string|max:100',
+            'allowed_ip_ranges'  => 'nullable|string|max:1000',
             'gps_latitude'       => 'nullable|numeric|between:-90,90',
             'gps_longitude'      => 'nullable|numeric|between:-180,180',
             'gps_radius_meters'  => 'nullable|integer|min:50|max:5000',
@@ -51,6 +52,17 @@ class HospitalController extends Controller
         ]);
 
         return response()->json(['hospital' => $hospital], 201);
+    }
+
+    /**
+     * GET /api/hospitals/detect-ip
+     * super_admin/admin — returns the caller's own public IP as observed by
+     * the server (post-TRUSTED_PROXIES resolution), to prefill the Allowed
+     * IP ranges field in web admin when configuring a hospital on-site.
+     */
+    public function detectIp(Request $request): JsonResponse
+    {
+        return response()->json(['ip' => $request->ip()]);
     }
 
     /**
@@ -77,6 +89,7 @@ class HospitalController extends Controller
 
         $rules = [
             'wifi_ssid'         => 'nullable|string|max:100',
+            'allowed_ip_ranges' => 'nullable|string|max:1000',
             'gps_latitude'      => 'nullable|numeric|between:-90,90',
             'gps_longitude'     => 'nullable|numeric|between:-180,180',
             'gps_radius_meters' => 'nullable|integer|min:50|max:5000',

@@ -3,6 +3,8 @@
 namespace Tests\Unit;
 
 use App\Http\Middleware\CheckHospitalAccess;
+use App\Models\Hospital;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
@@ -10,13 +12,18 @@ use Tests\TestCase;
 /**
  * Unit tests for the CheckHospitalAccess IP-restriction middleware.
  *
+ * Ranges are per-hospital (`hospitals.allowed_ip_ranges`); a hospital with
+ * none configured falls back to DEFAULTS. Requests carry an in-memory
+ * (unsaved) User with its `hospital` relation pre-set, so no DB is touched.
+ *
  * Failure modes exercised:
- *   - External/public IPs are blocked by default
+ *   - External/public IPs are blocked when the hospital has no ranges configured
  *   - Loopback (127.0.0.1, ::1) is always allowed
- *   - Default private ranges (192.168.x, 10.x, 172.16–31.x) are allowed
- *   - Custom CIDR via env var is respected
- *   - Exact IP match in env var is respected
- *   - Malformed CIDR entry in env var does not panic — IP is denied
+ *   - Default private ranges (192.168.x, 10.x, 172.16–31.x) are allowed when unconfigured
+ *   - Custom per-hospital CIDR is respected
+ *   - Exact IP match in per-hospital config is respected
+ *   - Malformed CIDR entry does not panic — IP is denied
+ *   - Users without a hospital (super_admin) always pass through
  */
 class CheckHospitalAccessTest extends TestCase
 {
@@ -112,24 +119,74 @@ class CheckHospitalAccessTest extends TestCase
         $this->assertArrayHasKey('error', $body);
     }
 
+    // ── Per-hospital configuration ──────────────────────────────────────────
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function custom_hospital_cidr_is_respected(): void
+    {
+        $this->assertAllowed('41.222.10.50', allowedIpRanges: '41.222.10.0/24');
+        $this->assertDenied('9.9.9.9', allowedIpRanges: '41.222.10.0/24');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function custom_hospital_exact_ip_is_respected(): void
+    {
+        $this->assertAllowed('196.192.55.10', allowedIpRanges: '196.192.55.10');
+        $this->assertDenied('196.192.55.11', allowedIpRanges: '196.192.55.10');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function malformed_hospital_cidr_does_not_panic_and_denies(): void
+    {
+        $this->assertDenied('8.8.8.8', allowedIpRanges: 'not-a-cidr/999');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function a_configured_hospital_no_longer_falls_back_to_defaults(): void
+    {
+        // Once a hospital has its own ranges configured, the private-range
+        // defaults no longer apply to it.
+        $this->assertDenied('192.168.10.50', allowedIpRanges: '41.222.10.0/24');
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function user_without_a_hospital_always_passes_through(): void
+    {
+        $user = new User();
+        $request = Request::create('/api/hospitals', 'GET');
+        $request->server->set('REMOTE_ADDR', '8.8.8.8');
+        $request->setUserResolver(fn () => $user);
+
+        $response = $this->callMiddleware($request);
+        $this->assertEquals(200, $response->getStatusCode());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private function assertAllowed(string $ip): void
+    private function assertAllowed(string $ip, ?string $allowedIpRanges = null): void
     {
-        $response = $this->callMiddleware($this->makeRequest($ip));
+        $response = $this->callMiddleware($this->makeRequest($ip, $allowedIpRanges));
         $this->assertEquals(200, $response->getStatusCode(), "Expected {$ip} to be allowed.");
     }
 
-    private function assertDenied(string $ip): void
+    private function assertDenied(string $ip, ?string $allowedIpRanges = null): void
     {
-        $response = $this->callMiddleware($this->makeRequest($ip));
+        $response = $this->callMiddleware($this->makeRequest($ip, $allowedIpRanges));
         $this->assertEquals(403, $response->getStatusCode(), "Expected {$ip} to be denied.");
     }
 
-    private function makeRequest(string $ip): Request
+    /** Builds a request carrying an in-memory (unsaved) user/hospital pair — no DB access. */
+    private function makeRequest(string $ip, ?string $allowedIpRanges = null): Request
     {
+        $hospital = new Hospital(['allowed_ip_ranges' => $allowedIpRanges]);
+
+        $user = new User(['hospital_id' => 1]);
+        $user->setRelation('hospital', $hospital);
+
         $request = Request::create('/api/patients', 'GET');
         $request->server->set('REMOTE_ADDR', $ip);
+        $request->setUserResolver(fn () => $user);
+
         return $request;
     }
 

@@ -225,6 +225,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Hospitals ─────────────────────────────────────────────────────────────
     // All roles: list active hospitals (used by Flutter for geofencing)
     Route::get('/hospitals',            [HospitalController::class, 'index']);
+
+    // super_admin/admin: read back the caller's own public IP, to prefill the
+    // Allowed IP ranges field in web admin. Must be defined before the
+    // {hospital} wildcard route below so "detect-ip" isn't captured by it.
+    Route::get('/hospitals/detect-ip', [HospitalController::class, 'detectIp'])
+         ->middleware('role:super_admin,admin');
+
     Route::get('/hospitals/{hospital}', [HospitalController::class, 'show']);
 
     // super_admin: full CRUD; admin: update own hospital GPS/WiFi only

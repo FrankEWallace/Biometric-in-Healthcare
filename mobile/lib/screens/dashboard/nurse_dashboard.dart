@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/hospital_service.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../screens/edit_request_screen.dart';
@@ -21,6 +22,7 @@ class NurseDashboard extends StatefulWidget {
 class _NurseDashboardState extends State<NurseDashboard> {
   final _loc = LocationService();
   final _net = NetworkService();
+  final _hospitalService = HospitalService();
 
   bool? _inRange;
   bool? _onWifi;
@@ -33,9 +35,24 @@ class _NurseDashboardState extends State<NurseDashboard> {
 
   Future<void> _check() async {
     setState(() { _inRange = null; _onWifi = null; });
+
+    final user = context.read<AuthProvider>().user;
+    String? expectedSsid;
+    if (user?.hospitalId != null) {
+      try {
+        final hospital = await _hospitalService.getHospital(
+          token: user!.token,
+          hospitalId: user.hospitalId!,
+        );
+        expectedSsid = hospital['wifi_ssid'] as String?;
+      } catch (_) {
+        expectedSsid = null;
+      }
+    }
+
     final r = await Future.wait([
       _loc.isWithinHospitalRange(),
-      _net.isConnectedToHospitalWifi(),
+      _net.isConnectedToHospitalWifi(expectedSsid),
     ]);
     if (mounted) setState(() { _inRange = r[0]; _onWifi = r[1]; });
   }

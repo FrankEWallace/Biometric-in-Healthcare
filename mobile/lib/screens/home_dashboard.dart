@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/user.dart';
 import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/hospital_service.dart';
 import '../services/location_service.dart';
 import '../services/network_service.dart';
 import '../theme/app_theme.dart';
@@ -22,6 +23,7 @@ class HomeDashboard extends StatefulWidget {
 class _HomeDashboardState extends State<HomeDashboard> {
   final _locationService = LocationService();
   final _networkService  = NetworkService();
+  final _hospitalService = HospitalService();
 
   bool? _withinRange;
   bool? _onHospitalWifi;
@@ -37,9 +39,24 @@ class _HomeDashboardState extends State<HomeDashboard> {
       _withinRange    = null;
       _onHospitalWifi = null;
     });
+
+    final user = context.read<AuthProvider>().user;
+    String? expectedSsid;
+    if (user?.hospitalId != null) {
+      try {
+        final hospital = await _hospitalService.getHospital(
+          token: user!.token,
+          hospitalId: user.hospitalId!,
+        );
+        expectedSsid = hospital['wifi_ssid'] as String?;
+      } catch (_) {
+        expectedSsid = null;
+      }
+    }
+
     final results = await Future.wait([
       _locationService.isWithinHospitalRange(),
-      _networkService.isConnectedToHospitalWifi(),
+      _networkService.isConnectedToHospitalWifi(expectedSsid),
     ]);
     if (mounted) {
       setState(() {

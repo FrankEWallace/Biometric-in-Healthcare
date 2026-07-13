@@ -14,8 +14,13 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
-    final user  = context.watch<AuthProvider>().user!;
+    final user  = context.watch<AuthProvider>().user;
     final cs    = Theme.of(context).colorScheme;
+
+    if (user == null) {
+      // Signing out clears the user before this screen finishes popping.
+      return const Scaffold(body: SizedBox.shrink());
+    }
 
     return Scaffold(
       backgroundColor: cs.surfaceContainerLow,
