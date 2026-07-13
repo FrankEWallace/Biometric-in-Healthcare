@@ -189,7 +189,7 @@ class _NurseDashboardState extends State<NurseDashboard> {
                   _ActionCard(
                     icon: Icons.fingerprint,
                     title: 'Verify Patient',
-                    subtitle: 'Match fingerprint to patient record',
+                    subtitle: 'Match fingerprint or face to patient record',
                     color: AppColors.primary,
                     onTap: () => _pushGated(context, const VerificationScreen()),
                   ),

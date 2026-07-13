@@ -44,9 +44,13 @@ export function FacilityFormDialog({
   const [city, setCity] = useState("");
   const [wifiSsid, setWifiSsid] = useState("");
   const [allowedIpRanges, setAllowedIpRanges] = useState("");
+  const [gpsLatitude, setGpsLatitude] = useState("");
+  const [gpsLongitude, setGpsLongitude] = useState("");
+  const [gpsRadiusMeters, setGpsRadiusMeters] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDetectingIp, setIsDetectingIp] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -56,6 +60,9 @@ export function FacilityFormDialog({
     setCity(facility?.city ?? "");
     setWifiSsid(facility?.wifi_ssid ?? "");
     setAllowedIpRanges(facility?.allowed_ip_ranges ?? "");
+    setGpsLatitude(facility?.gps_latitude ?? "");
+    setGpsLongitude(facility?.gps_longitude ?? "");
+    setGpsRadiusMeters(facility?.gps_radius_meters != null ? String(facility.gps_radius_meters) : "");
   }, [open, facility]);
 
   async function onDetectIp() {
@@ -74,6 +81,31 @@ export function FacilityFormDialog({
     }
   }
 
+  async function onDetectLocation() {
+    setError(null);
+    if (!("geolocation" in navigator)) {
+      setError("This browser does not support location detection.");
+      return;
+    }
+    setIsDetectingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsLatitude(position.coords.latitude.toFixed(7));
+        setGpsLongitude(position.coords.longitude.toFixed(7));
+        setIsDetectingLocation(false);
+      },
+      (geoError) => {
+        setError(
+          geoError.code === geoError.PERMISSION_DENIED
+            ? "Location permission denied. Allow location access and try again."
+            : "Could not detect current location.",
+        );
+        setIsDetectingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10_000 },
+    );
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -85,6 +117,9 @@ export function FacilityFormDialog({
         city,
         wifi_ssid: wifiSsid || null,
         allowed_ip_ranges: allowedIpRanges || null,
+        gps_latitude: gpsLatitude ? Number(gpsLatitude) : null,
+        gps_longitude: gpsLongitude ? Number(gpsLongitude) : null,
+        gps_radius_meters: gpsRadiusMeters ? Number(gpsRadiusMeters) : null,
       };
       const saved = isEdit ? await updateFacility(facility.id, values) : await createFacility(values);
       onSaved(saved);
@@ -143,6 +178,41 @@ export function FacilityFormDialog({
                   disabled={isDetectingIp}
                 >
                   {isDetectingIp ? "Detecting…" : "Detect current IP"}
+                </Button>
+              </div>
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="facility-gps-lat">GPS geofence</FieldLabel>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  id="facility-gps-lat"
+                  placeholder="Latitude"
+                  inputMode="decimal"
+                  value={gpsLatitude}
+                  onChange={(e) => setGpsLatitude(e.target.value)}
+                />
+                <Input
+                  placeholder="Longitude"
+                  inputMode="decimal"
+                  value={gpsLongitude}
+                  onChange={(e) => setGpsLongitude(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Radius (metres)"
+                  inputMode="numeric"
+                  value={gpsRadiusMeters}
+                  onChange={(e) => setGpsRadiusMeters(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onDetectLocation}
+                  disabled={isDetectingLocation}
+                >
+                  {isDetectingLocation ? "Detecting…" : "Use current location"}
                 </Button>
               </div>
             </Field>
