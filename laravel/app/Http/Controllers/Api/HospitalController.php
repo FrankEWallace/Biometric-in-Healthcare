@@ -41,6 +41,7 @@ class HospitalController extends Controller
             'gps_latitude'       => 'nullable|numeric|between:-90,90',
             'gps_longitude'      => 'nullable|numeric|between:-180,180',
             'gps_radius_meters'  => 'nullable|integer|min:50|max:5000',
+            'face_recognition_enabled' => 'boolean',
             'is_active'          => 'boolean',
         ]);
 
@@ -100,6 +101,7 @@ class HospitalController extends Controller
             $rules['city']      = 'sometimes|string|max:100';
             $rules['is_active'] = 'sometimes|boolean';
             $rules['code']      = 'sometimes|string|max:20|unique:hospitals,code,' . $hospital->id;
+            $rules['face_recognition_enabled'] = 'sometimes|boolean';
         }
 
         $hospital->fill($request->validate($rules));

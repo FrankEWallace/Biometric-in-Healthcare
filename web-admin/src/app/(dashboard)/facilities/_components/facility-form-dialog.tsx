@@ -11,8 +11,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { ApiError } from "@/lib/api";
 import {
   createFacility,
@@ -47,6 +48,7 @@ export function FacilityFormDialog({
   const [gpsLatitude, setGpsLatitude] = useState("");
   const [gpsLongitude, setGpsLongitude] = useState("");
   const [gpsRadiusMeters, setGpsRadiusMeters] = useState("");
+  const [faceRecognitionEnabled, setFaceRecognitionEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDetectingIp, setIsDetectingIp] = useState(false);
@@ -63,6 +65,7 @@ export function FacilityFormDialog({
     setGpsLatitude(facility?.gps_latitude ?? "");
     setGpsLongitude(facility?.gps_longitude ?? "");
     setGpsRadiusMeters(facility?.gps_radius_meters != null ? String(facility.gps_radius_meters) : "");
+    setFaceRecognitionEnabled(facility?.face_recognition_enabled ?? false);
   }, [open, facility]);
 
   async function onDetectIp() {
@@ -120,6 +123,7 @@ export function FacilityFormDialog({
         gps_latitude: gpsLatitude ? Number(gpsLatitude) : null,
         gps_longitude: gpsLongitude ? Number(gpsLongitude) : null,
         gps_radius_meters: gpsRadiusMeters ? Number(gpsRadiusMeters) : null,
+        face_recognition_enabled: faceRecognitionEnabled,
       };
       const saved = isEdit ? await updateFacility(facility.id, values) : await createFacility(values);
       onSaved(saved);
@@ -215,6 +219,19 @@ export function FacilityFormDialog({
                   {isDetectingLocation ? "Detecting…" : "Use current location"}
                 </Button>
               </div>
+            </Field>
+            <Field orientation="horizontal" className="gap-1.5">
+              <div className="flex-1">
+                <FieldLabel htmlFor="facility-face-recognition">Face recognition</FieldLabel>
+                <FieldDescription>
+                  Allow staff at this facility to enroll and verify patients by face.
+                </FieldDescription>
+              </div>
+              <Switch
+                id="facility-face-recognition"
+                checked={faceRecognitionEnabled}
+                onCheckedChange={setFaceRecognitionEnabled}
+              />
             </Field>
             {error && <FieldError errors={[{ message: error }]} />}
           </FieldGroup>

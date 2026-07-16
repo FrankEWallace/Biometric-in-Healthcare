@@ -10,6 +10,7 @@ export interface HospitalDetail {
   gps_latitude: string | null;
   gps_longitude: string | null;
   gps_radius_meters: number | null;
+  face_recognition_enabled: boolean;
   is_active: boolean;
 }
 
@@ -22,6 +23,7 @@ export interface HospitalFormValues {
   gps_latitude?: number | null;
   gps_longitude?: number | null;
   gps_radius_meters?: number | null;
+  face_recognition_enabled?: boolean;
   is_active?: boolean;
 }
 
