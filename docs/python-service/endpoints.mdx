@@ -3,14 +3,14 @@ title: Python Service Endpoints
 description: Internal FastAPI endpoints for fingerprint processing and face recognition
 ---
 
-# Python Service Endpoints
+# Python service endpoints
 
 Base URL: `http://localhost:5001` (internal only)
 
 Interactive docs: `http://localhost:5001/docs`
 
 <Note>
-  Every route below except `/health` requires the `X-Internal-Api-Key` header when `INTERNAL_API_KEY` is configured on the Python side — see [Security](/security#internal-service-authentication).
+  Every route below except `/health` requires the `X-Internal-Api-Key` header when `INTERNAL_API_KEY` is configured on the Python side. See [Security](/security#internal-service-authentication-a-known-gap).
 </Note>
 
 ---
@@ -29,7 +29,7 @@ Liveness probe. Returns immediately.
 
 ## POST /process
 
-Extract an ORB template from a base64-encoded fingerprint image.
+Extract a SourceAFIS-style minutiae template from a base64-encoded fingerprint image (`contact` domain, single finger). Runs the full preprocessing pipeline (grayscale, blur, equalization, adaptive threshold, morphological thinning) before extraction.
 
 **Request body**
 
@@ -44,12 +44,16 @@ Extract an ORB template from a base64-encoded fingerprint image.
 ```json
 {
   "template": {
-    "keypoints": [...],
-    "descriptors": [...]
+    "minutiae_count": 128,
+    "status": "ok",
+    "format": "minutiae_v1",
+    "minutiae": [...]
   },
   "quality_score": 0.42
 }
 ```
+
+The returned `template` is opaque to callers; pass it unchanged to `POST /match` as a probe or candidate template.
 
 **Errors**
 
@@ -62,20 +66,17 @@ Extract an ORB template from a base64-encoded fingerprint image.
 
 ## POST /match
 
-Match a probe template against a list of candidate templates. Returns the best-matching `patient_id`.
+Match a probe minutiae template against a list of candidate templates. Returns the best-matching `patient_id`. Score is a **raw SourceAFIS-style float, typically 0-200+**. This endpoint does not apply a verdict; the caller (Laravel) compares against the shared `FINGERPRINT_MATCH_THRESHOLD`.
 
 **Request body**
 
 ```json
 {
-  "probe": {
-    "keypoints": [...],
-    "descriptors": [...]
-  },
+  "probe": { "minutiae_count": 128, "status": "ok", "format": "minutiae_v1", "minutiae": [...] },
   "candidates": [
     {
       "patient_id": 1,
-      "template": { "keypoints": [...], "descriptors": [...] }
+      "template": { "minutiae_count": 112, "status": "ok", "format": "minutiae_v1", "minutiae": [...] }
     }
   ]
 }
@@ -86,7 +87,7 @@ Match a probe template against a list of candidate templates. Returns the best-m
 ```json
 {
   "patient_id": 1,
-  "score": 0.3250
+  "score": 34.5
 }
 ```
 
@@ -101,9 +102,9 @@ Match a probe template against a list of candidate templates. Returns the best-m
 
 ## POST /process-fingerprint
 
-Full preprocessing pipeline for a multipart-uploaded fingerprint image.
+Full preprocessing + minutiae extraction pipeline for a multipart-uploaded fingerprint image (the `contact`-domain endpoint `FingerprintController::register`/`enroll` calls).
 
-**Request** — `multipart/form-data`
+**Request:** `multipart/form-data`
 
 | Field | Type | Required |
 |---|---|---|
@@ -120,13 +121,16 @@ Full preprocessing pipeline for a multipart-uploaded fingerprint image.
   "steps_applied": ["grayscale", "blur", "equalization", "threshold", "thinning"],
   "processed_image": "<base64 PNG of skeleton>",
   "features": {
-    "keypoint_count": 128,
+    "minutiae_count": 128,
     "status": "ok",
-    "keypoints": [...],
-    "descriptors": [...]
+    "format": "minutiae_v1",
+    "minutiae": [...],
+    "keypoint_count": 128
   }
 }
 ```
+
+`features.keypoint_count` is an alias of `minutiae_count`, kept for backward compatibility with earlier callers.
 
 **Errors**
 
@@ -140,9 +144,9 @@ Full preprocessing pipeline for a multipart-uploaded fingerprint image.
 
 ## POST /match-fingerprint
 
-Compare two uploaded fingerprint images end-to-end and return a MATCH / NO MATCH verdict.
+Compare two uploaded fingerprint images end-to-end (preprocess + extract + match both) and return a MATCH / NO MATCH verdict. Used primarily for standalone testing; production enrollment/verification calls `/process-fingerprint` and `/match` separately so Laravel can store/retrieve templates between calls.
 
-**Request** — `multipart/form-data`
+**Request:** `multipart/form-data`
 
 | Field | Type | Required |
 |---|---|---|
@@ -155,37 +159,66 @@ Compare two uploaded fingerprint images end-to-end and return a MATCH / NO MATCH
 {
   "verdict": "MATCH",
   "score": 34.5,
-  "good_matches": 44,
-  "total_matches": 128,
   "image1": {
     "filename": "probe.jpg",
-    "keypoint_count": 128,
+    "minutiae_count": 128,
     "feature_status": "ok"
   },
   "image2": {
     "filename": "stored.jpg",
-    "keypoint_count": 112,
+    "minutiae_count": 112,
     "feature_status": "ok"
   }
 }
 ```
 
-**Verdict thresholds**
+**Verdict threshold**
 
-| Score | Verdict |
-|---|---|
-| ≥ 20 | MATCH |
-| < 20 | NO MATCH |
+`score >= MATCH_THRESHOLD` (env `FINGERPRINT_MATCH_THRESHOLD`, default **32.0**) returns `MATCH`, otherwise `NO MATCH`.
+
+---
+
+## POST /fingerprint/liveness-check
+
+Optical-flow passive liveness check on an ordered sequence of fingerprint camera frames (oldest → newest), using sparse Lucas-Kanade optical flow to detect the micro-tremor a live finger shows against a printed photo or screen.
+
+**Request body**
+
+```json
+{
+  "frames": ["<base64 frame 1>", "<base64 frame 2>", "..."]
+}
+```
+
+2-12 frames; 6-10 at the device's native frame rate (~30fps) is recommended.
+
+**Response**
+
+```json
+{
+  "is_live": true,
+  "mean_displacement": 0.83,
+  "frame_count": 8
+}
+```
+
+A live finger shows **0.15-2.5px** mean displacement; a printed photo or phone screen shows near-zero (< 0.15px). This threshold is an engineering estimate; calibrate against your target device and lighting before production deployment.
 
 <Note>
-  This endpoint is primarily used for standalone testing. In production, Laravel calls `/process-fingerprint` and `/match` separately so it can store/retrieve templates between calls.
+  Laravel's `POST /api/fingerprint/liveness-check` wraps this call and, on a pass, mints a single-use server-held token that `POST /api/fingerprint/enroll-gallery` requires. The liveness verdict itself never travels back through the client as a spoofable boolean.
 </Note>
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 422 | Fewer than 2 frames supplied |
 
 ---
 
 ## POST /process-hand
 
-Segment a whole-hand photo into up to four finger crops and extract a template from each — the contactless counterpart of `/process`. A phone photo of a hand naturally contains four fingers, matching the intended capture UX and the NISTIR-8307 finding that a four-finger slap is far more accurate than a single finger.
+Segment a whole-hand photo into up to four finger crops and extract a template from each; the contactless counterpart of `/process`. A phone photo of a hand naturally contains four fingers, matching the intended capture UX and the NISTIR-8307 finding that a four-finger slap is far more accurate than a single finger.
 
 **Request body**
 
@@ -200,8 +233,8 @@ Segment a whole-hand photo into up to four finger crops and extract a template f
 | Field | Type | Notes |
 |---|---|---|
 | `image` | string | Base64 whole-hand photo |
-| `hand` | string | `"right"` \| `"left"` — orientation for finger naming |
-| `domain` | string | `"contactless"` (default) or `"contact"` — selects the matcher; `"contactless"` uses the ONNX embedding when installed, else falls back to minutiae |
+| `hand` | string | `"right"` \| `"left"`, orientation for finger naming |
+| `domain` | string | `"contactless"` (default) or `"contact"`, selects the matcher; `"contactless"` uses the ONNX embedding when installed, else falls back to minutiae |
 
 **Response**
 
@@ -233,7 +266,7 @@ Segment a whole-hand photo into up to four finger crops and extract a template f
 
 ## POST /match-hand
 
-Match a probe hand (up to four per-finger templates) against candidate hands, fusing the shared fingers' scores. Only fuses when at least 3 finger positions overlap between probe and candidate — below that, the hands aren't comparable and the response returns no-match rather than risk a false accept.
+Match a probe hand (up to four per-finger templates) against candidate hands, fusing the shared fingers' scores. Only fuses when at least 3 finger positions overlap between probe and candidate; below that, the hands aren't comparable and the response returns no-match rather than risk a false accept.
 
 **Request body**
 
@@ -273,7 +306,7 @@ Match a probe hand (up to four per-finger templates) against candidate hands, fu
 }
 ```
 
-Laravel compares `score` against the domain-appropriate threshold (`FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` for `domain=contactless`) — the Python service never makes the accept/reject decision itself.
+Laravel compares `score` against the domain-appropriate threshold (`FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` for `domain=contactless`). The Python service never makes the accept/reject decision itself.
 
 **Errors**
 
@@ -281,6 +314,44 @@ Laravel compares `score` against the domain-appropriate threshold (`FINGERPRINT_
 |---|---|
 | 400 | `candidates` list is empty |
 | 400 | No candidate hand could be scored |
+
+---
+
+## POST /face/liveness
+
+Passive anti-spoofing check on a base64-encoded face image. Two heuristics must both pass for `is_live` to be `true`:
+
+- **Moiré score:** 2D FFT coefficient-of-variation in the mid-frequency ring; screen/printer dot patterns create periodic peaks real skin does not. Score > 25 means likely attack.
+- **Specular highlight ratio:** fraction of near-white pixels; real skin has a small localised highlight, flat prints have almost none (< 0.001), phone screens produce broad overexposed regions (> 0.12).
+
+**Request body**
+
+```json
+{
+  "image": "<base64-encoded JPEG or PNG>"
+}
+```
+
+**Response**
+
+```json
+{
+  "is_live": true,
+  "moire_score": 8.2,
+  "specular_ratio": 0.014
+}
+```
+
+<Note>
+  Both thresholds are engineering estimates and must be calibrated via an FAR/FRR study before production deployment, same caveat as the fingerprint liveness check.
+</Note>
+
+**Errors**
+
+| Status | Reason |
+|---|---|
+| 400 | `image` is empty or invalid base64 |
+| 400 | Image bytes could not be decoded as JPEG/PNG |
 
 ---
 
@@ -296,7 +367,7 @@ Extract a face embedding from a base64-encoded image. Used by Laravel during bot
 }
 ```
 
-**Response — face detected**
+**Response: face detected**
 
 ```json
 {
@@ -306,7 +377,7 @@ Extract a face embedding from a base64-encoded image. Used by Laravel during bot
 }
 ```
 
-**Response — no face detected**
+**Response: no face detected**
 
 ```json
 {
@@ -366,7 +437,7 @@ Search the FAISS index for the closest match to a probe embedding. Retries with 
 }
 ```
 
-**Response 200 — match found**
+**Response 200: match found**
 
 ```json
 {
@@ -375,7 +446,7 @@ Search the FAISS index for the closest match to a probe embedding. Retries with 
 }
 ```
 
-**Response 200 — no match / empty index**
+**Response 200: no match / empty index**
 
 ```json
 {
@@ -425,7 +496,7 @@ Score a probe embedding against a list of candidate embeddings. Returns the cand
 }
 ```
 
-Score is cosine similarity in [−1, 1], clamped in practice to [0, 1] for valid face embeddings. Laravel applies `FaceService::MATCH_THRESHOLD` (default **0.75**) to decide match / no match.
+Score is cosine similarity in [-1, 1], clamped in practice to [0, 1] for valid face embeddings. Laravel applies `FaceService::MATCH_THRESHOLD` (default **0.75**) to decide match / no match.
 
 **Errors**
 

@@ -1,0 +1,45 @@
+---
+title: Devices
+description: Read-only device inventory derived from audit logs
+---
+
+# Devices
+
+<Note>
+  There is no device-pairing/registration table in this system. A "device" here is a distinct **(IP address, User-Agent)** pair observed in `audit_logs`. This endpoint is a read-only aggregation, not a managed device inventory.
+</Note>
+
+## GET /api/devices
+
+Returns up to 200 distinct `(ip_address, user_agent)` pairs seen in the audit log, most-recently-active first, each annotated with who last used it.
+
+**Roles:** super_admin, admin
+
+- `super_admin` sees devices across all hospitals, optionally filtered with `?hospital_id=`
+- `admin` sees only devices that hit the API under their own hospital
+
+**Query params**
+
+| Param | Type | Notes |
+|---|---|---|
+| `hospital_id` | integer | super_admin only |
+
+**Response 200**
+
+```json
+{
+  "devices": [
+    {
+      "ip_address": "41.222.10.55",
+      "user_agent": "Dart/3.0 (dart:io)",
+      "request_count": 214,
+      "last_seen_at": "2026-05-01T15:05:00Z",
+      "last_staff": { "id": 5, "name": "Nurse Amina", "role": "nurse" },
+      "hospital": { "id": 2, "name": "Muhimbili National Hospital" },
+      "last_action": "fingerprint_match"
+    }
+  ]
+}
+```
+
+`last_staff`, `hospital`, and `last_action` are resolved from the most recent audit log row in that `(ip_address, user_agent)` group, a lightweight way to answer "which device is this, and who's using it" without a dedicated device-registration flow.

@@ -11,13 +11,13 @@ All fingerprint endpoints require authentication and the `hospital.access` scope
 
 ## POST /api/fingerprint/upload
 
-**Legacy endpoint** — kept for backward compatibility. Accepts a base64-converted image and uses the basic ORB pipeline.
+**Legacy endpoint.** Kept for backward compatibility. Accepts a multipart image, converts it to base64 internally, and runs it through the same minutiae extraction pipeline as `/process` (no preprocessing pipeline steps reported).
 
 For new integrations use `POST /api/fingerprint/register` instead.
 
-**Roles:** nurse, admin — **Rate limit:** 20 req / min
+**Roles:** nurse, admin. **Rate limit:** 20 req / min
 
-**Request** — `multipart/form-data`
+**Request:** `multipart/form-data`
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -43,7 +43,7 @@ For new integrations use `POST /api/fingerprint/register` instead.
 }
 ```
 
-**Response 422** — quality too low
+**Response 422:** quality too low
 
 ```json
 {
@@ -59,9 +59,9 @@ For new integrations use `POST /api/fingerprint/register` instead.
 
 Enhanced enrollment using the full preprocessing pipeline (grayscale → blur → histogram equalisation → adaptive threshold → morphological thinning → ORB).
 
-**Roles:** nurse, admin — **Rate limit:** 20 req / min
+**Roles:** nurse, admin. **Rate limit:** 20 req / min
 
-**Request** — `multipart/form-data`
+**Request:** `multipart/form-data`
 
 Same fields as `/upload`. Minimum quality score is **0.10**; a `no_features` status also causes a 422.
 
@@ -81,7 +81,7 @@ Same fields as `/upload`. Minimum quality score is **0.10**; a `no_features` sta
 }
 ```
 
-**Response 422** — no features extracted
+**Response 422:** no features extracted
 
 ```json
 {
@@ -90,7 +90,7 @@ Same fields as `/upload`. Minimum quality score is **0.10**; a `no_features` sta
 }
 ```
 
-**Response 503** — Python service unavailable
+**Response 503:** Python service unavailable
 
 ```json
 {
@@ -100,22 +100,107 @@ Same fields as `/upload`. Minimum quality score is **0.10**; a `no_features` sta
 
 ---
 
+## POST /api/fingerprint/enroll-gallery
+
+Enroll a "gallery" of up to 3 captures for a single finger in one request. The mobile app auto-triggers 3 captures of the same finger in one session (different angles/ridge coverage) and runs liveness **once** for the whole session. This endpoint processes each capture, keeps the usable ones, and atomically flags the highest-quality capture as the **gallery lead**, the single template used for 1:N identification. 1:1 verification matches a probe against the whole gallery (Max-Rule).
+
+**Roles:** nurse, admin. **Rate limit:** 20 req / min. Also gated by the `geofence` middleware.
+
+**Request:** `multipart/form-data`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `patient_id` | integer | Yes | Must belong to caller's hospital |
+| `captures[]` | file[] | Yes, 1–3 | JPEG/PNG, max 5 MB each |
+| `finger_position` | string | No | Default `right_index` |
+| `is_primary` | boolean | No | Marks this finger as the 1:N primary |
+| `liveness_token` | string | Yes | Single-use token issued by `POST /api/fingerprint/liveness-check` on a pass |
+
+Floor of 1: as long as one capture is usable, the patient is enrolled; if fewer than 3 land, the gallery is flagged `needs_reenrollment`. If **none** are usable, returns 422 (`code: no_usable_capture`) so the client can fall back to face enrollment.
+
+**Response 201**
+
+```json
+{
+  "message": "Fingerprint gallery enrolled successfully.",
+  "patient_id": 42,
+  "finger_position": "right_index",
+  "gallery_size": 3,
+  "requested": 3,
+  "lead_fingerprint_id": 9,
+  "lead_quality_score": 0.71,
+  "is_primary": true,
+  "needs_reenrollment": false,
+  "rejected": []
+}
+```
+
+**Response 422:** liveness token missing/expired/reused
+
+```json
+{
+  "error": "Liveness check did not pass for this capture session. Please recapture.",
+  "code": "liveness_required"
+}
+```
+
+**Response 422:** no usable capture
+
+```json
+{
+  "error": "No usable fingerprint could be captured. Fall back to face enrollment.",
+  "code": "no_usable_capture",
+  "rejected": [{ "index": 0, "reason": "low_quality", "quality_score": 0.06 }]
+}
+```
+
+---
+
+## POST /api/fingerprint/liveness-check
+
+Optical-flow passive liveness check on a sequence of fingerprint frames. Detects the micro-tremor (0.15-2.5px displacement) a live finger shows against a printed photo or screen (near-zero displacement).
+
+**Roles:** nurse, admin. **Rate limit:** 60 req / min
+
+**Request:** `application/json`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `frames[]` | string[] (base64) | Yes, 2–12 | Ordered oldest → newest |
+
+**Response 200**
+
+```json
+{
+  "is_live": true,
+  "mean_displacement": 0.83,
+  "frame_count": 8,
+  "liveness_token": "aB3xY..."
+}
+```
+
+`liveness_token` is present **only** on a pass. It's a single-use, server-held token (10-minute TTL) that `POST /api/fingerprint/enroll-gallery` requires. This endpoint does not touch patient data, so no hospital-scope check beyond authentication applies.
+
+**Response 503:** Python service unavailable
+
+---
+
 ## POST /api/fingerprint/verify
 
 Verify a fingerprint against a **specific known patient's** stored template.
 
 Use this when the patient presents an ID card and you know who to verify against. For hospital-wide identification (unknown patient), use `POST /api/verify` instead.
 
-**Roles:** nurse — **Rate limit:** 30 req / min
+**Roles:** nurse. **Rate limit:** 30 req / min
 
-**Request** — `multipart/form-data`
+**Request:** `multipart/form-data`
 
 | Field | Type | Required |
 |---|---|---|
 | `fingerprint` | file | Yes |
 | `patient_id` | integer | Yes |
 
-**Response 200 — MATCH**
+**Response 200: MATCH**
 
 ```json
 {
@@ -133,7 +218,7 @@ Use this when the patient presents an ID card and you know who to verify against
 }
 ```
 
-**Response 200 — NO MATCH**
+**Response 200: NO MATCH**
 
 ```json
 {
@@ -148,7 +233,7 @@ Use this when the patient presents an ID card and you know who to verify against
 }
 ```
 
-**Response 423** — fingerprint locked
+**Response 423:** fingerprint locked
 
 ```json
 {
@@ -175,7 +260,7 @@ Unlock a locked fingerprint record and reset its failure counter.
 }
 ```
 
-**Response 409** — record is not locked
+**Response 409:** record is not locked
 
 ```json
 {

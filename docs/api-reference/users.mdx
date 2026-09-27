@@ -15,7 +15,7 @@ List staff users in the caller's hospital.
 
 **Roles:** admin, super_admin
 
-**Response 200** — paginated list of user objects.
+**Response 200:** paginated list of user objects.
 
 ---
 
@@ -44,7 +44,7 @@ Create a new staff account.
 | `username` | string | Yes | Unique across the system |
 | `email` | string | Yes | Valid email, unique |
 | `password` | string | Yes | Min 8 chars |
-| `role` | enum | Yes | `nurse`, `doctor`, `admin`, `super_admin` |
+| `role` | enum | Yes | `super_admin`, `admin`, `doctor`, `nurse`, `clerk`, `lab_technician`, `pharmacist` |
 | `hospital_id` | integer | Yes | Must be a valid hospital |
 
 **Response 201**
@@ -72,7 +72,7 @@ Retrieve a single staff user.
 
 **Roles:** admin, super_admin
 
-**Response 200** — single user object.
+**Response 200:** single user object.
 
 ---
 
@@ -82,7 +82,7 @@ Update a staff user's details.
 
 **Roles:** admin, super_admin
 
-**Request body** — all fields optional
+**Request body:** all fields optional
 
 ```json
 {
@@ -91,13 +91,13 @@ Update a staff user's details.
 }
 ```
 
-**Response 200** — updated user object.
+**Response 200:** updated user object.
 
 ---
 
 ## DELETE /api/users/{user}
 
-Deactivate a staff user account (soft delete — sets `is_active = false` and revokes all tokens).
+Deactivate a staff user account (soft delete, sets `is_active = false` and revokes all tokens).
 
 **Roles:** admin, super_admin
 

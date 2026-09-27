@@ -1,97 +1,227 @@
 ---
 title: Verification
-description: Hospital-wide fingerprint identification and verification logs
+description: "Hospital-wide identification: legacy fingerprint 1:N, multimodal (face+fingerprint), four-finger hand, and verification logs"
 ---
 
 # Verification
 
-The verification endpoints support **hospital-wide identification** — scanning a finger without knowing the patient in advance.
+The verification endpoints support **hospital-wide identification**: scanning a patient without knowing who they are in advance. All four identification statuses (`matched`, `needs_review`, `no_match`, `access_restricted`) can appear across `/verify/multimodal` and `/verify/hand`. See [Architecture: National Patient Identity](/architecture#national-patient-identity) for what `access_restricted` means.
 
 ---
 
 ## POST /api/verify
 
 <Warning>
-  **Deprecated.** Hospital-wide 1:N fingerprint identification lets false-accept risk grow with the patient database size. Superseded by `POST /api/verify/multimodal` (face shortlist → fingerprint confirm), which keeps the search space small. This endpoint emits RFC-8594 deprecation headers and is kept only for backward compatibility.
+  **Deprecated.** Hospital-wide 1:N fingerprint identification lets false-accept risk grow with the patient database size. Superseded by `POST /api/verify/multimodal` (face shortlist → fingerprint confirm), which keeps the search space small. This endpoint emits RFC-8594 `Deprecation`/`Link`/`Warning` response headers and is kept only for backward compatibility.
 </Warning>
 
-Identify a patient from a fingerprint image alone. The system matches the probe against all active fingerprints in the caller's hospital.
+Identify a patient from a fingerprint image alone, using a two-pass strategy: pass 1 matches against primary fingerprints only (fast path); pass 2 falls back to non-primary active fingerprints only if pass 1 misses.
 
-**Roles:** nurse — **Rate limit:** 30 req / min
+**Roles:** nurse. **Rate limit:** 30 req / min
 
-**Request** — `multipart/form-data`
+**Request:** `application/json`
 
 | Field | Type | Required |
 |---|---|---|
-| `fingerprint` | file (JPEG/PNG, max 5 MB) | Yes |
+| `image` | string (base64) | Yes |
+| `gps_latitude`, `gps_longitude`, `wifi_ssid` | — | Optional geofence context |
 
-**Response 200 — identified**
+**Response 200: identified**
 
 ```json
 {
-  "verdict": "MATCH",
+  "status": "matched",
   "score": 42.1,
-  "patient": {
-    "id": 42,
-    "full_name": "Mira Kovačević"
-  },
-  "matched_finger": "right_index",
-  "ehr": {
-    "patient_id": "42",
-    "name": "Mira Kovačević",
-    "blood_type": "A+",
-    "allergies": ["penicillin"],
-    "diagnoses": [...]
-  },
-  "insurance": {
-    "provider": "Zavod zdravstvenog osiguranja FBiH",
-    "status": "active",
-    "valid_until": "2025-12-31"
-  }
+  "patient": { "id": 42, "full_name": "Amina Juma", "..." : "..." },
+  "log_id": 201,
+  "ehr": { "...": "..." },
+  "insurance": { "...": "..." }
 }
 ```
 
-**Response 200 — not identified**
+**Response 200: not identified**
 
 ```json
 {
-  "verdict": "NO_MATCH",
+  "status": "no_match",
   "score": 0.0,
   "patient": null,
+  "log_id": 202,
   "ehr": null,
   "insurance": null
 }
 ```
 
-**Response 503** — Python service unavailable
+**Response 403:** outside hospital geofence
+
+**Response 500 / 503:** feature extraction failed / Python service unavailable
 
 ---
 
 ## POST /api/verify/multimodal
 
-Hospital-wide identification using a face shortlist followed by fingerprint confirmation, instead of a single 1:N fingerprint scan. This is the recommended replacement for `POST /api/verify` — the face step narrows candidates before the more expensive fingerprint comparison runs, so false-accept risk doesn't grow linearly with the number of enrolled patients.
+Face-first identification with fingerprint confirmation, the recommended replacement for `POST /api/verify`. Keeps false-accept risk from growing with the size of the patient database by narrowing to a small shortlist before the fingerprint stage runs.
 
-**Roles:** nurse — **Rate limit:** 30 req / min
+**Roles:** nurse. **Rate limit:** 30 req / min. Requires `hospital.face_recognition_enabled`.
+
+**Request:** `application/json`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `face_image` | string (base64) | Yes | |
+| `fingerprint_image` | string (base64) | Yes | A **whole-hand** photo, segmented server-side into up to 4 fingers |
+| `hand` | `left` \| `right` | No | Default `right` |
+| `gps_latitude`, `gps_longitude`, `wifi_ssid` | — | No | Optional geofence context |
+
+**Pipeline:**
+
+1. Face liveness check (moiré + specular-highlight heuristics). A failure returns `422` immediately and never silently proceeds.
+2. Face embedding to FAISS top-5 shortlist, **national gallery** (no hospital pre-filter; the hospital boundary is enforced afterwards)
+3. The hand photo is segmented into up to 4 fingers and fuse-matched **only against the shortlisted patients' hands** (1:few, not 1:N)
+4. Decision: fingerprint confirms one shortlisted patient (`matched`); face found candidates but fingerprint couldn't confirm (`needs_review`, staff must decide, never auto-rejected); face found nothing (`no_match`)
+5. `PatientAccessService::authorizePatientAccess` runs on the identified patient. A cross-hospital hit becomes `access_restricted` (all PII suppressed from the response, but the resolved patient id is still written to the audit log)
+
+**Response 200: matched**
+
+```json
+{
+  "status": "matched",
+  "face_score": 0.8123,
+  "fingerprint_score": 61.2,
+  "patient": { "id": 42, "full_name": "Amina Juma", "..." : "..." },
+  "log_id": 301,
+  "ehr": { "...": "..." },
+  "insurance": { "...": "..." }
+}
+```
+
+**Response 200: needs_review**
+
+```json
+{
+  "status": "needs_review",
+  "face_score": 0.5210,
+  "fingerprint_score": 12.4,
+  "patient": { "id": 42, "full_name": "Amina Juma" },
+  "log_id": 302,
+  "ehr": null,
+  "insurance": null
+}
+```
+
+**Response 200: no_match**
+
+```json
+{ "status": "no_match", "score": 0.0, "patient": null, "log_id": 303 }
+```
+
+**Response 200: access_restricted**
+
+```json
+{
+  "status": "access_restricted",
+  "face_score": 0.79,
+  "fingerprint_score": 58.0,
+  "patient": null,
+  "log_id": 304,
+  "ehr": null,
+  "insurance": null
+}
+```
+
+**Response 403:** feature disabled, or outside hospital geofence
+
+**Response 422:** liveness check failed
+
+```json
+{
+  "error": "Liveness check failed — possible spoofing attempt. Please retake using a real face.",
+  "reason": "moire_detected"
+}
+```
+
+<Note>
+  `fingerprint_score` uses the same [0, 100]-mapped contactless embedding score as `/verify/hand`. As with that endpoint, the fingerprint stage never auto-confirms while the contactless matcher is running on the minutiae placeholder. The decision falls through to `needs_review` in that case even if a face candidate was found.
+</Note>
 
 ---
 
 ## POST /api/verify/hand
 
-Four-finger ("hand slap") fused verification — the mobile app captures one hand photo instead of a single finger, and the Python service segments it into four finger crops, matches each via the contactless embedding matcher, and fuses the per-finger scores (see [Python Service Endpoints](/python-service/endpoints#post-match-hand)).
+Four-finger ("hand slap") fused verification. The nurse photographs a hand; the Python service segments it into four fingers, and this endpoint fuse-matches all four against every enrolled hand nationally (not hospital-scoped; access is gated afterwards, same as multimodal).
 
-**Roles:** nurse — **Rate limit:** 30 req / min
+**Roles:** nurse. **Rate limit:** 30 req / min
 
-**Request fields**
+**Request:** `application/json`
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `image` | string (base64) | — | Whole-hand photo. Required. |
-| `hand` | `right` \| `left` \| `both` | `right` | `both` segments the photo as each hand server-side and keeps the better fused match — one request, one 1:N spend, one verification log. Use it when the flow doesn't ask which hand was photographed (e.g. the clerk check-in/checkout scans). |
-| `gps_latitude`, `gps_longitude`, `wifi_ssid` | — | — | Optional geofence context. |
+| `hand` | `right` \| `left` \| `both` | `right` | `both` segments the photo as each hand server-side and keeps the better fused match: one request, one 1:N spend, one verification log. Use it when the flow doesn't ask which hand was photographed (e.g. clerk check-in/checkout scans). |
+| `gps_latitude`, `gps_longitude`, `wifi_ssid` | — | — | Optional geofence context |
 
-<Note>
-  Advisory only (`needs_review`) until a learned contactless embedding matcher and a calibrated `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` are installed for the deployment — it never auto-accepts on minutiae scores alone, since minutiae is non-discriminative on finger photos (RidgeBase EER ~46%).
-</Note>
+At least **3 of 4** fingers must be usable in the probe photo, and the fused match only counts fingers shared between probe and candidate (also floor of 3).
+
+**Response 200: needs_review (current default state)**
+
+```json
+{
+  "status": "needs_review",
+  "score": 57.3,
+  "matcher": "onnx-contactless-embedding",
+  "per_finger": {
+    "right_index": 61.2,
+    "right_middle": 58.0,
+    "right_ring": 55.9,
+    "right_little": 54.1
+  },
+  "candidate_patient_id": 42,
+  "patient": null,
+  "log_id": 405,
+  "note": "Advisory only: contactless matcher is a placeholder (minutiae is non-discriminative on finger photos). Staff must confirm identity. Install a learned embedding matcher + calibrated threshold to auto-decide."
+}
+```
+
+<Warning>
+  This endpoint is **advisory only** today. `matched`/`no_match` require both a learned embedding matcher (not the minutiae placeholder) *and* a calibrated `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD`. Until both are in place, the response status is always `needs_review`. It never auto-accepts on minutiae scores alone, since minutiae is non-discriminative on finger photos (RidgeBase EER ~46%). See [Architecture: Fingerprint matching evolution](/architecture#fingerprint-matching-evolution).
+</Warning>
+
+**Response 200: matched (once calibrated)**
+
+```json
+{
+  "status": "matched",
+  "score": 74.8,
+  "matcher": "onnx-contactless-embedding",
+  "per_finger": { "right_index": 78.1, "right_middle": 73.0, "right_ring": 74.9, "right_little": 73.2 },
+  "candidate_patient_id": 42,
+  "patient": { "id": 42, "full_name": "Amina Juma" },
+  "log_id": 406,
+  "note": null
+}
+```
+
+**Response 200: access_restricted**
+
+`patient` and `candidate_patient_id` are both suppressed; `status` is `access_restricted`. The resolved patient id is still recorded in the audit log.
+
+**Response 403:** outside hospital geofence
+
+**Response 422:** too few usable fingers
+
+```json
+{
+  "error": "Too few usable fingers in the probe photo. Please retake.",
+  "usable_fingers": 2,
+  "required": 3
+}
+```
+
+**Response 422:** every orientation failed to segment (only relevant with `hand=both`)
+
+```json
+{ "error": "Hand processing failed: <detail>" }
+```
 
 ---
 
@@ -99,7 +229,7 @@ Four-finger ("hand slap") fused verification — the mobile app captures one han
 
 List verification log entries.
 
-**Roles:** all (nurses see their own logs only; doctors see patient-centric logs)
+**Roles:** all. Nurses see their own logs only; doctors see hospital-wide logs with score hidden; admins/super_admin see full detail.
 
 **Query params**
 
@@ -107,6 +237,10 @@ List verification log entries.
 |---|---|---|
 | `page` | int | 1 |
 | `per_page` | int | 20 |
+| `patient_id` | int | — |
+| `status` | string | — |
+| `operator_id` | int (admin/super_admin only) | — |
+| `hospital_id` | int (super_admin only) | — |
 
 **Response 200**
 
@@ -117,11 +251,15 @@ List verification log entries.
       "id": 101,
       "patient_id": 42,
       "hospital_id": 2,
-      "staff_id": 5,
-      "verdict": "MATCH",
+      "operator_id": 5,
+      "fingerprint_id": 7,
       "score": 42.1,
-      "ip_address": "192.168.1.50",
-      "created_at": "2025-05-01T14:22:00Z"
+      "status": "matched",
+      "modality": "fingerprint",
+      "gps_latitude": null,
+      "gps_longitude": null,
+      "wifi_ssid": null,
+      "created_at": "2026-05-01T14:22:00Z"
     }
   ],
   "current_page": 1,
@@ -129,12 +267,12 @@ List verification log entries.
 }
 ```
 
+`modality` is one of `fingerprint`, `face`, `multimodal`, `hand`. Doctors never see the `score` field (`makeHidden('score')`).
+
 ---
 
 ## GET /api/verify/logs/{log}
 
-Retrieve a single verification log entry.
+Retrieve a single verification log entry, with patient/operator/fingerprint relations loaded. Same scope rules as `GET /logs`: nurses get a 404 for a log that isn't theirs.
 
-**Roles:** all (same scope rules as GET /logs)
-
-**Response 200** — returns a single log entry object matching the shape above.
+**Response 200:** single log entry, same shape as above plus loaded relations.

@@ -13,16 +13,16 @@ Facial recognition is an **opt-in feature** controlled per hospital by a super a
 
 Enroll a face template for a patient. Accepts a base64-encoded face image, extracts an encrypted embedding via the Python service, and stores it in `face_templates`. Re-enrolling the same patient overwrites their existing template.
 
-**Roles:** nurse, admin — **Rate limit:** 20 req / min
+**Roles:** nurse, admin. **Rate limit:** 20 req / min
 
-**Request** — `application/json`
+**Request:** `application/json`
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `image` | string | Yes | Base64-encoded JPEG or PNG of the patient's face |
 | `patient_id` | integer | Yes | Must belong to the caller's hospital |
 
-**Response 201 — enrolled**
+**Response 201: enrolled**
 
 ```json
 {
@@ -33,7 +33,7 @@ Enroll a face template for a patient. Accepts a base64-encoded face image, extra
 }
 ```
 
-**Response 403 — feature disabled**
+**Response 403: feature disabled**
 
 ```json
 {
@@ -41,7 +41,7 @@ Enroll a face template for a patient. Accepts a base64-encoded face image, extra
 }
 ```
 
-**Response 422 — no face detected or quality too low**
+**Response 422: no face detected or quality too low**
 
 ```json
 {
@@ -56,7 +56,7 @@ Enroll a face template for a patient. Accepts a base64-encoded face image, extra
 }
 ```
 
-**Response 503 — Python service unavailable**
+**Response 503: Python service unavailable**
 
 ```json
 {
@@ -78,9 +78,9 @@ Hospital-wide face identification. Extracts an embedding from the probe image, s
 
 Use this when the patient's identity is unknown. If you already know which patient to check, use `POST /api/fingerprint/verify` with a known `patient_id` instead.
 
-**Roles:** nurse — **Rate limit:** 30 req / min
+**Roles:** nurse. **Rate limit:** 30 req / min
 
-**Request** — `application/json`
+**Request:** `application/json`
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -89,7 +89,7 @@ Use this when the patient's identity is unknown. If you already know which patie
 | `gps_longitude` | float | No | Device GPS for geofence check |
 | `wifi_ssid` | string | No | Connected WiFi SSID for geofence check |
 
-**Response 200 — matched**
+**Response 200: matched**
 
 ```json
 {
@@ -109,7 +109,7 @@ Use this when the patient's identity is unknown. If you already know which patie
 }
 ```
 
-**Response 200 — no match**
+**Response 200: no match**
 
 ```json
 {
@@ -122,7 +122,7 @@ Use this when the patient's identity is unknown. If you already know which patie
 }
 ```
 
-**Response 403 — feature disabled or outside geofence**
+**Response 403: feature disabled or outside geofence**
 
 ```json
 {
@@ -138,7 +138,11 @@ Use this when the patient's identity is unknown. If you already know which patie
 
 **Match threshold**
 
-The match threshold is **0.75** cosine similarity (defined in `FaceService::MATCH_THRESHOLD`). Scores below this are logged as `no_match`. Adjust the constant to trade precision for recall.
+The match threshold is **0.75** cosine similarity (`FaceService::MATCH_THRESHOLD`) for this direct 1:N identify call. A separate, lower **0.40** threshold (`FaceService::IDENTIFY_THRESHOLD`) is used when building a *shortlist* rather than deciding a final match. See `POST /api/verify/multimodal`. Both sit within the generally cited buffalo_s cosine-similarity operating band of roughly 0.30-0.45. `MATCH_THRESHOLD` is set higher because it's a direct accept/reject decision rather than a candidate shortlist. Scores below the applicable threshold are logged as `no_match`.
+
+<Note>
+  Like any 1:N search, false-accept risk here scales with the number of enrolled patients at the hospital. See [Security](/security#1n-false-accept-risk-scales-with-gallery-size-a-known-limitation).
+</Note>
 
 **Verification log**
 
@@ -148,11 +152,11 @@ Every call writes a row to `verification_logs` with `modality = 'face'`. This me
 
 ## POST /api/face/verify-confirm
 
-Record a staff member's manual confirmation of a `needs_review` face identification result. Every manual review decision must be confirmed through this endpoint before the Flutter app navigates to the result screen — this creates an immutable audit trail entry for the action.
+Record a staff member's manual confirmation of a `needs_review` face identification result. Every manual review decision must be confirmed through this endpoint before the Flutter app navigates to the result screen. This creates an immutable audit trail entry for the action.
 
-**Roles:** nurse — **Rate limit:** 30 req / min
+**Roles:** nurse. **Rate limit:** 30 req / min
 
-**Request** — `application/json`
+**Request:** `application/json`
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -169,7 +173,7 @@ Record a staff member's manual confirmation of a `needs_review` face identificat
 }
 ```
 
-**Response 404 — log not found or belongs to a different hospital**
+**Response 404: log not found or belongs to a different hospital**
 
 ```json
 {
@@ -177,7 +181,7 @@ Record a staff member's manual confirmation of a `needs_review` face identificat
 }
 ```
 
-**Response 422 — invalid decision value**
+**Response 422: invalid decision value**
 
 ```json
 {
@@ -198,7 +202,7 @@ Record a staff member's manual confirmation of a `needs_review` face identificat
 3. Under **Feature Flags**, check **Facial Recognition**.
 4. Click **Save Changes**.
 
-The Flutter app reads `hospital.face_recognition_enabled` from the login response and shows or hides the face verification button accordingly — no app update required.
+The Flutter app reads `hospital.face_recognition_enabled` from the login response and shows or hides the face verification button accordingly. No app update required.
 
 ---
 
@@ -210,4 +214,4 @@ When facial recognition is first enabled, existing patients have no face templat
 - The face verification option is only offered to the patient once a face template is enrolled.
 - Staff enroll the face on the patient's next visit using `POST /api/face/enroll`.
 
-There is no forced re-registration — face templates accumulate naturally over time.
+There is no forced re-registration. Face templates accumulate naturally over time.

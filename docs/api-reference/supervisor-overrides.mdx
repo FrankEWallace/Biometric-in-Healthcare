@@ -1,0 +1,129 @@
+---
+title: Supervisor Overrides
+description: Request and resolve manual overrides when biometric stage verification fails
+---
+
+# Supervisor Overrides
+
+When a patient can't be biometrically verified at a visit stage, staff request a supervisor override instead of getting stuck. See [Visit Lifecycle](/visit-lifecycle#when-biometric-verification-fails-supervisor-overrides) for the conceptual walkthrough. All routes require `hospital.access`.
+
+---
+
+## GET /api/supervisor-overrides
+
+List override requests for the caller's hospital.
+
+**Roles:** all. Supervisors (`admin`, `doctor`, `nurse`) see all requests in scope; everyone else sees only their own requests.
+
+**Query params**
+
+| Param | Type | Default |
+|---|---|---|
+| `status` | `pending` \| `approved` \| `denied` | `pending` |
+
+**Response 200**
+
+```json
+{
+  "overrides": [
+    {
+      "id": 5,
+      "visit_stage_id": 210,
+      "requested_by": 12,
+      "supervisor_id": null,
+      "status": "pending",
+      "fallback_chain": "fingerprint_and_face_failed",
+      "staff_note": "Patient has bandaged finger",
+      "supervisor_note": null,
+      "requested_at": "2026-05-01T08:12:00Z",
+      "resolved_at": null,
+      "visitStage": { "...": "..." },
+      "requestedBy": { "id": 12, "name": "Nurse Amina", "role": "nurse" },
+      "supervisor": null
+    }
+  ]
+}
+```
+
+---
+
+## POST /api/supervisor-overrides
+
+Request an override for a stage where biometric verification failed.
+
+**Roles:** all
+
+**Request body**
+
+```json
+{
+  "visit_stage_id": 210,
+  "fallback_chain": "fingerprint_and_face_failed",
+  "staff_note": "Patient has bandaged finger"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `visit_stage_id` | integer | Yes | Must belong to caller's hospital |
+| `fallback_chain` | enum | Yes | `fingerprint_failed` \| `fingerprint_and_face_failed` |
+| `staff_note` | string | No | Max 255 chars |
+
+**Response 201:** the created override, with `requestedBy` loaded.
+
+**Response 409:** stage already completed, or a pending override already exists for this stage
+
+```json
+{
+  "error": "A pending override request already exists for this stage.",
+  "override": { "...": "..." }
+}
+```
+
+---
+
+## PUT /api/supervisor-overrides/{override}/resolve
+
+Approve or deny a pending override.
+
+**Roles:** admin, doctor, nurse. **Never** the same user who created the request.
+
+**Request body**
+
+```json
+{
+  "decision": "approved",
+  "supervisor_note": "Verified by ID card and staff recognition"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `decision` | enum | Yes | `approved` \| `denied` |
+| `supervisor_note` | string | No | Max 255 chars |
+
+On **approval**, the associated `VisitStage` is marked `completed` with `verified_by` set to the resolving supervisor, `verification_log_id` left `null` (no biometric event backs this), and the stage's default simulated data seeded.
+
+**Response 200**
+
+```json
+{
+  "override": { "...": "...", "status": "approved" },
+  "stage": { "...": "...", "status": "completed" }
+}
+```
+
+**Response 403:** self-approval forbidden
+
+```json
+{
+  "error": "You cannot resolve an override you requested. A different supervisor must approve.",
+  "code": "self_approval_forbidden"
+}
+```
+
+<Note>
+  This segregation-of-duties rule is deliberate: without it, the same operator whose own biometric attempt failed could request and immediately approve their own override, completing a stage with no independent second person and no biometric confirmation at all.
+</Note>
+
+**Response 409:** override already resolved

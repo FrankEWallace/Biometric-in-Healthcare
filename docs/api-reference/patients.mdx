@@ -1,11 +1,11 @@
 ---
 title: Patients
-description: Patient registration, lookup, and management endpoints
+description: Patient registration, lookup, enrollment, and management endpoints
 ---
 
 # Patients
 
-All patient endpoints require authentication and are scoped to the caller's hospital.
+All patient endpoints require authentication, the `hospital.access` network geofence, and are scoped to the caller's hospital (enforced by `PatientPolicy`).
 
 ## GET /api/patients
 
@@ -17,6 +17,7 @@ List active patients in the caller's hospital.
 
 | Param | Type | Default | Description |
 |---|---|---|---|
+| `search` | string | — | Prefix match (case-insensitive) against `full_name`, `hospital_patient_id`, or `nida` |
 | `page` | int | 1 | Page number |
 | `per_page` | int | 20 | Results per page |
 
@@ -28,13 +29,14 @@ List active patients in the caller's hospital.
     {
       "id": 1,
       "hospital_id": 2,
-      "full_name": "Mira Kovačević",
+      "hospital_patient_id": "BIH-2026-00142",
+      "full_name": "Amina Juma",
       "date_of_birth": "1985-03-12",
       "gender": "female",
-      "jmbg": null,
-      "phone": "+387 61 123 456",
+      "nida": null,
+      "phone": "+255 61 123 456",
       "is_active": true,
-      "created_at": "2025-01-15T10:30:00Z"
+      "created_at": "2026-01-15T10:30:00Z"
     }
   ],
   "current_page": 1,
@@ -42,6 +44,10 @@ List active patients in the caller's hospital.
   "total": 42
 }
 ```
+
+<Note>
+  `jmbg` was renamed to `nida` (migration `2026_05_05_142209`) as part of the move toward a national patient identity. See [Architecture](/architecture#national-patient-identity). `hospital_patient_id` (e.g. `BIH-2026-00142`) and `patient_seq` were added alongside it as a human-readable, per-hospital-per-year identifier.
+</Note>
 
 ---
 
@@ -55,11 +61,11 @@ Register a new patient.
 
 ```json
 {
-  "full_name": "Mira Kovačević",
+  "full_name": "Amina Juma",
   "date_of_birth": "1985-03-12",
   "gender": "female",
-  "jmbg": "1203985176543",
-  "phone": "+387 61 123 456",
+  "nida": "12345678901234567890",
+  "phone": "+255 61 123 456",
   "notes": "Allergic to penicillin"
 }
 ```
@@ -69,7 +75,7 @@ Register a new patient.
 | `full_name` | string | Yes | Max 200 chars |
 | `date_of_birth` | date `Y-m-d` | Yes | |
 | `gender` | enum | No | `male`, `female`, `other` |
-| `jmbg` | string | No | Unique, max 20 chars |
+| `nida` | string | No | Exactly 20 chars, unique |
 | `phone` | string | No | Max 20 chars |
 | `notes` | string | No | Max 1000 chars |
 
@@ -80,14 +86,15 @@ Register a new patient.
   "patient": {
     "id": 42,
     "hospital_id": 2,
-    "full_name": "Mira Kovačević",
+    "hospital_patient_id": "BIH-2026-00142",
+    "full_name": "Amina Juma",
     "date_of_birth": "1985-03-12",
     "gender": "female",
-    "jmbg": "1203985176543",
-    "phone": "+387 61 123 456",
+    "nida": "12345678901234567890",
+    "phone": "+255 61 123 456",
     "notes": "Allergic to penicillin",
     "is_active": true,
-    "created_at": "2025-05-01T09:00:00Z"
+    "created_at": "2026-05-01T09:00:00Z"
   }
 }
 ```
@@ -106,7 +113,7 @@ Retrieve a single patient with their enrolled fingerprints.
 {
   "patient": {
     "id": 42,
-    "full_name": "Mira Kovačević",
+    "full_name": "Amina Juma",
     "fingerprints": [
       {
         "id": 7,
@@ -115,7 +122,7 @@ Retrieve a single patient with their enrolled fingerprints.
         "quality_score": 0.62,
         "is_primary": true,
         "is_active": true,
-        "created_at": "2025-05-01T09:15:00Z"
+        "created_at": "2026-05-01T09:15:00Z"
       }
     ]
   }
@@ -131,25 +138,25 @@ Update patient demographics directly.
 **Roles:** admin, super_admin
 
 <Note>
-  Nurses cannot call this endpoint directly. They must submit a `POST /api/patients/{patient}/edit-requests` instead.
+  Nurses cannot call this endpoint directly. They must submit a `POST /api/patients/{patient}/edit-requests` instead. See [Edit Requests](/api-reference/edit-requests).
 </Note>
 
-**Request body** (all fields optional)
+**Request body** (all fields optional, `sometimes` validation)
 
 ```json
 {
-  "full_name": "Mira Kovačević-Begić",
-  "phone": "+387 61 999 000"
+  "full_name": "Amina Juma-Hassan",
+  "phone": "+255 61 999 000"
 }
 ```
 
-**Response 200** — returns the updated patient object.
+**Response 200:** returns the updated patient object.
 
 ---
 
 ## DELETE /api/patients/{patient}
 
-Deactivate a patient (soft delete — sets `is_active = false`).
+Deactivate a patient (soft delete, sets `is_active = false`).
 
 **Roles:** admin, super_admin
 
@@ -165,19 +172,92 @@ Deactivate a patient (soft delete — sets `is_active = false`).
 
 ## POST /api/patients/{patient}/enroll
 
-Enroll a fingerprint directly from a patient record.
+Enroll a **single-finger** fingerprint directly from a patient record. Base64 JSON body, not multipart. See the [Fingerprint](/api-reference/fingerprint#post-apifingerprintregister) page for the equivalent multipart pipeline.
 
-**Roles:** nurse, admin
+**Roles:** nurse, admin (emergency). **Rate limit:** 20 req / min per token. Also gated by the `geofence` middleware.
 
-**Rate limit:** 20 req / min per token
+**Request:** `application/json`
 
-See [Fingerprint — POST /register](/api-reference/fingerprint#post-apifingerprintregister) for the full field reference — this endpoint delegates to the same pipeline.
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `image` | string (base64) | Yes | |
+| `finger_position` | string | No | One of the 10 single-finger positions; default `right_index` |
+| `is_primary` | boolean | No | Default `false`; demotes any existing primary finger for this patient |
+
+Rejects with `422` if `quality_score < 0.30` (`PatientController::MIN_QUALITY_SCORE`).
+
+**Response 201**
+
+```json
+{
+  "message": "Fingerprint enrolled successfully.",
+  "fingerprint_id": 7,
+  "patient_id": 42,
+  "finger_position": "right_index",
+  "quality_score": 0.62,
+  "is_primary": true
+}
+```
+
+Re-enrolling the same `(patient_id, finger_position)` overwrites the existing template (upsert).
+
+---
+
+## POST /api/patients/{patient}/enroll-hand
+
+Four-finger ("hand slap") enrollment. The nurse photographs a whole hand; the Python service segments it into four finger crops and returns one contactless template per finger. Laravel stores each as its own `fingerprints` row (same table, same `finger_position` enum), so the existing 1:1, 1:N, and multimodal flows work per-finger while `POST /api/verify/hand` fuses across them.
+
+**Roles:** nurse, admin (emergency). **Rate limit:** 20 req / min per token. Also gated by the `geofence` middleware.
+
+**Request:** `application/json`
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `image` | string (base64) | Yes | Whole-hand photo |
+| `hand` | `right` \| `left` | No | Default `right` |
+| `is_primary` | boolean | No | Marks the **index finger** of this hand as the 1:N primary/gallery representative |
+
+At least **3 of 4** fingers must pass the quality gate (`MIN_HAND_FINGERS = 3`, mirroring the matcher's fusion floor); low-quality fingers are skipped, not stored. The whole accepted set is written in one DB transaction, so a partial hand never persists half-written.
+
+**Response 201**
+
+```json
+{
+  "message": "Hand enrolled successfully.",
+  "patient_id": 42,
+  "hand": "right",
+  "matcher": "onnx-contactless-embedding",
+  "fingers": [
+    { "fingerprint_id": 10, "finger_position": "right_index",  "quality_score": 0.71, "is_primary": true },
+    { "fingerprint_id": 11, "finger_position": "right_middle", "quality_score": 0.68, "is_primary": false },
+    { "fingerprint_id": 12, "finger_position": "right_ring",   "quality_score": 0.55, "is_primary": false },
+    { "fingerprint_id": 13, "finger_position": "right_little", "quality_score": 0.41, "is_primary": false }
+  ]
+}
+```
+
+`matcher` reflects whatever the Python service actually ran: `onnx-contactless-embedding` if the model file is installed, otherwise the minutiae fallback name, so the client can tell when it's on the placeholder.
+
+**Response 422:** too few usable fingers
+
+```json
+{
+  "error": "Too few usable fingers. Please retake with the hand flat and in focus.",
+  "usable_fingers": 2,
+  "required": 3,
+  "minimum": 0.30
+}
+```
+
+<Note>
+  This same endpoint backs the mobile app's **Retake Fingerprints** flow for already-enrolled patients. Re-enrolling a finger position overwrites its stored template. There is no separate "retake" API; the mobile UI just adds a confirmation step before calling this endpoint again. See [Mobile Overview](/mobile/overview#retake-fingerprints).
+</Note>
 
 ---
 
 ## DELETE /api/patients/{patient}/fingerprints/{fingerprint}
 
-Remove a specific fingerprint record.
+Deactivate (soft-delete) a specific fingerprint record.
 
 **Roles:** admin, super_admin
 
@@ -185,6 +265,14 @@ Remove a specific fingerprint record.
 
 ```json
 {
-  "message": "Fingerprint removed."
+  "message": "Fingerprint deactivated."
 }
 ```
+
+---
+
+## POST /api/patients/{patient}/edit-requests
+
+Submit a demographic edit request. See the full workflow at [Edit Requests](/api-reference/edit-requests).
+
+**Roles:** nurse

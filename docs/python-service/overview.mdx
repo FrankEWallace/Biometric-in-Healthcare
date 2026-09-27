@@ -1,61 +1,66 @@
 ---
 title: Python Service Overview
-description: FastAPI fingerprint processing microservice
+description: FastAPI biometric processing microservice — fingerprint minutiae/embedding matching and InsightFace face recognition
 ---
 
-# Python Service Overview
+# Python service overview
 
-The Python service is an internal microservice responsible for all biometric computation. Laravel calls it over HTTP — it is never reachable directly from the mobile app or the internet.
+The Python service is an internal microservice responsible for all biometric computation. Laravel calls it over HTTP; it is never reachable directly from the mobile app or the internet.
 
 ## Responsibilities
 
-1. **Image preprocessing** — convert raw camera captures into a clean ridge skeleton
-2. **Feature extraction** — run ORB to produce keypoints + BRIEF descriptors
-3. **Template matching** — BFMatcher with Lowe ratio test to score two templates
-4. **Face embedding** — extract 512-dim embeddings for face enrollment and identification
-5. **FAISS face index** — enroll embeddings into a FAISS index; identify with retry until `top_k` distinct patients are found
-6. **Liveness detection** — anti-spoofing checks with env-configurable thresholds
-7. **Index integrity** — quarantine corrupt index files; enforce 512-dim validation on all requests
+1. **Fingerprint image preprocessing.** Convert raw camera captures into a clean ridge skeleton (grayscale, blur, histogram equalization, adaptive threshold, morphological thinning).
+2. **Fingerprint feature extraction.** A domain-routed `Matcher` abstraction: crossing-number **minutiae** extraction (SourceAFIS-style) for single-finger "contact-like" captures, or a **learned ONNX embedding** for contactless (finger-photo) captures.
+3. **Four-finger ("hand slap") segmentation and fusion.** Split a whole-hand photo into up to four finger crops, extract a template per finger, and fuse per-finger match scores (mean by default).
+4. **Face embedding.** Extract 512-dim ArcFace embeddings via InsightFace (`buffalo_s` model pack) for face enrollment and identification.
+5. **FAISS face index.** Enroll embeddings into a FAISS index; identify with retry until `top_k` distinct patients are found.
+6. **Liveness detection.** Passive anti-spoofing for both fingerprint (optical-flow micro-tremor across a frame sequence) and face (moiré-pattern + specular-highlight heuristics), with env-configurable thresholds.
+7. **Index integrity.** Quarantine corrupt FAISS index files; enforce 512-dim validation on all face requests.
+
+## Fingerprint matching is domain-routed, not one-size-fits-all
+
+This is the single most important architectural fact about the service, and it exists because a single-finger contact-style matcher does **not** generalize to contactless finger photos. See [Architecture: fingerprint matching evolution](/architecture#fingerprint-matching-evolution) for the full history. In short:
+
+| Domain | Matcher | Why |
+|---|---|---|
+| `contact` (single finger, `/process`, `/match`, `/process-fingerprint`, `/match-fingerprint`) | `MinutiaeMatcher`: crossing-number minutiae, SourceAFIS-style | The current production default; solid on smartphone-camera captures it was tuned on |
+| `contactless` (`/process-hand`, `/match-hand` with `domain=contactless`, the default) | `EmbeddingMatcher`: ONNX-served Ridgeformer-style deep embedding, when the model file is installed; otherwise **transparently falls back to the minutiae matcher** | Minutiae measured **42-50% EER** on true contactless finger photos in this project's own testing (consistent with the published RidgeBase ~46% CL2CL figure), non-discriminative, essentially a coin flip. The embedding matcher reproduces **6-8% EER** on this project's data. |
+
+`get_matcher(domain)` in `app/services/matcher.py` performs this routing, and every response from `/process-hand`/`/match-hand` names the matcher that actually ran (`matcher` field), so a caller can always tell whether it's running on the calibrated embedding matcher or the non-discriminative placeholder fallback. `FINGERPRINT_MATCHER=minutiae` (env) can force the minutiae matcher for every domain, e.g. to reproduce the pure-minutiae baseline for a report.
 
 ## Technology choices
 
 | Library | Why |
 |---|---|
 | **FastAPI** | Async, schema-validated endpoints, auto Swagger docs |
-| **OpenCV** | Industry-standard image processing (CLAHE, Gabor, morphology) |
-| **ORB** | Patent-free, fast binary feature descriptor suitable for embedded use |
-| **BRIEF** | Compact binary descriptor, efficient Hamming distance matching |
-| **FAISS** | Facebook AI Similarity Search — efficient approximate nearest-neighbour lookup for face embeddings |
+| **OpenCV** (`opencv-python-headless`) | Image preprocessing (grayscale, blur, adaptive threshold, morphological thinning) |
+| **Crossing-number minutiae extraction** | The current production single-finger matcher; explainable, ISO-19794-2-ish, AFIS-interoperable in spirit |
+| **ONNX Runtime** | Serves both the contactless fingerprint embedding matcher (an exported Ridgeformer-style encoder) and InsightFace, CPU-only, no PyTorch at serve time |
+| **InsightFace** (`buffalo_s`) | Production-grade ArcFace face embeddings, replacing an earlier Haar-cascade + LBP MVP (see [Facial Recognition: Design Decisions](/facial-recognition-decisions#algorithm-note)) |
+| **FAISS** | Facebook AI Similarity Search, an efficient approximate nearest-neighbour lookup for face embeddings |
 
 ## Quality scoring
 
-The `quality_score` returned by `/process` and `/process-fingerprint` is a **Laplacian variance** value normalised to [0, 1]:
+`quality_score` is a Laplacian-sharpness-derived value normalised to roughly [0, 1], returned by every extraction endpoint (`/process`, `/process-fingerprint`, `/process-hand` per finger, `/face/process`):
 
-- `< 0.10` — rejected by the fingerprint endpoints (blurry / unusable)
-- `0.10 – 0.30` — accepted by the basic `/upload` endpoint, but borderline
-- `> 0.30` — required by the `/register` (enhanced) endpoint
-- `> 0.50` — optimal for reliable matching
+- `< 0.10`: rejected by the basic fingerprint pipeline (blurry / unusable)
+- `0.10-0.30`: the historical `/fingerprint/upload` floor; Laravel's current enrollment endpoints (`enroll`, `enroll-hand`) use a stricter **0.30** floor (`PatientController::MIN_QUALITY_SCORE`)
+- `> 0.50`: optimal for reliable matching
+- Face: callers should reject captures where `quality_score < 0.50` (InsightFace detection confidence)
 
-## Feature status codes
+## Feature status codes (minutiae pipeline)
 
 | `status` | Meaning |
 |---|---|
-| `ok` | 10+ keypoints found — reliable match possible |
-| `low_quality` | 1–9 keypoints — match result unreliable |
-| `no_features` | 0 keypoints — reject the capture |
+| `ok` | 10+ minutiae found, reliable match possible |
+| `low_quality` | Fewer than 10 minutiae, match result unreliable |
+| `no_features` | No usable minutiae, reject the capture |
 
-## Matching threshold
+## Matching thresholds
 
-A normalised match score is computed as:
+Fingerprint minutiae matching produces a score on a **0-200+ raw scale** (not normalised to [0,1]); Laravel compares it against `FINGERPRINT_MATCH_THRESHOLD` (env, default **32.0**, a single source of truth shared between the two services). The contactless embedding matcher's cosine-similarity score is mapped to **[0, 100]**; Laravel compares the fused four-finger score against `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` (env, unset by default; see [Architecture](/architecture#fingerprint-matching-evolution) for why that's deliberate). Face matching uses cosine similarity directly against `FaceService::IDENTIFY_THRESHOLD` (0.40) or `MATCH_THRESHOLD` (0.75), depending on the call site; see [Facial Recognition: Design Decisions](/facial-recognition-decisions#current-implementation).
 
-```
-score = (good_matches / total_keypoints) × 100
-```
-
-- Score **≥ 20** → `MATCH`
-- Score **< 20** → `NO MATCH`
-
-This threshold was tuned empirically for smartphone camera captures of fingers (not dedicated optical fingerprint scanners).
+The Python service itself never makes the accept/reject decision. It always returns a raw score, and Laravel (which owns the env-configured thresholds) decides the verdict.
 
 ## FAISS identify retry
 
@@ -63,11 +68,11 @@ This threshold was tuned empirically for smartphone camera captures of fingers (
 
 ## Liveness thresholds
 
-Anti-spoofing thresholds are configurable via environment variables — no code change needed to tune for a new deployment environment:
+Anti-spoofing thresholds are configurable via environment variables, so no code change is needed to tune for a new deployment environment:
 
 | Variable | Description |
 |---|---|
-| `LIVENESS_MOIRE_THRESHOLD` | Moiré pattern detection sensitivity |
+| `LIVENESS_MOIRE_THRESHOLD` | Face moiré-pattern (2D FFT) detection sensitivity |
 | `LIVENESS_TEXTURE_THRESHOLD` | Texture-based liveness score cutoff |
 
-Set these before starting the service. Unset variables fall back to the service defaults.
+Both fingerprint liveness (optical-flow micro-tremor) and face liveness (moiré + specular highlight) are documented in their own routes as "engineering estimates, calibrate against your target device and lighting before production deployment." Unset variables fall back to the service defaults.

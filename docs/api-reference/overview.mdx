@@ -47,20 +47,28 @@ Validation errors follow Laravel's default format:
 | 201 | Resource created |
 | 400 | Bad request |
 | 401 | Unauthenticated (missing or expired token) |
-| 403 | Forbidden (wrong role) |
-| 404 | Not found (or cross-hospital access blocked) |
-| 409 | Conflict (e.g. unlocking a record that is not locked) |
-| 422 | Validation failed or fingerprint quality too low |
+| 403 | Forbidden (wrong role, IP outside hospital's allowed range, geofence failure, or self-approval on a supervisor override) |
+| 404 | Not found (or cross-hospital access blocked by policy) |
+| 409 | Conflict (e.g. unlocking a record that is not locked, visit already open/closed, duplicate pending edit request) |
+| 410 | Gone (edit request expired) |
+| 422 | Validation failed, fingerprint/face quality too low, liveness check failed, or too few usable fingers in a hand capture |
 | 423 | Fingerprint record is locked |
-| 503 | Python fingerprint service unavailable |
+| 503 | Python biometric service unavailable |
+
+## Roles
+
+The system has **seven** roles: `super_admin`, `admin`, `doctor`, `nurse`, `clerk`, `lab_technician`, `pharmacist`. See the full [RBAC matrix](/rbac) for the per-endpoint breakdown.
 
 ## Rate limits
 
-| Route | Limit |
+| Route group | Limit |
 |---|---|
 | `POST /auth/login` | 10 req / min per IP |
-| Fingerprint enroll routes | 20 req / min per token |
-| Fingerprint verify routes | 30 req / min per token |
+| Fingerprint/face/hand enroll routes | 20 req / min per token |
+| Fingerprint/face/hand/multimodal verify routes | 30 req / min per token |
+| `POST /fingerprint/liveness-check` | 60 req / min per token |
+| `POST /face/rebuild-index` | 5 req / min per token |
+| `POST /visits/{visit}/stages/{stage}/verify` | 30 req / min per token |
 
 ## Pagination
 

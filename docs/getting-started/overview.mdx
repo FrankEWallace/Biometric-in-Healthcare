@@ -3,7 +3,7 @@ title: Setup Overview
 description: What you need to run the full system locally
 ---
 
-# Getting Started
+# Getting started
 
 The system has three independently deployable components. You can run them all on one machine during development.
 
@@ -11,13 +11,13 @@ The system has three independently deployable components. You can run them all o
 
 | Tool | Version | Used by |
 |---|---|---|
-| PHP | 8.2+ | Laravel backend |
+| PHP | 8.3+ | Laravel 13 backend |
 | Composer | 2.x | Laravel dependencies |
 | MySQL | 8.0+ | Database |
-| Node.js | 18+ | Asset compilation (optional) |
-| Python | 3.10+ | Fingerprint service |
-| pip | 23+ | Python dependencies |
-| Flutter SDK | 3.x | Mobile app |
+| Node.js | 18+ | Asset compilation (Laravel), Web Admin (Next.js) |
+| Python | 3.10+ (service Dockerfile uses 3.13) | Biometric processing service |
+| pip | 23+ | Python dependencies (FastAPI, OpenCV, SourceAFIS-style matching, ONNX Runtime, InsightFace, FAISS) |
+| Flutter SDK | 3.11+ | Mobile app |
 | Android Studio / Xcode | Latest | Mobile emulator or device |
 
 ## Quick-start order
@@ -35,6 +35,9 @@ The system has three independently deployable components. You can run them all o
     Point the app at your local Laravel URL and launch on an emulator or device.
     See [Mobile Setup](/getting-started/mobile).
   </Step>
+  <Step title="(Optional) Run the web admin dashboard">
+    Next.js app for hospital/staff administration. `cd web-admin && npm install && npm run dev` runs on `http://localhost:3000`. See `docs/dev-commands.md` in the repository for the full local-stack reference.
+  </Step>
 </Steps>
 
 ## Ports (default)
@@ -42,6 +45,7 @@ The system has three independently deployable components. You can run them all o
 | Service | Port |
 |---|---|
 | Laravel (php artisan serve) | `8000` |
-| Python fingerprint service | `5001` |
+| Python biometric service | `5001` |
+| Web Admin (Next.js dev server) | `3000` |
 | MySQL | `3306` |
 | MAMP (if used) | `8888` |

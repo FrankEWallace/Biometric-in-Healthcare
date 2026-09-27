@@ -1,0 +1,93 @@
+---
+title: RBAC Matrix
+description: Full seven-role permission matrix, transcribed from routes/api.php
+---
+
+# Role-Based Access Control
+
+The system has **seven roles**, defined in `App\Models\User` and enforced by the `role:x,y` middleware on every sensitive route in `laravel/routes/api.php`. This page transcribes that file's role matrix comment block plus the actual middleware on each route group, so it stays the single source of truth alongside the code.
+
+<Note>
+  `role:x,y` middleware failures return `403`. `hospital.access` failures (wrong IP/CIDR range) also return `403` but are a network geofence, not a role check. See [Security](/security#authorization).
+</Note>
+
+## Roles at a glance
+
+| Role | Scope | Assigned visit stage |
+|---|---|---|
+| `super_admin` | Cross-hospital platform management; **no** clinical data access | n/a |
+| `admin` | Own-hospital management, emergency enrollment | n/a |
+| `doctor` | Read-only clinical (EHR, patients, audit logs) | `consultation` |
+| `nurse` | Fingerprint/face verification, patient registration, enrollment | `triage` |
+| `clerk` | Visit open/close/reopen, patient search | `clerk_checkin` **and** `clerk_checkout` |
+| `lab_technician` | Laboratory stage | `laboratory` |
+| `pharmacist` | Pharmacy stage | `pharmacy` |
+
+`User::assignedStage()` returns `null` for `clerk` because clerk covers **both** check-in and check-out stages, not a single stage.
+
+## Full endpoint matrix
+
+| Endpoint | super_admin | admin | doctor | nurse | clerk | lab_technician | pharmacist |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `POST /auth/login` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `POST /auth/logout`, `GET /auth/me`, `PUT /auth/profile` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `GET /patients`, `GET /patients/{id}` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `POST /patients` (register) | | | | ✓ | | | |
+| `PUT /patients/{id}` (direct edit) | ✓ | ✓ | | | | | |
+| `DELETE /patients/{id}` (deactivate) | ✓ | ✓ | | | | | |
+| `POST /patients/{id}/enroll` | | ✓ | | ✓ | | | |
+| `POST /patients/{id}/enroll-hand` | | ✓ | | ✓ | | | |
+| `DELETE /patients/{id}/fingerprints/{fp}` | ✓ | ✓ | | | | | |
+| `POST /patients/{id}/edit-requests` | | | | ✓ | | | |
+| `GET /edit-requests` | ✓ | ✓ | | | | | |
+| `PUT /edit-requests/{id}/approve`, `/reject` | ✓ | ✓ | | | | | |
+| `PUT /edit-requests/{id}/cancel` | | | | ✓ (own) | | | |
+| `POST /fingerprint/upload`, `/register` | | ✓ | | ✓ | | | |
+| `POST /fingerprint/enroll-gallery` | | ✓ | | ✓ | | | |
+| `POST /fingerprint/verify` | | | | ✓ | | | |
+| `POST /fingerprint/liveness-check` | | ✓ | | ✓ | | | |
+| `POST /fingerprint/{id}/unlock` | ✓ | ✓ | | | | | |
+| `POST /verify` (deprecated) | | | | ✓ | | | |
+| `POST /verify/multimodal` | | | | ✓ | | | |
+| `POST /verify/hand` | | | | ✓ | | | |
+| `GET /verify/logs`, `/logs/{id}` | ✓ (all) | ✓ (own hospital) | ✓ (patient-centric, no score) | ✓ (own only) | | | |
+| `GET/POST/PUT/DELETE /users` | ✓ | ✓ | | | | | |
+| `POST /face/enroll` | | ✓ | | ✓ | | | |
+| `POST /face/verify` | | | | ✓ | | | |
+| `POST /face/verify-confirm` | | | | ✓ | | | |
+| `POST /face/rebuild-index` | | ✓ | | | | | |
+| `GET /visits`, `/visits/patient-search`, `/visits/{id}` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `POST /visits` (open) | | | | | ✓ | | |
+| `PUT /visits/{id}/close`, `/reopen` | | | | | ✓ | | |
+| `POST /visits/{id}/stages/{stage}/verify` | role enforced inside controller per `VisitStage::STAGE_ROLES` | | | | | | |
+| `PUT /visits/{id}/stages/{stage}/data` | same, role enforced inside controller | | | | | | |
+| `GET /queue` | ✓ (all open) | ✓ (all open) | ✓ (own stage: consultation) | ✓ (own stage: triage) | ✓ (all open) | ✓ (own stage: laboratory) | ✓ (own stage: pharmacy) |
+| `GET /supervisor-overrides` | ✓ (all pending) | ✓ (all pending) | ✓ (all pending) | ✓ (all pending) | ✓ (own requests only) | ✓ (own requests only) | ✓ (own requests only) |
+| `POST /supervisor-overrides` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `PUT /supervisor-overrides/{id}/resolve` | ✓ | ✓ | ✓ | ✓ | | | |
+| `GET /hospitals` | ✓ (all) | ✓ (active) | ✓ (active) | ✓ (active) | ✓ (active) | ✓ (active) | ✓ (active) |
+| `GET /hospitals/detect-ip` | ✓ | ✓ | | | | | |
+| `GET /hospitals/{id}` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `POST /hospitals` | ✓ | | | | | | |
+| `PUT /hospitals/{id}` | ✓ (any) | ✓ (own, GPS/WiFi only) | | | | | |
+| `DELETE /hospitals/{id}` | ✓ | | | | | | |
+| `GET /audit-logs` | ✓ | ✓ | ✓ | | | | |
+| `GET /devices` | ✓ (all, filterable) | ✓ (own hospital) | | | | | |
+| `GET /matcher-config` | ✓ | | | | | | |
+
+### Stage-verify role mapping (enforced inside `VisitStageController`)
+
+`POST /visits/{visit}/stages/{stage}/verify` and `PUT /visits/{visit}/stages/{stage}/data` are not gated by `role:` middleware in the route file. The controller looks up `VisitStage::STAGE_ROLES[$stageName]` and denies (403) unless the caller's role is in that list. This is **deny-by-default**: an unmapped stage name permits no role, never any role.
+
+| Stage | Allowed role |
+|---|---|
+| `clerk_checkin` | `clerk` |
+| `triage` | `nurse` |
+| `consultation` | `doctor` |
+| `laboratory` | `lab_technician` |
+| `pharmacy` | `pharmacist` |
+| `clerk_checkout` | `clerk` |
+
+### Supervisor override resolution
+
+`PUT /supervisor-overrides/{override}/resolve` allows `admin`, `doctor`, or `nurse`, but **never** the same user who created the request (`self_approval_forbidden`, HTTP 403), regardless of role. This segregation-of-duties rule is enforced in the controller, not the route middleware.

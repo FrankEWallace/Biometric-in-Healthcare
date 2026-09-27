@@ -3,7 +3,7 @@ title: Python Service Setup
 description: Install and run the OpenCV fingerprint processing microservice
 ---
 
-# Python Service Setup
+# Python service setup
 
 The fingerprint microservice is a FastAPI app that handles all image processing. It is called internally by Laravel and is **not** exposed to the public internet.
 
@@ -21,20 +21,24 @@ source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Core dependencies:
+Core dependencies (`python-service/requirements.txt`):
 
 | Package | Purpose |
 |---|---|
 | `fastapi` | HTTP framework |
-| `uvicorn` | ASGI server |
-| `opencv-python` | Image preprocessing (CLAHE, Gabor, morphology) |
-| `numpy` | Array operations |
+| `uvicorn[standard]` | ASGI server |
+| `opencv-python-headless` | Image preprocessing (grayscale, blur, adaptive threshold, morphological thinning) |
+| `numpy`, `scipy` | Array operations, minutiae/embedding math |
+| `pillow` | Image I/O support |
+| `python-multipart` | Multipart file upload parsing |
+| `insightface` | ArcFace face embeddings (`buffalo_s` model pack) |
+| `onnxruntime` | Serves the contactless fingerprint embedding matcher (ONNX-exported Ridgeformer encoder) and InsightFace |
 | `faiss-cpu` | FAISS face index (enroll, identify, rebuild) |
-| `pydantic` | Request/response validation |
+| `matplotlib` | Optional, only used by `tools/calibrate_far_frr.py` for plots |
 
 ## 3. Configure the internal API key (optional locally, required in production)
 
-Create `python-service/.env` (no example file is checked in yet — this repo doesn't ship a `python-service/.env.example`):
+Create `python-service/.env` (no example file is checked in yet; this repo doesn't ship a `python-service/.env.example`):
 
 ```dotenv
 # Must match PYTHON_SERVICE_API_KEY on the Laravel side. Left unset locally
@@ -49,7 +53,7 @@ ENVIRONMENT=development   # set to "production" to disable /docs and /redoc
 
 ## 4. Place the contactless embedding model
 
-The four-finger contactless matcher needs an ONNX model at `models/contactless_embedding.onnx` (~1.1GB, gitignored — not part of the repo). Without it, the contactless matcher falls back to the non-discriminative minutiae path and `/process-hand`/`/match-hand` responses report the fallback matcher name.
+The four-finger contactless matcher needs an ONNX model at `models/contactless_embedding.onnx` (~1.1GB, gitignored, not part of the repo). Without it, the contactless matcher falls back to the non-discriminative minutiae path and `/process-hand`/`/match-hand` responses report the fallback matcher name.
 
 ## 5. Run the service
 
@@ -103,7 +107,7 @@ python-service/
 
 ## Processing pipeline
 
-Each fingerprint image passes through these steps before feature extraction:
+Each single-finger (`contact`-domain) fingerprint image passes through these steps before feature extraction:
 
 ```
 Raw image (JPEG/PNG)
@@ -114,12 +118,13 @@ Raw image (JPEG/PNG)
       ▼ Adaptive thresholding (binarisation)
       ▼ Morphological thinning (skeleton extraction)
       │
-      ▼ ORB keypoint detection
-      ▼ BRIEF descriptor computation
+      ▼ Crossing-number minutiae extraction (SourceAFIS-style)
       │
-      └─► feature template  (keypoints + descriptors as JSON)
+      └─► minutiae template (JSON: minutiae list + count + status + format)
 ```
 
+Contactless (`contactless`-domain, four-finger hand) captures instead go through hand segmentation (`hand_segmentation.py`) and, when the ONNX model is installed, the `EmbeddingMatcher` pipeline: resize to 224×224, grayscale-from-BGR, normalise, run through the ONNX session, L2-normalise the output vector. See [Architecture: fingerprint matching evolution](/architecture#fingerprint-matching-evolution) for why these are different pipelines.
+
 <Note>
-  Every route except `/health` is protected by `require_internal_key` when `INTERNAL_API_KEY` is set — Laravel sends it as `X-Internal-Api-Key`. If unset (default for local dev), the check is skipped and a warning is logged; set it before this service is reachable from anywhere beyond your own machine.
+  Every route except `/health` is protected by `require_internal_key` when `INTERNAL_API_KEY` is set. Laravel sends it as `X-Internal-Api-Key`. If unset (default for local dev), the check is skipped and a warning is logged; set it before this service is reachable from anywhere beyond your own machine.
 </Note>

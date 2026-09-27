@@ -1,6 +1,6 @@
 ---
 title: Security
-description: Security model, threat mitigations, and operational guidelines
+description: Security model, known weak points, and operational guidelines
 ---
 
 # Security
@@ -8,29 +8,32 @@ description: Security model, threat mitigations, and operational guidelines
 ## Biometric data protection
 
 <Warning>
-  Raw fingerprint and face images are **never** stored on the server. Only extracted templates (ORB descriptors for fingerprints; 512-dim embeddings for faces) are persisted, and both are encrypted at rest.
+  Raw fingerprint and face images are **never** stored on the server. Only extracted templates (SourceAFIS minutiae or ONNX contactless embeddings for fingerprints; 512-dim InsightFace embeddings for faces) are persisted, and both are encrypted at rest.
 </Warning>
 
 | Data | Storage | Encryption |
 |---|---|---|
 | Fingerprint image | Never stored | N/A |
 | Face image | Never stored | N/A |
-| ORB feature template | `fingerprints.template` (MySQL JSON column) | AES-256 at rest |
+| Fingerprint template (minutiae or embedding) | `fingerprints.template` (MySQL JSON column) | AES-256 at rest |
 | Face embedding (512-dim) | `face_templates.template` (MySQL JSON column) | AES-256 at rest |
 | Sanctum API token | `personal_access_tokens` (hashed) | SHA-256 hash |
 | Staff passwords | `users.password` | bcrypt |
 
-## Internal service authentication
+## Internal service authentication: a known gap
 
-Laravel and the Python biometric service authenticate each other with a shared secret, not network trust alone:
+<Warning>
+  **The Python biometric service has no independent authentication of its own beyond an optional shared key.** It trusts the network boundary (only reachable from Laravel over the internal Docker network) plus, when configured, a shared secret. This is an accepted FYP-scope limitation, not a hardened design. It's flagged honestly here rather than overstating the posture.
+</Warning>
 
 - Laravel sends `X-Internal-Api-Key` (`PYTHON_SERVICE_API_KEY`) on every call to the Python service
 - The Python service validates it against `INTERNAL_API_KEY` via `require_internal_key` (`app/security.py`), applied to every router except `/health`
-- If `INTERNAL_API_KEY` is unset, the check is skipped and a warning is logged once at import time — acceptable for local dev, **not** for any deployment reachable beyond your own machine
+- **If `INTERNAL_API_KEY` is unset, the check is skipped entirely** and a warning is logged once at import time. That's acceptable for local dev, **not** for any deployment reachable beyond your own machine.
+- There is no per-caller identity, request signing, or mutual TLS between Laravel and the Python service. A compromised container on the internal network could call any biometric endpoint with only the shared key, and there is no additional rate limiting or anomaly detection on that internal boundary today.
 
 ## Authentication
 
-- **Sanctum personal access tokens** — issued on login, expire after 8 hours
+- **Sanctum personal access tokens**, issued on login, expiry configurable (`SANCTUM_TOKEN_EXPIRY_HOURS`, default 8 hours)
 - Each login revokes all previous tokens for that user (single active session)
 - Failed login attempts are recorded in `audit_logs` with IP address
 
@@ -38,44 +41,66 @@ Laravel and the Python biometric service authenticate each other with a shared s
 
 Every API route is protected by at least one of:
 
-- `auth:sanctum` — valid, non-expired token required
-- `role:x,y` — caller's `users.role` must match one of the allowed values
-- `hospital.access` — caller can only access patients from their own hospital
-- Laravel Policies — fine-grained object-level checks (e.g. a nurse can only cancel their own edit requests)
+- `auth:sanctum`: valid, non-expired token required
+- `role:x,y`: caller's `users.role` must match one of the allowed values (7 roles, see [RBAC](/rbac))
+- `hospital.access`: an **IP/CIDR network geofence** (`CheckHospitalAccess`), scoping hospital-facing routes to each hospital's configured `allowed_ip_ranges`. This is a network boundary, not a patient-ownership check.
+- Laravel Policies (`PatientPolicy`, `FingerprintPolicy`, `PatientEditRequestPolicy`): fine-grained, object-level checks, including the actual cross-hospital patient-ownership boundary (404 on a patient outside the caller's hospital)
+- `PatientAccessService::authorizePatientAccess(User, Patient)`: the post-identification access decision for biometric verification paths (`verifyMultimodal`, `verifyHand`); denial returns `access_restricted`, never a fake `no_match`
+
+<Note>
+  A past internal framing conflated the `hospital.access` middleware with the patient-ownership boundary. **ADR-013** corrects this explicitly: `CheckHospitalAccess` is an unrelated IP/CIDR geofence; patient ownership lives in the policies and, for biometric identification, in `PatientAccessService`. See [Architecture: National Patient Identity](/architecture#national-patient-identity).
+</Note>
+
+## 1:N false-accept risk scales with gallery size: a known limitation
+
+Any 1:N (search-the-whole-gallery) biometric identification has a false-accept rate that compounds with the number of comparisons made. The more enrolled patients, the higher the chance some other patient's template scores above threshold purely by chance, for a fixed per-comparison FAR.
+
+- The legacy `POST /api/verify` (fingerprint-only 1:N) is exposed to this directly and is now **deprecated** for this reason (RFC-8594 deprecation headers on every response).
+- `POST /api/face/verify` (face-only 1:N via FAISS) has the same property.
+- **This is exactly why multimodal verification exists.** `POST /api/verify/multimodal` uses face to shortlist to ~5 candidates, then confirms with a fingerprint match against only that shortlist, bounding the effective 1:N comparison count instead of letting it grow with the hospital's whole patient population.
+- If the [national patient identity](/architecture#national-patient-identity) direction ships, the 1:N gallery becomes national rather than per-hospital, which makes this scaling problem materially worse without an anchor. The design doc's mitigation order is: a deterministic NIDA anchor (when present) collapses the search space first; multimodal confirmation narrows it further; and the fallback biometric-only threshold would need re-calibration for a national-sized gallery before it can be considered safe at that scale.
+
+## Liveness and geofencing: client-side signals, server-side limits
+
+<Warning>
+  GPS coordinates, WiFi SSID, and camera frame sequences are all client-supplied input, and client input is spoofable. The mitigations below reduce risk; they do not make these signals trustworthy the way a server-observed fact would be.
+</Warning>
+
+**Geofencing:**
+
+1. **GPS check.** Device coordinates must be within `hospital.gps_radius_meters` of the hospital's `gps_latitude`/`gps_longitude`.
+2. **WiFi SSID check.** Device must be connected to the hospital's registered SSID.
+3. Both are enforced client-side first (a UX convenience: fail fast, don't waste a capture), but **re-validated server-side** by the `geofence` middleware (`GeofenceService`) on every enroll/verify endpoint that carries geofence context. This is the actual security boundary, not the client check.
+4. Independently, `hospital.access` (`CheckHospitalAccess`) enforces a **server-observed** IP/CIDR allowed-range per hospital on hospital-scoped routes. This is the one geofence signal here that the client cannot spoof by lying in a request body, though it can still be defeated by a VPN/proxy that egresses from an allowed range.
+5. Both GPS and WiFi are optional per hospital. If a hospital has configured **neither**, the outcome falls back to `GEOFENCE_FAIL_OPEN` (`services.geofence.fail_open`): `true` (default) allows unconfigured hospitals through, `false` denies them. Production deployments should set this to `false` once every hospital record has GPS and/or WiFi configured.
+
+**Liveness (fingerprint + face):**
+
+- Fingerprint: `POST /api/fingerprint/liveness-check` runs optical-flow analysis on a client-submitted frame sequence, looking for the micro-tremor (0.15-2.5px displacement) a live finger shows versus a static printed image or screen. A pass mints a single-use, server-held token that `enroll-gallery` requires; the verdict itself never travels back through the client as a spoofable boolean.
+- Face: moiré-pattern (2D FFT) and specular-highlight heuristics distinguish a live face from a screen or printed photo, in `POST /face/liveness` (Python service).
+- **What's not yet hardened:** these are heuristic, environment-tuned thresholds (explicitly documented as "engineering estimates, calibrate before production" in the Python service's own docstrings), not a certified anti-spoofing solution, and the frames themselves are still client-submitted images the server cannot independently verify came from a live camera in real time rather than a replayed capture.
 
 ## Fingerprint locking
 
 To prevent brute-force matching attacks:
 
 - A `fingerprints` record tracks `failed_attempts` and `locked_at`
-- **5 consecutive failures within 1 hour** → record is locked (HTTP 423)
+- **5 consecutive failures within 1 hour**: record is locked (HTTP 423)
 - Only `admin` or `super_admin` can unlock a record via `POST /api/fingerprint/{id}/unlock`
 - A successful MATCH resets the counter
+
+## Supervisor override segregation of duties
+
+`POST /api/supervisor-overrides/{override}/resolve` explicitly forbids the requester from resolving their own override (`self_approval_forbidden`, HTTP 403). Without this, a single operator whose own biometric verification failed could request **and** self-approve an override, completing a visit stage with no biometric confirmation and no independent second person. That would collapse the two-person control the whole mechanism exists to provide.
 
 ## FAISS index integrity
 
 The FAISS face index is protected against corruption at multiple levels:
 
-- **Embedding validation** — `EnrollRequest`, `IdentifyRequest`, and `RebuildItem` all enforce a 512-dimension constraint. Malformed vectors are rejected before they can reach the index.
-- **Quarantine on corruption** — If the index file cannot be loaded at startup or rebuild time, the corrupt files are moved to `quarantine/` with a timestamp suffix rather than being silently discarded.
-- **Restrictive file permissions** — Index and metadata files are set to `0o640` after every write.
-- **Transactional enrollment** — The `face_templates` DB row is inserted **before** the oldest row is evicted. FAISS calls are wrapped inside the Laravel DB transaction so a Python-side failure rolls back the database, preventing DB/FAISS desync.
-
-## Geofencing (mobile)
-
-The Flutter app enforces location restrictions before any capture screen is accessible:
-
-1. **GPS check** — device coordinates must be within `hospital.gps_radius_meters` of the hospital's `gps_latitude`/`gps_longitude`
-2. **WiFi SSID check** — device must be connected to the hospital's registered SSID
-3. The WiFi bypass is controlled by `--dart-define=BYPASS_WIFI=true` at build time — it is **not** tied to `kDebugMode`. Release builds have the bypass off by default.
-4. Both checks are re-validated server-side by the `geofence` middleware (`GeofenceService`) — client-side checks are a convenience only, never the security boundary
-
-Both GPS and WiFi are optional per hospital — a hospital only enforces the signals it has configured. If a hospital has configured **neither**, the outcome falls back to `GEOFENCE_FAIL_OPEN` (`services.geofence.fail_open`):
-
-| Value | Behaviour | When to use |
-|---|---|---|
-| `true` (default) | Unconfigured hospitals are allowed through | Local dev, demos, hospitals not yet fully set up |
-| `false` | Unconfigured hospitals are denied | **Required in production** — an incomplete hospital record should fail closed, not silently run unrestricted |
+- **Embedding validation.** `EnrollRequest`, `IdentifyRequest`, and `RebuildItem` all enforce a 512-dimension constraint. Malformed vectors are rejected before they can reach the index.
+- **Quarantine on corruption.** If the index file cannot be loaded at startup or rebuild time, the corrupt files are moved to `quarantine/` with a timestamp suffix rather than being silently discarded.
+- **Restrictive file permissions.** Index and metadata files are set to `0o640` after every write.
+- **Transactional enrollment.** The `face_templates` DB row is inserted **before** the oldest row is evicted. FAISS calls are wrapped inside the Laravel DB transaction so a Python-side failure rolls back the database, preventing DB/FAISS desync.
 
 ## Security headers
 
@@ -91,21 +116,23 @@ Content-Security-Policy: default-src 'self'
 
 ## Audit logging
 
-Every sensitive action is recorded in `audit_logs`:
+Every sensitive action is recorded in `audit_logs`. Selected action constants (see `App\Models\AuditLog`):
 
 | Action constant | Trigger |
 |---|---|
-| `login_success` | Successful staff login |
-| `login_failed` | Failed login attempt |
-| `patient_create` | New patient registered |
-| `patient_update` | Patient demographics changed |
-| `fingerprint_enroll` | Fingerprint template stored |
-| `fingerprint_no_match` | Verification returned NO MATCH |
-| `fingerprint_lock` | Record locked after 5 failures |
-| `fingerprint_unlock` | Admin unlocked a record |
-| `face_enroll` | Face embedding stored for a patient |
-| `face_identify` | Hospital-wide face identification scan |
-| `face_verify_confirm` | Staff manually confirmed a `needs_review` face result |
+| `login_success` / `login_failed` | Staff login attempt |
+| `patient_create` / `patient_update` / `patient_delete` | Patient record lifecycle |
+| `fingerprint_enroll` / `fingerprint_delete` | Fingerprint template stored/removed |
+| `fingerprint_match` / `fingerprint_no_match` | Direct or hospital-wide fingerprint verification result |
+| `fingerprint_lock` / `fingerprint_unlock` | Record locked after 5 failures / admin unlock |
+| `face_enroll` / `face_match` / `face_no_match` / `face_manual_confirm` | Face template lifecycle and identification results |
+| `edit_request_submitted` / `edit_request_approved` / `edit_request_rejected` / `edit_request_cancelled` | Patient demographic edit-request workflow |
+| `visit_open` / `visit_close` / `visit_reopen` | Visit lifecycle transitions |
+| `stage_verified` | A visit stage's biometric verification succeeded |
+| `stage_override_requested` / `stage_override_resolved` | Supervisor override workflow |
+| `access_restricted` | A biometric identification resolved a patient the caller's hospital is not authorized to see (national-identity access-control seam) |
+| `hospital_created` / `hospital_updated` / `hospital_deactivated` | Hospital configuration changes |
+| `user_created` / `user_updated` / `user_deactivated` | Staff account lifecycle |
 
 ## Input validation
 
@@ -118,14 +145,16 @@ Every sensitive action is recorded in `audit_logs`:
 
 - [ ] `APP_ENV=production`, `APP_DEBUG=false` (set as `docker-compose.yml` `environment:` overrides on the `laravel` service, so they hold regardless of what `laravel/.env` contains)
 - [ ] `PYTHON_SERVICE_URL` points to an internal-only address (Docker service name, not a public host)
-- [ ] `PYTHON_SERVICE_API_KEY` (Laravel) and `INTERNAL_API_KEY` (Python) are both set and match — neither should ship blank
+- [ ] `PYTHON_SERVICE_API_KEY` (Laravel) and `INTERNAL_API_KEY` (Python) are both set and match; neither should ship blank (see the internal-service-authentication gap above)
 - [ ] `GEOFENCE_FAIL_OPEN=false`, and every real hospital row has GPS and/or WiFi configured before flipping it (otherwise that hospital's staff are locked out entirely)
-- [ ] HTTPS enforced at the edge (Nginx Proxy Manager or equivalent reverse proxy with a valid TLS cert) — don't also terminate TLS inside the compose stack, that's redundant double-proxying
+- [ ] Every real hospital row has `allowed_ip_ranges` configured for its actual egress IP/CIDR. An unconfigured hospital falls back to private-network defaults, which is wrong for a cloud-hosted API.
+- [ ] HTTPS enforced at the edge (Nginx Proxy Manager or equivalent reverse proxy with a valid TLS cert). Don't also terminate TLS inside the compose stack; that's redundant double-proxying.
 - [ ] MySQL user has only `SELECT`, `INSERT`, `UPDATE`, `DELETE` (no `DROP`, `CREATE`)
-- [ ] Python service has no `ports:` mapping in `docker-compose.yml` — `expose:` only, reachable exclusively over the internal Docker network
-- [ ] Only the `laravel` service joins the external reverse-proxy network; `mysql` and `python-service` stay on the internal-only network
-- [ ] The 1.1GB `contactless_embedding.onnx` has been transferred to the VPS's `python-service/models/` (bind-mounted, not baked into the image — see [Deployment](/deployment))
+- [ ] Python service has no `ports:` mapping in `docker-compose.yml`; `expose:` only, reachable exclusively over the internal Docker network
+- [ ] Only the `laravel` and `web-admin` services join the external reverse-proxy network; `mysql` and `python-service` stay on the internal-only network
+- [ ] The ~1.1GB `contactless_embedding.onnx` has been transferred to the VPS's `python-service/models/` (bind-mounted, not baked into the image; see [Deployment](/deployment))
 - [ ] Sanctum `SANCTUM_STATEFUL_DOMAINS` lists only the admin web dashboard domain
 - [ ] Flutter build does **not** include `--dart-define=BYPASS_WIFI=true`
 - [ ] `--dart-define=API_BASE_URL=` points to the production HTTPS domain
 - [ ] Liveness env vars (`LIVENESS_MOIRE_THRESHOLD`, etc.) reviewed and set for the deployment environment
+- [ ] `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` remains unset (or deliberately calibrated) so the four-finger flow doesn't silently start auto-accepting on an uncalibrated threshold
