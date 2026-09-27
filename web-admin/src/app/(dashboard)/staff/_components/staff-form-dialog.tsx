@@ -22,6 +22,9 @@ const ROLE_LABEL: Record<StaffRole, string> = {
   admin: "Admin",
   nurse: "Nurse",
   doctor: "Doctor",
+  clerk: "Clerk",
+  lab_technician: "Lab technician",
+  pharmacist: "Pharmacist",
   super_admin: "Super admin",
 };
 
