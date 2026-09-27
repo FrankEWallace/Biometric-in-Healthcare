@@ -10,7 +10,12 @@ import 'clerk_scan_screen.dart';
 import 'fingerprint_enroll_screen.dart';
 
 class PatientSearchScreen extends StatefulWidget {
-  const PatientSearchScreen({super.key});
+  /// When true the screen is used to retake (re-enroll) fingerprints:
+  /// tapping an enrolled patient confirms and opens the enroll flow instead
+  /// of starting a visit.
+  final bool retakeMode;
+
+  const PatientSearchScreen({super.key, this.retakeMode = false});
 
   @override
   State<PatientSearchScreen> createState() => _PatientSearchScreenState();
@@ -53,6 +58,16 @@ class _PatientSearchScreenState extends State<PatientSearchScreen> {
   }
 
   void _selectPatient(PatientModel patient) {
+    if (widget.retakeMode) {
+      // Retake flow: unenrolled patients go straight to first enrollment;
+      // enrolled ones confirm the replacement first.
+      if (!patient.isEnrolled) {
+        _showEnrollDialog(patient);
+      } else {
+        _confirmRetake(patient);
+      }
+      return;
+    }
     if (patient.hasOpenVisit) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -152,21 +167,107 @@ class _PatientSearchScreenState extends State<PatientSearchScreen> {
     );
   }
 
+  void _confirmRetake(PatientModel patient) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    color: AppColors.warningLight,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.fingerprint,
+                      color: AppColors.warning, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(patient.fullName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15)),
+                      Text(patient.displayId,
+                          style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontFamily: 'monospace')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'This patient already has fingerprints on file. Retaking will '
+              'replace the stored fingerprints with the new capture.',
+              style: TextStyle(
+                  color: AppColors.textSecondary, fontSize: 14, height: 1.5),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.fingerprint),
+                label: const Text('Retake Fingerprints'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FingerprintEnrollScreen(
+                          patient: patient, isRetake: true),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
       backgroundColor: cs.surfaceContainerLow,
-      appBar: AppBar(title: const Text('Find Patient')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const PatientRegistrationScreen()),
-        ),
-        icon: const Icon(Icons.person_add_rounded),
-        label: const Text('Register New'),
+      appBar: AppBar(
+        title: Text(widget.retakeMode ? 'Retake Fingerprints' : 'Find Patient'),
       ),
+      floatingActionButton: widget.retakeMode
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const PatientRegistrationScreen()),
+              ),
+              icon: const Icon(Icons.person_add_rounded),
+              label: const Text('Register New'),
+            ),
       body: Column(
         children: [
           // Search bar

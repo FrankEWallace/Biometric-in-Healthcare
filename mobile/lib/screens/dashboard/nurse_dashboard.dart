@@ -8,6 +8,7 @@ import '../../screens/edit_request_screen.dart';
 import '../../screens/shell/app_shell.dart';
 import '../../screens/verification_screen.dart';
 import '../../screens/verify/multimodal_verification_screen.dart';
+import '../../screens/clerk/patient_search_screen.dart';
 import '../../screens/patient_registration_screen.dart';
 import '../../screens/profile/profile_screen.dart';
 import '../../theme/app_theme.dart';
@@ -200,6 +201,15 @@ class _NurseDashboardState extends State<NurseDashboard> {
                     subtitle: 'Enroll a new patient with fingerprint',
                     color: AppColors.success,
                     onTap: () => _pushGated(context, const PatientRegistrationScreen()),
+                  ),
+                  const SizedBox(height: 10),
+                  _ActionCard(
+                    icon: Icons.replay_rounded,
+                    title: 'Retake Fingerprints',
+                    subtitle: 'Replace poor-quality fingerprints on file',
+                    color: AppColors.warning,
+                    onTap: () => _pushGated(
+                        context, const PatientSearchScreen(retakeMode: true)),
                   ),
                   const SizedBox(height: 10),
                   _ActionCard(

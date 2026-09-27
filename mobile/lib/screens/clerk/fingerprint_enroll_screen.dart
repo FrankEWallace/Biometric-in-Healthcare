@@ -12,11 +12,19 @@ import '../../widgets/primary_button.dart';
 import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 import '../face/face_enroll_screen.dart';
 
-/// Captures and enrolls fingerprints for an already-registered patient
-/// who has no biometric on file.
+/// Captures and enrolls fingerprints for an already-registered patient.
+///
+/// Used both for first enrollment (patient has no biometric on file) and,
+/// with [isRetake], for replacing poor-quality fingerprints — the backend
+/// overwrites the stored template per finger position on re-enrollment.
 class FingerprintEnrollScreen extends StatefulWidget {
   final PatientModel patient;
-  const FingerprintEnrollScreen({super.key, required this.patient});
+  final bool isRetake;
+  const FingerprintEnrollScreen({
+    super.key,
+    required this.patient,
+    this.isRetake = false,
+  });
 
   @override
   State<FingerprintEnrollScreen> createState() =>
@@ -90,8 +98,9 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
         // All hands enrolled
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                'Fingerprint enrolled for ${widget.patient.fullName}.'),
+            content: Text(widget.isRetake
+                ? 'Fingerprints retaken for ${widget.patient.fullName}.'
+                : 'Fingerprint enrolled for ${widget.patient.fullName}.'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -164,7 +173,10 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
 
     return Scaffold(
       backgroundColor: cs.surfaceContainerLow,
-      appBar: AppBar(title: const Text('Enroll Fingerprint')),
+      appBar: AppBar(
+          title: Text(widget.isRetake
+              ? 'Retake Fingerprints'
+              : 'Enroll Fingerprint')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
