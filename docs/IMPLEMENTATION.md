@@ -53,7 +53,7 @@ The system is divided into three independently deployable services. This separat
 The mobile application is the only part staff ever see. It is responsible for three things: **capturing a good sample**, **enforcing on-premises use**, and **presenting the result clearly**.
 
 ### 3.1 Capture
-Fingerprints and faces are captured with the ordinary smartphone camera — no dedicated scanner hardware. To get usable samples from a hand-held camera, the app uses an **auto-trigger** approach: instead of asking the nurse to press a button at exactly the right moment, the app continuously inspects the live camera stream and fires the capture automatically when image quality is acceptable (in focus, well-lit, correctly framed). This removes a major source of human-introduced blur. The capture screens live in `mobile/lib/screens/fingerprint/`, `.../face/`, and `.../camera_screen.dart`.
+Fingerprints and faces are captured with the ordinary smartphone camera — no dedicated scanner hardware. To get usable samples from a hand-held camera, the app uses an **auto-trigger** approach: instead of asking the nurse to press a button at exactly the right moment, the app continuously inspects the live camera stream and fires the capture automatically when image quality is acceptable (in focus, well-lit, correctly framed). This removes a major source of human-introduced blur. The capture screens live in `mobile/lib/screens/fingerprint/` and `.../face/`.
 
 ### 3.2 On-premises enforcement (geofencing + WiFi)
 Two client-side gates restrict the app to hospital grounds:

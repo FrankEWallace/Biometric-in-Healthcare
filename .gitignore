@@ -43,3 +43,6 @@ datasets/
 
 # Cached RidgeBase embeddings (regenerable data)
 python-service/tools/.rb_test_embeddings.npz
+
+# Local tool cache/scan artifacts
+.foglamp/

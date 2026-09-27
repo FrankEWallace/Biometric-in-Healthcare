@@ -3,7 +3,7 @@ title: Mobile App Setup
 description: Build and run the Flutter app
 ---
 
-# Mobile App Setup
+# Mobile app setup
 
 ## 1. Install Flutter dependencies
 
@@ -85,9 +85,7 @@ mobile/lib/
 │   ├── login_screen.dart
 │   ├── home_dashboard.dart
 │   ├── patient_registration_screen.dart
-│   ├── camera_screen.dart
-│   ├── fingerprint_liveness_camera_screen.dart  ← auto-trigger + live quality ring
-│   ├── fingerprint_capture_screen.dart
+│   ├── fingerprint_liveness_camera_screen.dart  ← four-finger auto-trigger + live quality ring
 │   ├── fingerprint_preview_screen.dart
 │   ├── verification_screen.dart
 │   ├── result_screen.dart
@@ -114,5 +112,5 @@ mobile/lib/
 5. If either check fails, displays a blocking alert and prevents capture
 
 <Warning>
-  On Android emulators the WiFi SSID check always returns `null`. Bypass it in development with the `--dart-define=BYPASS_WIFI=true` build flag — never include this flag in a release build.
+  On Android emulators the WiFi SSID check always returns `null`. Bypass it in development with the `--dart-define=BYPASS_WIFI=true` build flag; never include this flag in a release build.
 </Warning>

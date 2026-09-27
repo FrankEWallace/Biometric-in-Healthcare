@@ -1,0 +1,45 @@
+---
+title: Matcher Config
+description: Read-only snapshot of the active biometric matching thresholds
+---
+
+# Matcher Config
+
+## GET /api/matcher-config
+
+A read-only snapshot of the matcher operating points the backend is actually using right now. Fingerprint thresholds come from env-backed Laravel config; face thresholds are code constants (`FaceService`). **None of these are editable through this API.** There is deliberately no write endpoint, since changing a matching threshold is a calibration decision that should go through `.env` and a deploy, not a runtime toggle a caller could flip.
+
+**Roles:** super_admin
+
+**Response 200**
+
+```json
+{
+  "fingerprint": {
+    "match_threshold": 32.0,
+    "contactless_match_threshold": null,
+    "service_url": "http://python-service:5001"
+  },
+  "face": {
+    "match_threshold": 0.75,
+    "identify_threshold": 0.40
+  },
+  "geofence": {
+    "fail_open": false
+  },
+  "source": "env"
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `fingerprint.match_threshold` | `FINGERPRINT_MATCH_THRESHOLD`, the single-finger minutiae accept/reject bar (raw 0-200+ scale), shared with the Python service |
+| `fingerprint.contactless_match_threshold` | `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD`, the fused four-finger embedding-score bar. **`null` means the four-finger flow is still advisory-only** (see [Verification](/api-reference/verification#post-apiverifyhand)) |
+| `fingerprint.service_url` | The Python service base URL Laravel is configured to call |
+| `face.match_threshold` | `FaceService::MATCH_THRESHOLD`, the stricter, direct 1:N accept/reject bar |
+| `face.identify_threshold` | `FaceService::IDENTIFY_THRESHOLD`, the looser floor used when building a shortlist (e.g. multimodal verification) |
+| `geofence.fail_open` | `GEOFENCE_FAIL_OPEN`, whether a hospital with neither GPS nor WiFi configured is allowed through by default |
+
+<Warning>
+  If `fingerprint.contactless_match_threshold` is non-null in a production response, confirm it was set deliberately after running the calibration tooling (`python-service/tools/ridgebase_eval.py` / `calibrate_far_frr.py`) against real data for that deployment, not copied from another environment's `.env`.
+</Warning>

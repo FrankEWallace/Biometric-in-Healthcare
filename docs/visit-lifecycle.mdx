@@ -1,0 +1,84 @@
+---
+title: Visit Lifecycle
+description: The visit/stage state machine, role-to-stage mapping, and supervisor overrides
+---
+
+# Visit lifecycle
+
+A patient's hospital encounter is modeled as a `Visit` that moves through six ordered `VisitStage`s. Each stage belongs to exactly one role, and completing a stage requires a fresh biometric verification of the patient at that station. The clerk who checked the patient in cannot forge the nurse's triage verification, and so on.
+
+## Stage order
+
+```
+clerk_checkin → triage → consultation → laboratory → pharmacy → clerk_checkout
+   (clerk)      (nurse)    (doctor)   (lab_technician) (pharmacist)  (clerk)
+```
+
+`Visit::stageTimeline()` always returns stages in this fixed order for the visit summary screen, regardless of the order rows were created in.
+
+## Opening a visit
+
+`POST /api/visits`, **clerk only**.
+
+1. The clerk scans the patient (any biometric modality) to produce a `matched` `VerificationLog`.
+2. `POST /api/visits` is called with `patient_id` and that `verification_log_id`. The controller re-checks the log actually belongs to this patient and has `status = matched`, so a client cannot open a visit by just inventing a log id.
+3. If the patient already has an open visit, the request is rejected (409) with the existing `visit_id`.
+4. `VisitService::openVisit()` creates the `Visit` (status `open`, `visit_type` starts as `pending`) and seeds all six `VisitStage` rows as `pending`.
+
+## Working through stages
+
+For each stage, in order:
+
+1. The assigned role's dashboard shows the visit in their queue (`GET /api/queue`, filtered server-side to `assignedStage()`; clerks and admins see all open visits instead).
+2. `POST /api/visits/{visit}/stages/{stage}/verify`: the staff member captures a hand photo (required) and optionally a face photo as fallback. A legacy single fingerprint image, if supplied, is **advisory only** and can never complete the stage by itself. The pipeline tries hand embedding first, then face; on failure the response is `422` with `fallback_exhausted` and a prompt to request a supervisor override.
+3. On success, the stage is marked `completed`, `verified_by`/`verified_at`/`verification_log_id` are set, and the response includes the stage's pre-filled `simulated_data` (a fabricated EMR payload, see below).
+4. `PUT /api/visits/{visit}/stages/{stage}/data` lets the same role adjust that pre-filled data before moving on (e.g. the triage nurse corrects a vitals reading). This call is rejected (422) if the stage hasn't been verified yet.
+5. Triage is special: if its submitted `simulated_data.visit_type_set` is `opd` or `ipd`, the parent `Visit.visit_type` is updated. No other stage can set it.
+
+### Simulated EMR data
+
+Because this is an FYP demonstrating the *identification* problem, not a real EMR integration, each stage seeds a realistic but fabricated clinical payload (`VisitStage::SIMULATED_DEFAULTS`) the moment it's verified:
+
+| Stage | Payload shape |
+|---|---|
+| `triage` | `bp`, `pulse`, `temp`, `weight`, `visit_type_set` |
+| `consultation` | `diagnosis`, `notes`, `lab_orders[]`, `prescriptions[{ name, dosage }]` |
+| `laboratory` | `tests[{ name, result, value }]` |
+| `pharmacy` | `medications[{ name, dosage, dispensed }]` |
+
+`clerk_checkin` and `clerk_checkout` have no simulated data template; their purpose is purely the biometric checkpoint.
+
+## Closing and reopening
+
+- `PUT /api/visits/{visit}/close`, **clerk only**, requires a fresh `matched` verification log for the same patient, same validation as opening.
+- `PUT /api/visits/{visit}/reopen`, **clerk only**, only for visits closed **today** (`closed_at->isToday()`), and requires a `reason` string. Each reopen increments `reopen_count` for audit visibility.
+
+## When biometric verification fails: supervisor overrides
+
+If a patient can't be verified at a stage (bandaged hand, camera failure, biometric genuinely doesn't match), staff request a **supervisor override** instead of being stuck:
+
+1. `POST /api/supervisor-overrides`: any authenticated staff member, referencing the `visit_stage_id` and a `fallback_chain` describing what was already attempted (`fingerprint_failed` or `fingerprint_and_face_failed`), plus an optional note. Only one pending override per stage is allowed.
+2. A supervisor (`admin`, `doctor`, or `nurse`, but **never the same user who requested it**) resolves it via `PUT /api/supervisor-overrides/{override}/resolve` with `decision: approved` or `denied`.
+3. On **approval**, the stage is marked `completed` directly. `verified_by` becomes the supervisor, `verification_log_id` stays `null` (no biometric event backs this completion), and the stage's default simulated data is seeded.
+4. On **denial**, the stage remains `pending` and the requester must retry verification or escalate again.
+
+The self-approval prohibition is a deliberate segregation-of-duties control: without it, the same operator whose own biometric attempt failed could request and then immediately approve their own override, completing a stage with no independent second person and no biometric confirmation at all.
+
+See [Supervisor Overrides](/api-reference/supervisor-overrides) for the full API and [RBAC](/rbac) for who can do what.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Visits API" icon="clipboard-list" href="/api-reference/visits">
+    Full request/response reference for opening, closing, reopening, and verifying visit stages.
+  </Card>
+  <Card title="Supervisor Overrides API" icon="user-shield" href="/api-reference/supervisor-overrides">
+    Request/resolve endpoints and the segregation-of-duties rule.
+  </Card>
+  <Card title="RBAC Matrix" icon="shield-halved" href="/rbac">
+    Every role, every endpoint, and the stage-to-role mapping.
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture#visit--stage-state-machine">
+    Where the visit/stage model fits in the wider system.
+  </Card>
+</CardGroup>

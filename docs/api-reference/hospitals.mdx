@@ -1,0 +1,144 @@
+---
+title: Hospitals
+description: Hospital CRUD, GPS/WiFi/IP-range geofence configuration, and IP detection helper
+---
+
+# Hospitals
+
+Hospital records hold the geofence configuration (GPS, WiFi SSID, allowed IP ranges) and the per-hospital `face_recognition_enabled` toggle.
+
+---
+
+## GET /api/hospitals
+
+List hospitals. Used by the Flutter app for client-side geofencing.
+
+**Roles:** all. `super_admin` sees every hospital (including inactive); everyone else sees only `is_active = true` hospitals.
+
+**Response 200**
+
+```json
+{
+  "hospitals": [
+    {
+      "id": 2,
+      "name": "Muhimbili National Hospital",
+      "code": "MNH",
+      "city": "Dar es Salaam",
+      "wifi_ssid": "MNH-Staff",
+      "allowed_ip_ranges": "41.222.10.0/24",
+      "gps_latitude": -6.8027,
+      "gps_longitude": 39.2555,
+      "gps_radius_meters": 300,
+      "face_recognition_enabled": true,
+      "is_active": true
+    }
+  ]
+}
+```
+
+---
+
+## GET /api/hospitals/detect-ip
+
+Returns the caller's own public IP as observed by the server (post-`TRUSTED_PROXIES` resolution), to prefill the **Allowed IP ranges** field in web admin when configuring a hospital on-site.
+
+**Roles:** super_admin, admin
+
+<Note>
+  Defined **before** the `{hospital}` wildcard route so `detect-ip` isn't captured as a hospital id.
+</Note>
+
+**Response 200**
+
+```json
+{ "ip": "41.222.10.55" }
+```
+
+---
+
+## GET /api/hospitals/{hospital}
+
+Retrieve a single hospital.
+
+**Roles:** all
+
+---
+
+## POST /api/hospitals
+
+Create a hospital.
+
+**Roles:** super_admin
+
+**Request body**
+
+```json
+{
+  "name": "Muhimbili National Hospital",
+  "code": "MNH",
+  "city": "Dar es Salaam",
+  "wifi_ssid": "MNH-Staff",
+  "allowed_ip_ranges": "41.222.10.0/24",
+  "gps_latitude": -6.8027,
+  "gps_longitude": 39.2555,
+  "gps_radius_meters": 300,
+  "face_recognition_enabled": false,
+  "is_active": true
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | Yes | Max 200 chars |
+| `code` | string | Yes | Max 20 chars, unique |
+| `city` | string | Yes | Max 100 chars |
+| `wifi_ssid` | string | No | |
+| `allowed_ip_ranges` | string | No | Comma-separated CIDR blocks or exact IPs, max 1000 chars |
+| `gps_latitude` / `gps_longitude` | numeric | No | -90..90 / -180..180 |
+| `gps_radius_meters` | integer | No | 50..5000 |
+| `face_recognition_enabled` | boolean | No | |
+| `is_active` | boolean | No | |
+
+**Response 201:** the created hospital.
+
+---
+
+## PUT /api/hospitals/{hospital}
+
+Update a hospital. `super_admin` can update any hospital and every field, including `face_recognition_enabled`, `name`, `city`, `is_active`, and `code`. `admin` can only update their **own** hospital's GPS/WiFi/IP-range fields (`name`, `is_active`, `code`, `face_recognition_enabled` are super-admin-only).
+
+**Roles:** super_admin, admin
+
+**Response 403:** an admin attempting to update a hospital that isn't their own
+
+**Response 200:** the updated hospital. Every save that changed a field writes a `hospital_updated` audit log entry listing the changed field **keys only** (not values, since these are perimeter/security-relevant settings).
+
+---
+
+## DELETE /api/hospitals/{hospital}
+
+Deactivate a hospital (soft delete).
+
+**Roles:** super_admin
+
+**Response 200**
+
+```json
+{ "message": "Hospital deactivated." }
+```
+
+<Note>
+  Deactivating the hospital a staff member belongs to does not itself revoke their tokens. See [Users](/api-reference/users) for account deactivation.
+</Note>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Matcher Config" icon="sliders" href="/api-reference/matcher-config">
+    Read-only view of the active matching thresholds and geofence fail-open setting.
+  </Card>
+  <Card title="Devices" icon="mobile" href="/api-reference/devices">
+    Read-only device inventory derived from audit logs, useful alongside per-hospital IP range configuration.
+  </Card>
+</CardGroup>

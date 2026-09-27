@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mintlify-docs",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd docs && /opt/homebrew/bin/mintlify dev --port 3333"],
+      "port": 3333
+    }
+  ]
+}

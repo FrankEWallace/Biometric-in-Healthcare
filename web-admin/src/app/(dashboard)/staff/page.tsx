@@ -15,8 +15,8 @@ export default function Page() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
   const allowedRoles: StaffRole[] = isSuperAdmin
-    ? ["admin", "nurse", "doctor", "super_admin"]
-    : ["admin", "nurse", "doctor"];
+    ? ["admin", "nurse", "doctor", "clerk", "lab_technician", "pharmacist", "super_admin"]
+    : ["admin", "nurse", "doctor", "clerk", "lab_technician", "pharmacist"];
 
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [hospitals, setHospitals] = useState<Hospital[]>([]);

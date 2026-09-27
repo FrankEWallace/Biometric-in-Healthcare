@@ -31,10 +31,10 @@ against the live code before a plan was written.
 | 016 | Next.js admin/superadmin web dashboard | P2 | L | — | DONE (2026-07-10 — all 11 tasks complete: every screen wired to the real API. Task 9 reused the existing Hospital geofence fields (single SSID + GPS circle via `PUT /api/hospitals`, per STOP condition) instead of a new table, and added read-only `GET /api/devices` derived from audit logs; Task 11 is a read-only `GET /api/matcher-config` display since thresholds are env/code-backed. New endpoints feature-tested; `composer test` 112 passing, `npm run build`/`check` clean) |
 | 017 | Calibrate & enable the contactless four-finger match threshold | P1 | M | — | TODO |
 | 018 | Wire the per-hospital client geofence; demote the 20 km fallback anchor | P1 | S–M | — | TODO |
-| 019 | Bring multimodal verify under the ADR-013 national-identity access gate | P1 | M | — | DONE (2026-07-12 — `buildShortlist` made national (dropped `hospital_id` filter + param); `verifyMultimodal` now applies `PatientAccessService::authorizePatientAccess` after the decision, mirroring `verifyHand`: cross-hospital hit → `access_restricted`, patient/ehr/insurance null, `ACTION_ACCESS_RESTRICTED` audit + verification_logs keep identified id. Extra fix: shortlist eager-load was missing `hospital_id`, which made the gate deny same-hospital patients — added it. Flipped old exclusion test → `cross_hospital_identity_returns_access_restricted_without_pii`. Mobile: `MultimodalVerifyResult.isAccessRestricted` + lock dialog copied from hand screen (012b will consolidate). `php artisan test` 132 passing; `dart analyze` 0 errors; `flutter test` passes) |
+| 019 | Bring multimodal verify under the ADR-013 national-identity access gate | P1 | M | — | DONE (2026-07-12 — `buildShortlist` made national (dropped `hospital_id` filter + param); `verifyMultimodal` now applies `PatientAccessService::authorizePatientAccess` after the decision, mirroring `verifyHand`: cross-hospital hit → `access_restricted`, patient/ehr/insurance null, `ACTION_ACCESS_RESTRICTED` audit + verification_logs keep identified id. Extra fix: shortlist eager-load was missing `hospital_id`, which made the gate deny same-hospital patients — added it. Flipped old exclusion test → `cross_hospital_identity_returns_access_restricted_without_pii`. Mobile: `MultimodalVerifyResult.isAccessRestricted` + lock dialog copied from hand screen (012b will consolidate). `php artisan test` 133 passing; `dart analyze` 0 errors; `flutter test` passes) |
 | 020 | Harden web-admin auth (token/cookies/server role gate) + add its CI & typecheck | P1 | L | — | TODO |
 | 021 | Fix web-admin data-layer correctness (401, load races, pagination, render guard) | P2 | M | 020 | TODO |
-| 012b | Flutter dead-code & duplication cleanup (addendum inside plan 012) | P3 | M | — | TODO |
+| 012b | Flutter dead-code & duplication cleanup (addendum inside plan 012) | P3 | M | — | DONE (2026-07-12 — all four parts complete. A+D via PR #21: A deleted the dead single-finger chain (~1500 lines); D moved the double `verifyHand` 1:N to a server `hand='both'` mode. C consolidated five drifted private widgets (`_HandOption`, `_ErrorBanner`, `_VerifyingView`, `_Badge`→`CaptureBadge`, `_showAccessRestrictedDialog`) into `mobile/lib/widgets/` (−731 lines across 7 screens; ran after 019 so its copied dialog folded in). B collapsed the dead gallery multi-shot path in `FingerprintLivenessCameraScreen` (both callers passed `galleryTarget: 1`; removed `galleryMode`/`FingerprintGalleryResult`/`_startGalleryCapture`/`_ScreenState.repositioning`/`_GalleryProgressBar`, callers now consume the popped `XFile`). `dart analyze` 0 errors; `flutter test` green throughout) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
 
@@ -142,9 +142,11 @@ Priority rationale for the new plans:
   `_showAccessRestrictedDialog` into the multimodal screen; 012b's part C then
   consolidates all such duplicates in one pass. Running 012b first would force
   019 to reconcile against a moved widget.
-- **012b part D (double `verifyHand` call)** is a correctness follow-up, not
-  cleanup — flagged so the part-C consolidation doesn't cement the double-call
-  into a shared helper.
+- **012b part D (double `verifyHand` call)** — DONE (2026-07-12, PR #21). Fixed
+  server-side: `/verify/hand` gained a `hand='both'` mode that scores both
+  orientations in one request and writes a single verification log, so the
+  remaining part-C consolidation has no double-call to cement into a shared
+  helper.
 
 ## Findings considered and rejected
 

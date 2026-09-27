@@ -3,7 +3,7 @@ title: Screens Reference
 description: What each screen does and which API calls it makes
 ---
 
-# Screens Reference
+# Screens reference
 
 ## SplashScreen
 
@@ -33,17 +33,17 @@ Entry point after login. Shows role-appropriate action cards. Displays the logge
 
 Allows a nurse to verify a patient by:
 1. Entering or scanning a patient ID
-2. Triggering `FingerprintCaptureScreen`
-3. Submitting to `POST /api/verify`
+2. Triggering `FingerprintLivenessCameraScreen`
+3. Submitting to `POST /api/fingerprint/verify` (known patient); the hospital-wide identification path described below is a separate flow
 4. Navigating to `ResultScreen`
 
 ---
 
-## FingerprintCaptureScreen
+## Multimodal / hand verification screens
 
-**File:** `lib/screens/fingerprint_capture_screen.dart`
+**Files:** `lib/screens/verify/multimodal_verification_screen.dart`, hand-capture screens under `lib/screens/`
 
-Opens the device camera in a guided overlay. Instructs the user to position their finger and captures on tap. Passes the image path to `FingerprintPreviewScreen`.
+The recommended hospital-wide identification flow when the patient isn't already known: capture a face photo and a hand photo, submit to `POST /api/verify/multimodal`. Results can be `matched`, `needs_review` (staff must confirm), `no_match`, or `access_restricted` (see [Verification](/api-reference/verification)). A dedicated four-finger-only flow (`POST /api/verify/hand`) is also available for stage verification and clerk check-in/checkout scans; it currently always returns `needs_review`. See [Architecture: fingerprint matching evolution](/architecture#fingerprint-matching-evolution).
 
 ---
 
@@ -52,8 +52,8 @@ Opens the device camera in a guided overlay. Instructs the user to position thei
 **File:** `lib/screens/fingerprint_preview_screen.dart`
 
 Displays the captured image. Allows the user to:
-- **Retake** — go back to `FingerprintCaptureScreen`
-- **Confirm** — upload the image to the appropriate API endpoint
+- **Retake**: go back to `FingerprintLivenessCameraScreen`
+- **Confirm**: upload the image to the appropriate API endpoint
 
 ---
 
@@ -80,7 +80,7 @@ Form for registering a new patient. Fields:
 - Full name (required)
 - Date of birth (required)
 - Gender
-- JMBG (national ID, 20 chars)
+- NIDA (national ID, 20 chars, renamed from the earlier "JMBG" field; see [Architecture: national patient identity](/architecture#national-patient-identity))
 - Phone
 - Notes
 
@@ -88,11 +88,15 @@ Submits to `POST /api/patients`. On success, optionally proceeds to fingerprint 
 
 ---
 
-## CameraScreen
+## Clerk screens
 
-**File:** `lib/screens/camera_screen.dart`
+**Files:** `lib/screens/clerk/patient_search_screen.dart`, `clerk_scan_screen.dart`, `fingerprint_enroll_screen.dart`
 
-General-purpose camera screen used during patient registration to capture the fingerprint image for initial enrollment.
+Clerk-role screens supporting the visit lifecycle:
+
+- `PatientSearchScreen`: find a patient by name, hospital patient ID, or phone (`GET /api/visits/patient-search`); also doubles as the entry point for the Retake Fingerprints flow (`retakeMode: true`) from the nurse dashboard.
+- `ClerkScanScreen`: biometric scan feeding `POST /api/visits` (open) or `PUT /api/visits/{visit}/close` (close), and check-in/check-out stage verification.
+- `FingerprintEnrollScreen`: used for both first enrollment and, with `isRetake: true`, replacing an existing patient's fingerprints.
 
 ---
 
@@ -108,4 +112,4 @@ Displays the patient's Electronic Health Record (EHR) data fetched from the GoT-
 
 **File:** `lib/screens/edit_request_screen.dart`
 
-Allows nurses to submit demographic edit requests for existing patients. Admin reviews and approves/rejects via the web dashboard.
+Allows nurses to submit demographic edit requests for existing patients, one field at a time (`field_name`, `new_value`, `reason`); see [Edit Requests](/api-reference/edit-requests). Admin reviews and approves/rejects via the web dashboard.

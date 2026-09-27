@@ -117,13 +117,12 @@ class _VisitDetailScreenState extends State<VisitDetailScreen> {
     }
   }
 
-  /// Tries the right hand first (the common default), then falls back to the
-  /// left hand on a clean no-match — the checkout flow doesn't ask which hand
-  /// was photographed, so this covers both without extra UI friction.
-  Future<HandVerifyResult> _verifyHandBothSides(File image, String token) async {
-    final right = await _fpService.verifyHand(image, token: token, hand: 'right');
-    if (right.status != 'no_match') return right;
-    return _fpService.verifyHand(image, token: token, hand: 'left');
+  /// The checkout flow doesn't ask which hand was photographed, so the server
+  /// scores both orientations and returns the better match — one 1:N call and
+  /// one verification-log row per attempt (previously this fired two separate
+  /// /verify/hand calls, doubling the server-side log + throttle spend).
+  Future<HandVerifyResult> _verifyHandBothSides(File image, String token) {
+    return _fpService.verifyHand(image, token: token, hand: 'both');
   }
 
   Future<void> _reopen() async {

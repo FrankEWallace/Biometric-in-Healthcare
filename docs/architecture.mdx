@@ -1,139 +1,216 @@
 ---
 title: Architecture
-description: How the three system components communicate
+description: Components, data flow, fingerprint matching evolution, and the visit/stage state machine
 ---
 
-# System Architecture
+# System architecture
 
 ## Component diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Hospital Premises                          │
-│                                                                 │
-│   ┌──────────────┐   HTTPS/JSON   ┌──────────────────────────┐ │
-│   │              │ ─────────────► │                          │ │
-│   │  Flutter App │                │   Laravel Backend API    │ │
-│   │  (mobile)    │ ◄───────────── │   (PHP 8.3 / MySQL 8)   │ │
-│   │              │                │                          │ │
-│   └──────────────┘                └──────────┬───────────────┘ │
-│         │                                    │                 │
-│    GPS + WiFi                      Internal HTTP + shared key   │
-│    geofence                                  │                 │
-│   auto-trigger                    ┌──────────▼───────────────┐ │
-│   quality ring                    │  Python Biometric        │ │
-│                                   │  Service (FastAPI)       │ │
-│                                   │  OpenCV · ORB · FAISS   │ │
-│                                   │  InsightFace · Liveness │ │
-│                                   └──────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                            Hospital Premises                              │
+│                                                                           │
+│   ┌──────────────┐   HTTPS/JSON    ┌───────────────────────────────────┐ │
+│   │              │ ──────────────► │                                   │ │
+│   │  Flutter App │                 │       Laravel Backend API         │ │
+│   │  (mobile)    │ ◄────────────── │       (PHP 8.3 / Laravel 13)      │ │
+│   │              │                 │       MySQL 8, Sanctum            │ │
+│   └──────────────┘                 └───────────┬───────────────────────┘ │
+│         │                                      │                         │
+│    GPS + WiFi                     Internal HTTP + X-Internal-Api-Key     │
+│    geofence (client)                            │                         │
+│                                     ┌───────────▼───────────────────────┐ │
+│                                     │  Python Biometric Service         │ │
+│                                     │  (FastAPI, internal-only)         │ │
+│                                     │  SourceAFIS minutiae ─ single     │ │
+│                                     │  ONNX EmbeddingMatcher ─ contactless│ │
+│                                     │  InsightFace (buffalo_s) + FAISS  │ │
+│                                     │  Liveness (fingerprint + face)    │ │
+│                                     └────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────┘
+
+        Web Admin (Next.js) ─── HTTPS/JSON ───► Laravel Backend API
+        (hospital/staff administration, audit log & matcher-config viewing)
 ```
 
-## Request flow — patient verification
+## Request flow: hospital-wide multimodal identification
 
 ```
-Nurse opens verification screen
+Nurse opens the "Identify unknown patient" screen
         │
         ▼
-Flutter captures fingerprint image
+Flutter captures a face photo + a hand photo
         │
         ▼
-POST /api/fingerprint/verify (multipart image + patient_id)
+POST /api/verify/multimodal (face_image + fingerprint_image base64)
   Authorization: Bearer <sanctum-token>
         │
         ▼
-Laravel validates token, role (nurse), hospital scope
-        │
-        ├── load stored ORB template from DB
-        │
-        ▼
-POST http://python-service:5001/process-fingerprint (image file)
-  X-Internal-Api-Key: <shared secret>
-        │   returns quality_score + ORB features
-        ▼
-POST http://python-service:5001/match (probe features + stored template)
-  X-Internal-Api-Key: <shared secret>
-        │   returns score + verdict
-        ▼
-Laravel checks score against FINGERPRINT_MATCH_THRESHOLD (default 32.0)
-        │
-        ├── on MATCH  → fetch EHR + insurance from GoT-HoMIS
-        ├── on NO MATCH → increment failure counter, lock after 5 fails
+Laravel: geofence check, then
+  1. Face liveness check (moiré + specular-highlight heuristics)
+  2. Face embedding → FAISS top-5 shortlist (national gallery, hospital-agnostic)
+  3. Hand photo segmented into 4 fingers → contactless matcher scored ONLY
+     against the shortlisted patients' hands (1:few, not 1:N)
+  4. Decision:
+       matched           — fingerprint confirms a shortlisted candidate
+       needs_review       — face found candidates, fingerprint could not confirm
+       no_match            — face produced no usable candidates
+       access_restricted   — identity resolved, but the caller's hospital has
+                             no authorized relationship to this patient
         │
         ▼
-JSON response → Flutter displays result screen
+JSON response → Flutter shows result / manual-review / access-denied screen
 ```
 
 <Note>
-  Hospital-wide identification (unknown patient) now goes through `POST /api/verify/multimodal` (face shortlist → fingerprint confirm) or `POST /api/verify/hand` (four-finger fused). The legacy `POST /api/verify` is deprecated but kept for backward compatibility — see [Verification](/api-reference/verification).
+  The legacy `POST /api/verify` (1:N fingerprint-only hospital-wide scan) still exists for backward compatibility but is **deprecated**. It emits RFC-8594 `Deprecation`/`Link`/`Warning` headers pointing at `/api/verify/multimodal`. Its false-accept risk grows with the number of enrolled patients because it searches every active fingerprint at the hospital; the multimodal flow bounds that risk with a small face shortlist. See [Verification](/api-reference/verification).
 </Note>
+
+## Fingerprint matching evolution
+
+This is worth stating plainly rather than glossing over, because the accuracy story is a core part of this project's engineering record:
+
+| Stage | What it was | Status |
+|---|---|---|
+| ORB feature descriptors | Classic OpenCV keypoint/descriptor matching (the original MVP) | **Deactivated.** Migration `2026_05_15_000001` marks every ORB-format template `is_active = false`. ORB and SourceAFIS templates are binary-incompatible, so affected patients had to be re-enrolled. |
+| SourceAFIS minutiae matching | Crossing-number minutiae extraction + SourceAFIS-style matching, tuned on smartphone camera captures | **Production default** for single-finger enrollment/verification (`/fingerprint/register`, `/fingerprint/verify`, legacy `/api/verify`). Registered as the `contact`-domain `Matcher`. |
+| Minutiae on true contactless photos | Same minutiae approach applied to in-air finger photos | **Fails.** Measured **42-50% EER** on this project's own contactless test data, consistent with the published RidgeBase CL2CL finding (~46% EER; even commercial VeriFinger caps ~20% on this domain). Minutiae is non-discriminative on finger photos; it is not a calibration problem, it's a representation mismatch. |
+| Learned contactless embedding matcher | A Ridgeformer-style deep network exported to ONNX, served via `onnxruntime`, scored by cosine similarity | **The fix.** Reproduced on this project's own data at **6-8% EER**. Wired into the Python service as `EmbeddingMatcher` (`python-service/app/services/embedding_service.py`), routed by domain: `get_matcher("contactless")` returns it once `models/contactless_embedding.onnx` (~1.1GB, gitignored) is present, and falls back to the minutiae matcher otherwise so the pipeline never crashes on a missing model. |
+| Four-finger ("hand slap") fusion | One hand photo, segmented into 4 fingers, each scored, then fused (mean by default) | **Current frontier, advisory only.** `POST /api/verify/hand` and the fingerprint-confirm step of `POST /api/verify/multimodal` both use this. Until `FINGERPRINT_CONTACTLESS_MATCH_THRESHOLD` is calibrated for the fused embedding score, the endpoint **always returns `needs_review`** and never auto-accepts. It deliberately does not claim accuracy it hasn't proven yet. |
+
+**Why not just ship the four-finger flow as fully automatic?** Fusing scores with the *minutiae* matcher only brings four-finger EER down to ~42% (√N noise reduction on an already-bad signal doesn't rescue it). The embedding matcher is the one that actually works, but the fused, calibrated operating threshold for it at this project's target FAR/FRR trade-off has not been finalized. The honest state to ship is "advisory," not "silently probably fine."
 
 ## Database schema (key tables)
 
 ```
 hospitals
-  id, name, address, wifi_ssid, lat, lng, radius_meters, face_recognition_enabled
+  id, name, code, city, wifi_ssid, allowed_ip_ranges,
+  gps_latitude, gps_longitude, gps_radius_meters,
+  face_recognition_enabled, is_active
 
 users (staff)
   id, hospital_id, name, username, email, role, is_active
+  role ∈ { super_admin, admin, doctor, nurse, clerk, lab_technician, pharmacist }
 
-patients
-  id, hospital_id, full_name, date_of_birth, gender, jmbg, phone, is_active
+patients                                    -- moving toward NATIONAL identity, see below
+  id, hospital_id, patient_seq, hospital_patient_id (e.g. BIH-2026-00142),
+  full_name, date_of_birth, gender, nida, phone, notes, is_active
 
 fingerprints
   id, patient_id, hospital_id, enrolled_by (user_id),
-  template (JSON — ORB keypoints + descriptors, AES-256 at rest),
-  finger_position, quality_score, is_primary, is_active,
-  failed_attempts, locked_at
+  template (JSON — SourceAFIS minutiae or ONNX embedding vector, AES-256 at rest),
+  template_format ('orb_v1' | 'sourceafis_v1'), finger_position (10 single-finger
+  positions + right_hand/left_hand legacy),
+  quality_score, is_primary, is_gallery_lead, needs_reenrollment,
+  is_active, failed_attempts, locked_at
 
 face_templates
   id, patient_id, hospital_id, enrolled_by (user_id),
-  template (512-dim embedding, AES-256 at rest),
-  quality_score, created_at
+  template (512-dim InsightFace embedding, AES-256 at rest),
+  quality_score, is_active, created_at
   — oldest row auto-evicted when per-patient cap is reached
 
+visits                                      -- HOSPITAL-OWNED clinical activity
+  id, hospital_id, patient_id, opened_by, closed_by,
+  visit_type (pending|opd|ipd), status (open|closed),
+  opened_at, closed_at, reopen_count, reopen_reason
+
+visit_stages
+  id, visit_id, stage (clerk_checkin|triage|consultation|laboratory|pharmacy|clerk_checkout),
+  status (pending|completed), verified_by, verification_log_id, verified_at,
+  simulated_data (JSON — stage-specific simulated EMR payload)
+
+supervisor_overrides
+  id, visit_stage_id, requested_by, supervisor_id, status (pending|approved|denied),
+  fallback_chain (fingerprint_failed|fingerprint_and_face_failed),
+  staff_note, supervisor_note, requested_at, resolved_at
+
 verification_logs
-  id, patient_id, hospital_id, staff_id, verdict, score, modality (fingerprint|face), ip_address
+  id, patient_id, hospital_id, operator_id, fingerprint_id,
+  score, status (matched|no_match|needs_review|access_restricted|error),
+  modality (fingerprint|face|multimodal|hand),
+  gps_latitude, gps_longitude, wifi_ssid, error_message
+
+patient_edit_requests
+  id, patient_id, hospital_id, requested_by, reviewed_by,
+  field_name, old_value, new_value, reason,
+  status (pending|approved|rejected|cancelled), expires_at, reviewed_at
 
 audit_logs
   id, staff_id, hospital_id, action, patient_id, ip_address, user_agent, meta (JSON)
 ```
 
+## Visit / stage state machine
+
+A patient's hospital encounter is modeled as a `Visit` moving through six ordered `VisitStage`s, each owned by a specific role:
+
+```
+clerk_checkin → triage → consultation → laboratory → pharmacy → clerk_checkout
+   (clerk)      (nurse)    (doctor)   (lab_technician) (pharmacist)  (clerk)
+```
+
+- A visit is **opened** by a clerk (`POST /api/visits`) after a successful biometric verification log exists for the patient, and **closed** by a clerk (`PUT /api/visits/{visit}/close`) the same way. A same-day closed visit can be **reopened** with a required reason.
+- Each stage requires its assigned role to re-verify the patient's identity biometrically (`POST /api/visits/{visit}/stages/{stage}/verify`) before that stage's simulated EMR data can be submitted (`PUT .../data`). Role enforcement is **deny-by-default**: an unmapped stage name permits no role, never any role.
+- Stage verification runs a tiered pipeline: four-finger hand embedding first, face as fallback; a legacy single-finger fingerprint image, if supplied, is advisory only and can never complete a stage on its own.
+- Triage is the only stage that can set the visit's `visit_type` (`opd` or `ipd`) via its simulated data payload.
+- When biometric verification fails or can't be attempted at a stage, staff request a **supervisor override** (`POST /api/supervisor-overrides`). A different admin/doctor/nurse than the requester must resolve it, since self-approval is explicitly forbidden (segregation of duties). An approval completes the stage without any verification log, using the stage's default simulated data.
+
+See [Visit Lifecycle](/visit-lifecycle) for the full walkthrough and [Supervisor Overrides](/api-reference/supervisor-overrides) for the API.
+
+## National patient identity
+
+<Note>
+  **ADR-013**, accepted 2026-07-10, is the architectural direction, not yet the shipped data model. `patients.hospital_id` still exists and is still the enforced boundary today.
+</Note>
+
+The system today is hospital-partitioned: `patients.hospital_id` scopes a patient to the hospital that enrolled them, enforced by `App\Policies\PatientPolicy` (returns 404 across hospitals). The accepted direction (see the [ADR](/adr/national-patient-identity)) is:
+
+1. **Identity is national.** One patient record exists regardless of which hospital first registered them; biometric search (face FAISS, four-finger embedding matcher) already effectively operates over the whole gallery for face and hand verification.
+2. **Clinical activity stays hospital-owned.** Visits, stages, and verification logs belong to the hospital that produced them and reference the national identity by foreign key.
+3. **Access is a separate, audited decision** made *after* identity resolves, via `PatientAccessService::authorizePatientAccess(User, Patient)`. A cross-hospital hit returns `access_restricted` (identity found, records withheld, zero PII, but the resolved patient id is still written to the audit log), **never** a fake `no_match`, because that would push a nurse toward duplicate re-enrollment or an unsafe assumption of no prior history.
+
+`patients.jmbg` was renamed to `patients.nida` (migration `2026_05_05_142209`) and `hospital_patient_id`/`patient_seq` were added (migration `2026_05_17_000002`). This is schema groundwork for this direction, ahead of the full `patient_hospital_links` migration described in the design doc.
+
+<Warning>
+  Do not read this section as "the system already enforces national identity end to end." The `hospital.access` middleware (`CheckHospitalAccess`) is an **unrelated IP/CIDR network geofence** on hospital-scoped API routes, not the patient-ownership boundary. Patient ownership is enforced in `PatientPolicy` and, for the biometric verification paths, in `PatientAccessService`. Conflating the two was an earlier framing mistake the ADR explicitly corrects.
+</Warning>
+
 ## Role matrix
 
-| Endpoint category | super_admin | admin | doctor | nurse |
-|---|:---:|:---:|:---:|:---:|
-| Login / logout / me | ✓ | ✓ | ✓ | ✓ |
-| List / view patients | ✓ | ✓ | ✓ | ✓ |
-| Register patient | | | | ✓ |
-| Edit patient directly | ✓ | ✓ | | |
-| Submit edit request | | | | ✓ |
-| Approve / reject edit request | ✓ | ✓ | | |
-| Enroll fingerprint | ✓ | ✓ | | ✓ |
-| Verify fingerprint | | | | ✓ |
-| Unlock fingerprint | ✓ | ✓ | | |
-| Enroll face | ✓ | ✓ | | ✓ |
-| Identify by face | | | | ✓ |
-| Confirm manual face review | | | | ✓ |
-| Manage users | ✓ | ✓ | | |
-| View audit logs | ✓ | ✓ | ✓ | |
-| Manage hospitals | ✓ | | | |
+See the full [RBAC reference](/rbac) for the authoritative, per-endpoint matrix transcribed from `routes/api.php`. Summary:
+
+| Role | Scope |
+|---|---|
+| `super_admin` | Cross-hospital platform management (hospitals, matcher-config), no clinical data |
+| `admin` | Own-hospital management, emergency enrollment, user management, edit-request review |
+| `doctor` | Read-only clinical (EHR, patients, audit logs), consultation stage verification |
+| `nurse` | Fingerprint/face enrollment and verification, patient registration, edit-request submission, triage stage |
+| `clerk` | Visit open/close/reopen, check-in/check-out stage verification, patient search |
+| `lab_technician` | Laboratory stage verification |
+| `pharmacist` | Pharmacy stage verification |
 
 ## Rate limits
 
 | Route group | Limit |
 |---|---|
 | `POST /api/auth/login` | 10 req / min per IP |
-| Fingerprint enroll endpoints | 20 req / min per token |
-| Fingerprint verify endpoints | 30 req / min per token |
+| Fingerprint/face/hand enroll endpoints | 20 req / min per token |
+| Fingerprint/face/hand/multimodal verify endpoints | 30 req / min per token |
+| `POST /api/fingerprint/liveness-check` | 60 req / min per token |
+| `POST /api/face/rebuild-index` | 5 req / min per token |
+| `POST /api/visits/{visit}/stages/{stage}/verify` | 30 req / min per token |
 
 ## Security layers
 
-1. **Sanctum token** — 8-hour expiry, revoked on logout, single active token per user
-2. **Role middleware** — `role:nurse,admin` checked before every sensitive route
-3. **Hospital scope** — `hospital.access` middleware blocks cross-hospital data access
-4. **Geofence** — Flutter checks GPS + WiFi SSID before allowing capture; backend re-validates via the `geofence` middleware, failing closed in production (`GEOFENCE_FAIL_OPEN=false`)
-5. **Internal service key** — Laravel ↔ Python calls carry a shared `X-Internal-Api-Key`, required in production
-6. **Fingerprint locking** — 5 failed attempts within 1 hour locks the record
-7. **Template encryption** — ORB feature JSON encrypted at rest (AES-256)
-8. **No raw image storage** — only processed feature templates are persisted
+1. **Sanctum token.** Expiry is configurable (`SANCTUM_TOKEN_EXPIRY_HOURS`, default 8h), revoked on logout, single active token per user.
+2. **Role middleware.** `role:x,y` is checked before every sensitive route.
+3. **Hospital network geofence.** The `hospital.access` middleware (`CheckHospitalAccess`) restricts hospital-scoped routes to each hospital's configured IP/CIDR ranges. This is a network boundary, not the patient-ownership boundary (see above).
+4. **Patient ownership / access.** `PatientPolicy` (object-level, 404 across hospitals) and, for biometric identification, `PatientAccessService::authorizePatientAccess` (post-identification, audited, `access_restricted` on denial).
+5. **GPS + WiFi geofence.** Flutter checks GPS + WiFi SSID before allowing capture; the backend re-validates via the `geofence` middleware, failing closed in production (`GEOFENCE_FAIL_OPEN=false`).
+6. **Internal service key.** Laravel and Python calls carry a shared `X-Internal-Api-Key`, required in production.
+7. **Fingerprint locking.** 5 failed attempts within 1 hour locks the record.
+8. **Template encryption.** Fingerprint/face template JSON is encrypted at rest (AES-256).
+9. **No raw image storage.** Only processed feature templates are persisted.
+
+See [Security](/security) for the full model, including known weak points this FYP is honest about.

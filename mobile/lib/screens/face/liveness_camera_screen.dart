@@ -9,7 +9,7 @@ import '../../theme/app_theme.dart';
 /// Full-screen liveness check: blink → head-turn → automatic capture.
 ///
 /// Returns an [XFile] on success, or `null` if the user cancels.
-/// Replace the plain [CameraScreen] call in face enroll/verify flows.
+/// Used by the face enroll/verify flows for a guided liveness capture.
 class LivenessCameraScreen extends StatefulWidget {
   const LivenessCameraScreen({super.key});
 

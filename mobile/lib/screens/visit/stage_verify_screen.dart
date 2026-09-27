@@ -9,6 +9,7 @@ import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../services/visit_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/hand_option.dart';
 import '../../widgets/primary_button.dart';
 import '../face/liveness_camera_screen.dart';
 import '../fingerprint/fingerprint_liveness_camera_screen.dart';
@@ -245,26 +246,22 @@ class _StageVerifyScreenState extends State<StageVerifyScreen> {
                 if (_phase == _VerifyPhase.hand) ...[
                   Row(
                     children: [
-                      Expanded(
-                        child: _HandOption(
-                          label: 'Right Hand',
-                          selected: _hand == 'right',
-                          onTap: () => setState(() {
-                            _hand = 'right';
-                            _capturedImage = null;
-                          }),
-                        ),
+                      HandOption(
+                        label: 'Right Hand',
+                        selected: _hand == 'right',
+                        onTap: () => setState(() {
+                          _hand = 'right';
+                          _capturedImage = null;
+                        }),
                       ),
                       const SizedBox(width: 12),
-                      Expanded(
-                        child: _HandOption(
-                          label: 'Left Hand',
-                          selected: _hand == 'left',
-                          onTap: () => setState(() {
-                            _hand = 'left';
-                            _capturedImage = null;
-                          }),
-                        ),
+                      HandOption(
+                        label: 'Left Hand',
+                        selected: _hand == 'left',
+                        onTap: () => setState(() {
+                          _hand = 'left';
+                          _capturedImage = null;
+                        }),
                       ),
                     ],
                   ),
@@ -694,54 +691,6 @@ class _SimulatedDataView extends StatelessWidget {
   }
 }
 
-class _HandOption extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _HandOption(
-      {required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.primary.withValues(alpha: 0.1)
-              : AppColors.secondary,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? AppColors.primary : AppColors.divider,
-            width: selected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.back_hand_outlined,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? AppColors.primary : AppColors.textSecondary,
-                fontSize: 13,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _Row extends StatelessWidget {
   final String label;

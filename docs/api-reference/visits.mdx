@@ -1,0 +1,257 @@
+---
+title: Visits
+description: Visit lifecycle (open/close/reopen), stage verification, stage data, and the stage queue
+---
+
+# Visits
+
+Endpoints for the clinical visit lifecycle. See [Visit Lifecycle](/visit-lifecycle) for the conceptual walkthrough of stages and roles. All routes require `hospital.access`.
+
+---
+
+## GET /api/visits
+
+List visits for the caller's hospital. Defaults to **today only** unless `date` is given.
+
+**Roles:** all
+
+**Query params**
+
+| Param | Type | Default |
+|---|---|---|
+| `status` | `open` \| `closed` | — |
+| `visit_type` | `pending` \| `opd` \| `ipd` | — |
+| `date` | date `Y-m-d` | today |
+| `per_page` | int | 20 |
+
+**Response 200:** paginated list, each visit with `patient` (id, full_name, hospital_patient_id) and `openedBy` (id, name, role) loaded.
+
+---
+
+## GET /api/visits/patient-search
+
+Search patients for the clerk pre-check-in flow.
+
+**Roles:** all
+
+**Query params**
+
+| Param | Type | Notes |
+|---|---|---|
+| `q` | string | Min 2 chars; matches `hospital_patient_id` (prefix, uppercased), `full_name`, or `phone` (substring) |
+
+**Response 200**
+
+```json
+{
+  "patients": [
+    {
+      "id": 42,
+      "full_name": "Amina Juma",
+      "hospital_patient_id": "BIH-2026-00142",
+      "date_of_birth": "1985-03-12",
+      "gender": "female",
+      "phone": "+255 61 123 456",
+      "has_open_visit": false
+    }
+  ]
+}
+```
+
+Results are capped at 10 and always include `has_open_visit` so the clerk UI can distinguish check-in from check-out.
+
+---
+
+## POST /api/visits
+
+Open a new visit (clerk check-in).
+
+**Roles:** clerk
+
+**Request body**
+
+```json
+{
+  "patient_id": 42,
+  "verification_log_id": 301
+}
+```
+
+The referenced `verification_log_id` must belong to this patient and have `status: matched`. The server re-validates this rather than trusting the client. Rejected with `409` if the patient already has an open visit (the `visit_id` is included so the client can navigate there instead).
+
+**Response 201:** the created `Visit`, with all six `VisitStage` rows seeded `pending`.
+
+---
+
+## GET /api/visits/{visit}
+
+Retrieve a visit with its full stage timeline.
+
+**Roles:** all (404 if the visit belongs to a different hospital)
+
+**Response 200**
+
+```json
+{
+  "visit": {
+    "id": 88,
+    "hospital_id": 2,
+    "patient_id": 42,
+    "visit_type": "opd",
+    "status": "open",
+    "opened_at": "2026-05-01T08:00:00Z",
+    "closed_at": null,
+    "reopen_count": 0,
+    "patient": { "...": "..." },
+    "openedBy": { "id": 9, "name": "Clerk Juma", "role": "clerk" },
+    "closedBy": null,
+    "stages": [
+      { "stage": "clerk_checkin", "status": "completed", "verifiedBy": { "...": "..." } },
+      { "stage": "triage", "status": "pending" }
+    ]
+  }
+}
+```
+
+---
+
+## PUT /api/visits/{visit}/close
+
+Close a visit (clerk checkout).
+
+**Roles:** clerk
+
+**Request body**
+
+```json
+{ "verification_log_id": 789 }
+```
+
+Same validation as opening: the log must belong to this patient and be `matched`. **Response 409** if already closed.
+
+---
+
+## PUT /api/visits/{visit}/reopen
+
+Reopen a **same-day** closed visit.
+
+**Roles:** clerk
+
+**Request body**
+
+```json
+{ "reason": "Patient returned — wrong medication dispensed" }
+```
+
+**Response 422** if `closed_at` isn't today. **Response 409** if already open. Each reopen increments `reopen_count`.
+
+---
+
+## POST /api/visits/{visit}/stages/{stage}/verify
+
+Verify the patient's identity at a specific stage. Role enforcement happens **inside the controller** (`VisitStage::STAGE_ROLES`), not the route middleware, and denies by default for any unmapped stage name.
+
+**Rate limit:** 30 req / min
+
+**Request body**
+
+```json
+{
+  "hand_image": "<base64 whole-hand photo>",
+  "hand": "right",
+  "face_image": "<base64, optional fallback>",
+  "fingerprint_image": "<base64, optional legacy single-finger, advisory only>",
+  "gps_latitude": -6.776,
+  "gps_longitude": 39.178,
+  "wifi_ssid": "Hospital-Staff"
+}
+```
+
+`hand_image` is required. The pipeline tries the four-finger hand embedding first, then face as fallback; a legacy `fingerprint_image` never completes the stage on its own.
+
+**Response 200: matched**
+
+```json
+{
+  "matched": true,
+  "modality": "hand",
+  "score": 74.8,
+  "verification_log_id": 512,
+  "stage": { "id": 210, "stage": "triage", "status": "completed", "verified_at": "2026-05-01T08:10:00Z" },
+  "simulated_data": { "bp": "120/80", "pulse": 78, "temp": 36.7, "weight": 70, "visit_type_set": null }
+}
+```
+
+**Response 422: biometric verification failed**
+
+```json
+{
+  "matched": false,
+  "fallback_exhausted": true,
+  "message": "Biometric verification failed. Request a supervisor override to proceed."
+}
+```
+
+**Response 403:** caller's role is not permitted at this stage
+
+```json
+{ "error": "Your role (clerk) is not permitted to verify at the triage stage." }
+```
+
+**Response 409:** stage already completed, or the visit is closed
+
+---
+
+## PUT /api/visits/{visit}/stages/{stage}/data
+
+Update the simulated EMR data for a stage that has already been verified. Same role enforcement as `verify`.
+
+**Request body**
+
+```json
+{ "simulated_data": { "bp": "118/76", "pulse": 74, "temp": 36.6, "weight": 70 } }
+```
+
+For the `triage` stage only, setting `simulated_data.visit_type_set` to `opd` or `ipd` also updates the parent visit's `visit_type`.
+
+**Response 200**
+
+```json
+{
+  "stage": { "...": "...", "simulated_data": { "...": "..." } },
+  "visit_type": "opd"
+}
+```
+
+**Response 422:** stage hasn't been verified yet (`status` is still `pending`)
+
+---
+
+## GET /api/queue
+
+The active visit queue, filtered to the caller's role.
+
+**Roles:** all (`hospital.access` scoped)
+
+| Role | Sees |
+|---|---|
+| `nurse` | Open visits with `triage` pending |
+| `doctor` | Open visits with `consultation` pending |
+| `lab_technician` | Open visits with `laboratory` pending |
+| `pharmacist` | Open visits with `pharmacy` pending |
+| `clerk`, `admin`, `super_admin` | All open visits (no stage filter; `assignedStage()` returns `null` for clerk since it covers two stages) |
+
+**Response 200**
+
+```json
+{
+  "queue": [
+    {
+      "id": 88,
+      "opened_at": "2026-05-01T08:00:00Z",
+      "patient": { "id": 42, "full_name": "Amina Juma", "hospital_patient_id": "BIH-2026-00142" },
+      "stages": [{ "stage": "triage", "status": "pending" }]
+    }
+  ]
+}
+```

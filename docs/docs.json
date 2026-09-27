@@ -18,7 +18,9 @@
             "pages": [
               "introduction",
               "architecture",
-              "security"
+              "security",
+              "rbac",
+              "visit-lifecycle"
             ]
           },
           {
@@ -55,6 +57,12 @@
             "pages": [
               "facial-recognition-decisions"
             ]
+          },
+          {
+            "group": "Decisions",
+            "pages": [
+              "adr/national-patient-identity"
+            ]
           }
         ]
       },
@@ -70,8 +78,13 @@
               "api-reference/fingerprint",
               "api-reference/face",
               "api-reference/verification",
+              "api-reference/visits",
+              "api-reference/supervisor-overrides",
               "api-reference/edit-requests",
               "api-reference/users",
+              "api-reference/hospitals",
+              "api-reference/devices",
+              "api-reference/matcher-config",
               "api-reference/audit-logs"
             ]
           }

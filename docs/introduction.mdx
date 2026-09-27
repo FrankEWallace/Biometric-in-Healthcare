@@ -1,29 +1,32 @@
 ---
 title: Introduction
-description: Mobile-Based Fingerprint Verification System for Patient Identification in Healthcare
+description: Mobile-Based Fingerprint & Face Verification System for Patient Identification in Healthcare
 ---
 
-# BiH Fingerprint Patient Identification System
+# BiH Patient Identification System
 
-A hospital-grade, multi-tenant system that registers and verifies patients using fingerprint biometrics captured via smartphone camera.
+A hospital-grade, multi-tenant system that registers and verifies patients using contactless biometrics: fingerprint (single-finger and four-finger "hand slap") and face, captured with an ordinary smartphone camera. It tracks each patient through a full clinical visit lifecycle, from check-in to checkout.
 
 ## What it does
 
 <CardGroup cols={2}>
   <Card title="Patient Registration" icon="user-plus">
-    Nurses capture a fingerprint image with the mobile app. The image is processed by the Python service, and the ORB feature template is stored securely in the database.
+    Clerks and nurses register patients and capture biometrics with the mobile app. The Python service processes the images, and only the extracted templates, never raw images, are stored, encrypted at rest.
   </Card>
-  <Card title="Patient Verification" icon="fingerprint">
-    A live fingerprint capture is matched against stored templates in real time. Auto-trigger fires the capture automatically once consecutive frames pass a sharpness gate — no manual button press required.
+  <Card title="Multi-Modal Verification" icon="fingerprint">
+    Direct 1:1 fingerprint checks, hospital-wide face-shortlist plus fingerprint-confirm identification, and an experimental four-finger contactless match. See [Fingerprint Matching](/architecture#fingerprint-matching-evolution) for how this evolved.
   </Card>
-  <Card title="Facial Recognition" icon="face-viewfinder">
-    Optional face identification using FAISS-indexed embeddings. A probe face is scored against every enrolled template at the hospital; manual review decisions are recorded in the audit trail via the confirm endpoint.
+  <Card title="Clinical Visit Lifecycle" icon="clipboard-list">
+    A visit moves through ordered stages: check-in, triage, consultation, laboratory, pharmacy, checkout. Each stage re-verifies the patient's identity biometrically before that stage's (simulated) EMR data can be entered. See [Visit Lifecycle](/visit-lifecycle).
+  </Card>
+  <Card title="Supervisor Overrides" icon="user-shield">
+    When biometric verification fails or is unavailable at a stage, staff can request a supervisor override, resolved by a different admin, doctor, or nurse, never the requester, to complete the stage without a biometric match.
   </Card>
   <Card title="Access Control" icon="location-dot">
-    GPS geofencing and WiFi SSID restrictions prevent the app from operating outside hospital premises. The WiFi bypass is a build-time flag, not a debug switch.
+    GPS geofencing, WiFi SSID restriction, and per-hospital allowed IP ranges keep biometric capture and hospital-network endpoints confined to hospital premises.
   </Card>
   <Card title="Role-Based Access" icon="shield-halved">
-    Four roles — super_admin, admin, doctor, nurse — each with narrowly scoped permissions enforced at the API layer.
+    Seven roles (super_admin, admin, doctor, nurse, clerk, lab_technician, pharmacist), each narrowly scoped at the API layer. See the full [RBAC matrix](/rbac).
   </Card>
 </CardGroup>
 
@@ -31,16 +34,33 @@ A hospital-grade, multi-tenant system that registers and verifies patients using
 
 | Component | Technology | Purpose |
 |---|---|---|
-| **Laravel Backend** | Laravel 11, MySQL, Sanctum | REST API, RBAC, audit logs, face verify-confirm |
-| **Flutter Mobile** | Flutter, Provider | Auto-trigger capture, geofencing, `--dart-define` config |
-| **Python Service** | FastAPI, OpenCV, ORB, FAISS | Fingerprint processing, face embeddings, FAISS search, liveness |
+| **Laravel Backend** | Laravel 13, PHP 8.3, MySQL 8, Sanctum | REST API, RBAC, visit/stage state machine, audit logs |
+| **Flutter Mobile** | Flutter 3.x, Provider | Biometric capture, geofencing, role-aware dashboards, `--dart-define` config |
+| **Python Service** | FastAPI, OpenCV, SourceAFIS, ONNX Runtime, InsightFace, FAISS | Fingerprint minutiae + contactless embedding matching, face embeddings, FAISS search, liveness |
+| **Web Admin** | Next.js | Hospital/staff administration, edit-request review, audit log viewing, matcher-config and geofence-device visibility |
+
+## Fingerprint matching: an honest evolution
+
+The system did **not** launch with the matcher it uses today, and the current four-finger flow is still a work in progress rather than a finished feature:
+
+1. **ORB feature descriptors** (original MVP), deactivated. Every ORB-format template was marked inactive by migration `2026_05_15_000001`; ORB and the matcher that replaced it are binary-incompatible, so all patients had to be re-enrolled.
+2. **SourceAFIS minutiae matching** (current default, single-finger) is the production matcher for `/fingerprint/register`, `/fingerprint/verify`, and the legacy hospital-wide `POST /api/verify`. It holds up on the smartphone-camera "contact-like" captures it was tuned for.
+3. **Contactless finger-photo matching is a much harder problem than contact matching.** Minutiae matching on true contactless (in-air) finger photos measured **42-50% EER** in this project's own testing, barely better than a coin flip, matching the published RidgeBase finding (CL2CL EER around 46%, even VeriFinger caps around 20%).
+4. **Learned embedding matcher (Ridgeformer, ONNX)** fixes the contactless case: a deep network maps a finger photo to an embedding vector, and identity is decided by cosine similarity. Reproduced on this project's own data at **6-8% EER**, and wired into the Python service as `EmbeddingMatcher`, routed by capture domain (`contact` uses minutiae, `contactless` uses embedding when the model file is installed).
+5. **Four-finger ("hand slap") capture plus fusion** is the current frontier. `POST /api/verify/hand` segments one hand photo into four fingers, matches each against enrolled hands, and fuses the scores. It is **advisory only today** (`needs_review`, never auto-accepts) because a calibrated contactless threshold for the fused score isn't installed yet. See [Architecture](/architecture#fingerprint-matching-evolution) for the full detail.
+
+Because a single contactless matcher isn't yet a reliable stand-alone identifier at hospital scale, the recommended hospital-wide identification path is **multimodal**: a face-FAISS shortlist narrows the candidate pool, then a fingerprint match confirms one candidate. See [Verification](/api-reference/verification).
+
+## National patient identity direction
+
+The system was originally hospital-partitioned: a patient belonged to exactly one hospital. **ADR-013** (accepted 2026-07-10) moves the target model to a **national patient identity**, OpenHIE Client Registry/MPI-style: one patient record nationally, clinical activity (visits, stages) still owned by the hospital that produced it, and a separate audited access-control layer (`access_restricted` status, never a silent `no_match`) deciding what a given hospital's staff may see. The `patients` table already carries this direction in its schema: `jmbg` was renamed to `nida` and a `patient_identifier`/`hospital_patient_id` scheme was added. See [Architecture](/architecture#national-patient-identity) and the [ADR](/adr/national-patient-identity) for the full decision record.
 
 ## Key design principles
 
-- **Functionality first** — MVP features before optimisation or polish
-- **Simplicity** — no unnecessary dependencies or layers
-- **Security** — raw fingerprint images are never persisted; only ORB feature templates are stored
-- **Demonstrability** — every component runs locally and is independently testable
+- **Functionality first.** MVP features before optimization or polish.
+- **Honesty about accuracy.** The docs describe matcher limitations (EER numbers, placeholder/advisory states) rather than overstating what is calibrated and production-ready.
+- **Security.** Raw fingerprint and face images are never persisted; only processed templates are stored, encrypted at rest.
+- **Demonstrability.** Every component runs locally and is independently testable.
 
 <Note>
   This system was built as a Final Year Project (FYP) demonstrating biometric patient identification in a hospital environment.

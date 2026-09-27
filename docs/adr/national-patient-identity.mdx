@@ -1,0 +1,77 @@
+---
+title: "ADR-013: National Patient Identity"
+description: Decision record — national patient identity with a hospital-scoped access-control layer
+---
+
+# ADR-013: National patient identity, hospital-scoped clinical records
+
+<Note>
+  This is a Mintlify-rendered summary of `docs/adr/013-national-patient-identity.md` and its companion `docs/design/national-identity-access-control.md` in the repository. Read those files directly for the complete text, including the full alternatives table and migration outline. This page exists so the decision is discoverable from the docs site nav, since only pages listed in `docs.json` render.
+</Note>
+
+**Status:** Accepted, both decision points signed off 2026-07-10
+**Date:** 2026-07-08
+**Supersedes/enriches:** the access-control seam introduced by plan 005 (`PatientAccessService::authorizePatientAccess`)
+
+## Context
+
+The system is **hospital-partitioned** today: `patients.hospital_id`, `face_templates.hospital_id`, and `fingerprints.hospital_id` all scope a patient's identity to the hospital that enrolled them, enforced in `PatientPolicy`/`FingerprintPolicy` (404 across hospitals), **not** in the `hospital.access` middleware, which is an unrelated IP/CIDR network geofence (`CheckHospitalAccess`). Real patient journeys cross hospitals: registered at A, seen at B while travelling, referred to C. Hospital-owned identity causes duplicate registrations, duplicate biometric templates, and fragmented histories.
+
+## Decision
+
+Adopt the **OpenHIE Client Registry / Interoperability Layer (CR/IOL) pattern**:
+
+1. **Identity is national.** One patient, one national identity, independent of which hospital first registered them. The biometric engine (face FAISS index, four-finger embedding matcher) answers "who is this person?" against the whole national gallery, not a hospital-scoped subset.
+2. **Clinical activity is hospital-owned.** Visits, stages, diagnoses, lab results, and prescriptions belong to the hospital that produced them and reference the national identity by foreign key.
+3. **Access is a separate, audited decision** made after identity resolves. `PatientAccessService::authorizePatientAccess` is the single seam this grows through, without touching the biometric controllers again.
+
+## Alternatives considered
+
+| Option | Rejected because |
+|---|---|
+| A: status quo (hospital-owned patient) | Doesn't fix duplicate enrollments/fragmented histories; the FAISS face index is already effectively a global gallery in practice, so hospital-scoping identity is already fictional for face. |
+| B: fully open cross-hospital records (no access layer) | Correct on identity, wrong on access: over-disclosure, not appropriate without consent/referral machinery. |
+| **C: national identity + hospital-gated access + mandatory audit (chosen)** | Matches the OpenHIE/Tanzania CR precedent; doesn't require the full consent engine before the identity fix ships; keeps the boundary auditable and reversible. |
+
+## Decision points (both signed off 2026-07-10)
+
+### 1. Does a cross-hospital hit expose `access_restricted`, or get suppressed to `no_match`?
+
+**Decision: expose `access_restricted`, never fold it into `no_match`.** A silent `no_match` risks a nurse re-enrolling the patient as new (recreating the duplicate-identity problem) or treating them as having no prior history, a documented unsafe pattern in real HIE deployments. `access_restricted` carries **zero PII** and is always written to the audit log with the resolved patient id, so repeated-probing abuse is detectable after the fact even though it isn't blocked in the moment.
+
+### 2. Is `patient.hospital_id` the right authorization basis, or does the model become National Patient + Hospital Record?
+
+**Decision: National Patient + Hospital Record.** `patients` becomes the national identity table (no `hospital_id` as an ownership field); a new `patient_hospital_links` table (analogous to OpenHIE/CDHMS's `MPI_Local_Link`) records which hospitals have a relationship with a patient, for authorization purposes, not ownership. `PatientAccessService::authorizePatientAccess` becomes "has this hospital ever been linked to this patient, or does the operator hold a broader grant (super-admin, future consent/referral/break-glass)?" instead of a `hospital_id` equality check.
+
+### 3. Opt-in vs. opt-out consent for the pilot
+
+**Decision: opt-in.** A patient's records are visible to any hospital in their `patient_hospital_links` (implied consent from the encounter itself) and nowhere else, until an explicit referral or consent grant exists. This needs no patient-facing UI for the pilot; it falls directly out of the link table already required for access control.
+
+### 4. NIDA (national ID) integration depth
+
+**Decision: seam only, no mock service, for this spike.** The identity-resolution API already carries an optional `nida` field through; that is the seam. Building even a mock NIDA client is real integration work whose assumptions could diverge from the eventual real API; it's deferred until a build plan actually implements enrollment-time NIDA capture.
+
+## Consequences
+
+- **Positive:** no more duplicate registrations/templates across hospitals; cross-hospital identity becomes true instead of accidentally true (face) or false (hand, pre-plan-005); one auditable access decision point instead of scattered `hospital_id ===` checks.
+- **Negative / costs:** the hand-verify path is an O(N_national) linear scan until a FAISS shortlist for fingerprints ships (already flagged in the design doc); every `hospital_id`-as-authorization call site must be re-audited when the migration executes; national-scale FAR requires the NIDA anchor and/or multimodal confirmation, or accuracy degrades as the gallery grows.
+- **Reversibility:** the migration outline is additive and backfillable. `hospital_id` is not dropped until the new authorization path is proven in production.
+
+## What's actually shipped today vs. what's designed
+
+<Warning>
+  This ADR is accepted architecture, not a completed migration. `patients.hospital_id` still exists and is still the enforced ownership boundary in `PatientPolicy` today. `patient_hospital_links` does not exist yet. The `nida` column rename and `hospital_patient_id`/`patient_seq` additions are schema groundwork that landed ahead of the rest of the migration outline.
+</Warning>
+
+The full ordered, reversible migration outline (add `patient_hospital_links` → backfill → offline duplicate detection → human adjudication → switch `PatientAccessService` behind a flag → re-audit remaining `hospital_id`-as-authorization call sites) is documented in `docs/design/national-identity-access-control.md` in the repository and intentionally not reproduced in full here. Read it directly before executing any part of that migration, since the ordering and rollback guarantees matter.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/architecture#national-patient-identity">
+    How this decision fits into the wider system today.
+  </Card>
+  <Card title="Security" icon="shield-halved" href="/security#1n-false-accept-risk-scales-with-gallery-size-a-known-limitation">
+    Why national-scale identification needs an anchor or multimodal confirmation.
+  </Card>
+</CardGroup>

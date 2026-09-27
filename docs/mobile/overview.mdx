@@ -3,7 +3,7 @@ title: Mobile App Overview
 description: Flutter app architecture and navigation flow
 ---
 
-# Mobile App Overview
+# Mobile app overview
 
 The Flutter app is the only interface that hospital staff interact with. It is designed for use on Android devices within hospital premises.
 
@@ -25,7 +25,7 @@ SplashScreen
         Screen         Screen          Details
                 │           │
                 ▼           ▼
-        FingerprintCapture  CameraScreen
+        FingerprintLivenessCamera   FingerprintLivenessCamera
                 │               │
                 ▼               ▼
         FingerprintPreview  FingerprintPreview
@@ -63,23 +63,45 @@ All build-time configuration lives in `lib/config/app_config.dart` and is inject
 | Flag | Default | Description |
 |---|---|---|
 | `API_BASE_URL` | `http://192.168.100.144:8000/api` | Laravel API base URL |
-| `BYPASS_WIFI` | `false` | Skip WiFi SSID check (dev only — never use in release) |
+| `BYPASS_WIFI` | `false` | Skip WiFi SSID check (dev only, never use in release) |
 
 ## Auto-trigger fingerprint capture
 
-`FingerprintLivenessCameraScreen` streams camera frames continuously via `startImageStream()`. It fires a six-frame burst automatically once three consecutive frames pass a sharpness quality gate — no manual button press required.
+`FingerprintLivenessCameraScreen` streams camera frames continuously via `startImageStream()`. It fires a six-frame burst automatically once three consecutive frames pass a sharpness quality gate, with no manual button press required.
 
 - The `FingerprintOverlay` widget shows a live quality ring that animates red → amber → green as the sharpness signal improves.
-- On **iOS**, the stream format is BGRA8888 — luma is computed from the R/G/B channels. On **Android**, the Y-plane of YUV420 is used.
+- On **iOS**, the stream format is BGRA8888, and luma is computed from the R/G/B channels. On **Android**, the Y-plane of YUV420 is used.
 - The manual Scan button is hidden while auto-trigger is active.
+- The burst also feeds `POST /api/fingerprint/liveness-check` (optical-flow liveness) before a gallery enrollment is accepted server-side.
+
+## Four-finger ("hand slap") capture
+
+Separately from the single-finger auto-trigger flow, hand-capture screens photograph a whole hand at once for the four-finger contactless matching flow (`POST /api/patients/{id}/enroll-hand`, `POST /api/verify/hand`, and the fingerprint-confirm step of `POST /api/verify/multimodal`). `hand_landmarker` (MediaPipe Hands) provides per-finger overlay guidance so the nurse can position the hand correctly before capture. This is the direction the accuracy work is moving toward; see [Architecture: fingerprint matching evolution](/architecture#fingerprint-matching-evolution) for why a single finger alone tops out well below what the four-finger contactless embedding matcher can reach once fully calibrated.
+
+<Warning>
+  The four-finger verification flow is advisory only in the current build. Results come back as `needs_review`, not an automatic accept, until a calibrated contactless threshold is installed server-side. The mobile UI should present this as "needs staff confirmation," not a final verdict.
+</Warning>
+
+## Retake Fingerprints
+
+A nurse dashboard action, **Retake Fingerprints**, opens patient search in a dedicated retake mode (`PatientSearchScreen(retakeMode: true)`):
+
+- Selecting a patient with **no** fingerprints on file goes straight to `FingerprintEnrollScreen` for first enrollment.
+- Selecting an **already-enrolled** patient shows a confirmation bottom sheet ("this will replace the stored fingerprints with the new capture") before opening `FingerprintEnrollScreen(isRetake: true)`.
+- The retake capture calls the same `POST /api/patients/{id}/enroll-hand` endpoint as first enrollment. Re-enrolling a finger position overwrites its stored template (the backend upserts on `(patient_id, finger_position)`), so no separate "retake" API exists. The only client-side difference is the confirmation step and the screen title/success message.
+
+This exists because poor-quality captures previously had no in-app fix short of a full patient re-registration.
 
 ## Role-aware UI
 
-The `HomeDashboard` conditionally renders cards based on the logged-in user's role:
+The `HomeDashboard` conditionally renders cards based on the logged-in user's role. The system has seven roles; see the full [RBAC matrix](/rbac) for the API-level detail:
 
 | Role | Available actions |
 |---|---|
-| nurse | Verify patient, Register patient, Enroll face, Submit edit request |
-| doctor | View patients, View EHR |
-| admin | All nurse actions + user management + unlock fingerprint records |
-| super_admin | All admin actions + hospital management |
+| nurse | Verify patient (fingerprint/face/multimodal), Register patient, Enroll fingerprint/face, Retake Fingerprints, Submit edit request, Triage stage verification |
+| clerk | Patient search, open/close/reopen visits, check-in/check-out stage verification |
+| doctor | View patients, View EHR, Consultation stage verification |
+| lab_technician | Laboratory stage verification |
+| pharmacist | Pharmacy stage verification |
+| admin | Emergency enrollment + user management + unlock fingerprint records + edit-request review |
+| super_admin | Hospital management, matcher-config visibility, cross-hospital administration |

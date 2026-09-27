@@ -5,7 +5,7 @@ description: Immutable system activity log
 
 # Audit Logs
 
-The audit log records every sensitive action in the system. Entries are append-only — they cannot be edited or deleted via the API.
+The audit log records every sensitive action in the system. Entries are append-only; they cannot be edited or deleted via the API.
 
 ---
 
@@ -58,14 +58,27 @@ List audit log entries for the caller's hospital.
 | `login_success` | Staff logged in |
 | `login_failed` | Failed login attempt |
 | `patient_create` | New patient registered |
-| `patient_update` | Patient demographics edited |
-| `patient_deactivate` | Patient soft-deleted |
-| `fingerprint_enroll` | Fingerprint template stored |
+| `patient_update` | Patient demographics edited (directly, or via an approved edit request) |
+| `patient_delete` | Patient soft-deactivated |
+| `fingerprint_enroll` | Fingerprint (or hand) template stored |
+| `fingerprint_delete` | Fingerprint record deactivated |
+| `fingerprint_match` | Hospital-wide fingerprint identification returned a match |
 | `fingerprint_no_match` | Verification returned NO MATCH |
 | `fingerprint_lock` | Record locked after repeated failures |
 | `fingerprint_unlock` | Admin unlocked a record |
-| `edit_request_submit` | Nurse submitted a demographic edit request |
-| `edit_request_approve` | Admin approved an edit request |
-| `edit_request_reject` | Admin rejected an edit request |
-| `user_create` | New staff account created |
-| `user_deactivate` | Staff account deactivated |
+| `face_enroll` | Face template stored |
+| `face_match` / `face_no_match` | Face identification result |
+| `face_manual_confirm` | Staff manually confirmed a `needs_review` face result |
+| `edit_request_submitted` | Nurse submitted a demographic edit request |
+| `edit_request_approved` | Admin approved an edit request |
+| `edit_request_rejected` | Admin rejected an edit request |
+| `edit_request_cancelled` | Nurse cancelled their own pending request |
+| `visit_open` / `visit_close` / `visit_reopen` | Visit lifecycle transitions |
+| `stage_verified` | A visit stage's biometric verification succeeded |
+| `stage_override_requested` | Staff requested a supervisor override for a failed stage verification |
+| `stage_override_resolved` | Supervisor approved or denied an override request |
+| `access_restricted` | A biometric identification resolved a patient the caller's hospital isn't authorized to see |
+| `hospital_created` / `hospital_updated` / `hospital_deactivated` | Hospital configuration changes |
+| `user_created` / `user_updated` / `user_deactivated` | Staff account lifecycle |
+| `ehr_access` / `insurance_check` | GoT-HoMIS EHR/insurance lookup on a successful match |
+| `manual_override` | Reserved constant for manual verification overrides |

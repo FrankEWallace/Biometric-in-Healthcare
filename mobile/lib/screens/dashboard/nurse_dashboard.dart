@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/hospital_service.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../screens/edit_request_screen.dart';
 import '../../screens/shell/app_shell.dart';
 import '../../screens/verification_screen.dart';
 import '../../screens/verify/multimodal_verification_screen.dart';
+import '../../screens/clerk/patient_search_screen.dart';
 import '../../screens/patient_registration_screen.dart';
 import '../../screens/profile/profile_screen.dart';
 import '../../theme/app_theme.dart';
@@ -21,6 +23,7 @@ class NurseDashboard extends StatefulWidget {
 class _NurseDashboardState extends State<NurseDashboard> {
   final _loc = LocationService();
   final _net = NetworkService();
+  final _hospitalService = HospitalService();
 
   bool? _inRange;
   bool? _onWifi;
@@ -33,9 +36,24 @@ class _NurseDashboardState extends State<NurseDashboard> {
 
   Future<void> _check() async {
     setState(() { _inRange = null; _onWifi = null; });
+
+    final user = context.read<AuthProvider>().user;
+    String? expectedSsid;
+    if (user?.hospitalId != null) {
+      try {
+        final hospital = await _hospitalService.getHospital(
+          token: user!.token,
+          hospitalId: user.hospitalId!,
+        );
+        expectedSsid = hospital['wifi_ssid'] as String?;
+      } catch (_) {
+        expectedSsid = null;
+      }
+    }
+
     final r = await Future.wait([
       _loc.isWithinHospitalRange(),
-      _net.isConnectedToHospitalWifi(),
+      _net.isConnectedToHospitalWifi(expectedSsid),
     ]);
     if (mounted) setState(() { _inRange = r[0]; _onWifi = r[1]; });
   }
@@ -172,7 +190,7 @@ class _NurseDashboardState extends State<NurseDashboard> {
                   _ActionCard(
                     icon: Icons.fingerprint,
                     title: 'Verify Patient',
-                    subtitle: 'Match fingerprint to patient record',
+                    subtitle: 'Match fingerprint or face to patient record',
                     color: AppColors.primary,
                     onTap: () => _pushGated(context, const VerificationScreen()),
                   ),
@@ -183,6 +201,15 @@ class _NurseDashboardState extends State<NurseDashboard> {
                     subtitle: 'Enroll a new patient with fingerprint',
                     color: AppColors.success,
                     onTap: () => _pushGated(context, const PatientRegistrationScreen()),
+                  ),
+                  const SizedBox(height: 10),
+                  _ActionCard(
+                    icon: Icons.replay_rounded,
+                    title: 'Retake Fingerprints',
+                    subtitle: 'Replace poor-quality fingerprints on file',
+                    color: AppColors.warning,
+                    onTap: () => _pushGated(
+                        context, const PatientSearchScreen(retakeMode: true)),
                   ),
                   const SizedBox(height: 10),
                   _ActionCard(

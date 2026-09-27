@@ -11,10 +11,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { ApiError } from "@/lib/api";
-import { createFacility, type HospitalDetail, type HospitalFormValues, updateFacility } from "@/lib/facilities/api";
+import {
+  createFacility,
+  detectCurrentIp,
+  type HospitalDetail,
+  type HospitalFormValues,
+  updateFacility,
+} from "@/lib/facilities/api";
 
 function submitLabel(isSubmitting: boolean, isEdit: boolean) {
   if (isSubmitting) return "Saving…";
@@ -37,8 +44,15 @@ export function FacilityFormDialog({
   const [code, setCode] = useState("");
   const [city, setCity] = useState("");
   const [wifiSsid, setWifiSsid] = useState("");
+  const [allowedIpRanges, setAllowedIpRanges] = useState("");
+  const [gpsLatitude, setGpsLatitude] = useState("");
+  const [gpsLongitude, setGpsLongitude] = useState("");
+  const [gpsRadiusMeters, setGpsRadiusMeters] = useState("");
+  const [faceRecognitionEnabled, setFaceRecognitionEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDetectingIp, setIsDetectingIp] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -47,14 +61,70 @@ export function FacilityFormDialog({
     setCode(facility?.code ?? "");
     setCity(facility?.city ?? "");
     setWifiSsid(facility?.wifi_ssid ?? "");
+    setAllowedIpRanges(facility?.allowed_ip_ranges ?? "");
+    setGpsLatitude(facility?.gps_latitude ?? "");
+    setGpsLongitude(facility?.gps_longitude ?? "");
+    setGpsRadiusMeters(facility?.gps_radius_meters != null ? String(facility.gps_radius_meters) : "");
+    setFaceRecognitionEnabled(facility?.face_recognition_enabled ?? false);
   }, [open, facility]);
+
+  async function onDetectIp() {
+    setError(null);
+    setIsDetectingIp(true);
+    try {
+      const ip = await detectCurrentIp();
+      setAllowedIpRanges((current) => {
+        const existing = current.split(",").map((v) => v.trim()).filter(Boolean);
+        return existing.includes(ip) ? current : [...existing, ip].join(", ");
+      });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not detect current IP.");
+    } finally {
+      setIsDetectingIp(false);
+    }
+  }
+
+  async function onDetectLocation() {
+    setError(null);
+    if (!("geolocation" in navigator)) {
+      setError("This browser does not support location detection.");
+      return;
+    }
+    setIsDetectingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsLatitude(position.coords.latitude.toFixed(7));
+        setGpsLongitude(position.coords.longitude.toFixed(7));
+        setIsDetectingLocation(false);
+      },
+      (geoError) => {
+        setError(
+          geoError.code === geoError.PERMISSION_DENIED
+            ? "Location permission denied. Allow location access and try again."
+            : "Could not detect current location.",
+        );
+        setIsDetectingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10_000 },
+    );
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setIsSubmitting(true);
     try {
-      const values: HospitalFormValues = { name, code, city, wifi_ssid: wifiSsid || null };
+      const values: HospitalFormValues = {
+        name,
+        code,
+        city,
+        wifi_ssid: wifiSsid || null,
+        allowed_ip_ranges: allowedIpRanges || null,
+        gps_latitude: gpsLatitude ? Number(gpsLatitude) : null,
+        gps_longitude: gpsLongitude ? Number(gpsLongitude) : null,
+        gps_radius_meters: gpsRadiusMeters ? Number(gpsRadiusMeters) : null,
+        face_recognition_enabled: faceRecognitionEnabled,
+      };
       const saved = isEdit ? await updateFacility(facility.id, values) : await createFacility(values);
       onSaved(saved);
       onOpenChange(false);
@@ -94,6 +164,74 @@ export function FacilityFormDialog({
             <Field className="gap-1.5">
               <FieldLabel htmlFor="facility-wifi">WiFi SSID (geofence allowlist)</FieldLabel>
               <Input id="facility-wifi" value={wifiSsid} onChange={(e) => setWifiSsid(e.target.value)} />
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="facility-ip-ranges">Allowed IP ranges (network gate)</FieldLabel>
+              <div className="flex gap-2">
+                <Input
+                  id="facility-ip-ranges"
+                  placeholder="e.g. 41.222.10.0/24, 196.192.55.10"
+                  value={allowedIpRanges}
+                  onChange={(e) => setAllowedIpRanges(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onDetectIp}
+                  disabled={isDetectingIp}
+                >
+                  {isDetectingIp ? "Detecting…" : "Detect current IP"}
+                </Button>
+              </div>
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="facility-gps-lat">GPS geofence</FieldLabel>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  id="facility-gps-lat"
+                  placeholder="Latitude"
+                  inputMode="decimal"
+                  value={gpsLatitude}
+                  onChange={(e) => setGpsLatitude(e.target.value)}
+                />
+                <Input
+                  placeholder="Longitude"
+                  inputMode="decimal"
+                  value={gpsLongitude}
+                  onChange={(e) => setGpsLongitude(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Radius (metres)"
+                  inputMode="numeric"
+                  value={gpsRadiusMeters}
+                  onChange={(e) => setGpsRadiusMeters(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onDetectLocation}
+                  disabled={isDetectingLocation}
+                >
+                  {isDetectingLocation ? "Detecting…" : "Use current location"}
+                </Button>
+              </div>
+            </Field>
+            <Field orientation="horizontal" className="gap-1.5">
+              <div className="flex-1">
+                <FieldLabel htmlFor="facility-face-recognition">Face recognition</FieldLabel>
+                <FieldDescription>
+                  Allow staff at this facility to enroll and verify patients by face.
+                </FieldDescription>
+              </div>
+              <Switch
+                id="facility-face-recognition"
+                checked={faceRecognitionEnabled}
+                onCheckedChange={setFaceRecognitionEnabled}
+              />
             </Field>
             {error && <FieldError errors={[{ message: error }]} />}
           </FieldGroup>

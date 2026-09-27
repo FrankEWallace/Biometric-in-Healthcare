@@ -6,9 +6,11 @@ export interface HospitalDetail {
   code: string;
   city: string;
   wifi_ssid: string | null;
+  allowed_ip_ranges: string | null;
   gps_latitude: string | null;
   gps_longitude: string | null;
   gps_radius_meters: number | null;
+  face_recognition_enabled: boolean;
   is_active: boolean;
 }
 
@@ -17,9 +19,11 @@ export interface HospitalFormValues {
   code?: string;
   city?: string;
   wifi_ssid?: string | null;
+  allowed_ip_ranges?: string | null;
   gps_latitude?: number | null;
   gps_longitude?: number | null;
   gps_radius_meters?: number | null;
+  face_recognition_enabled?: boolean;
   is_active?: boolean;
 }
 
@@ -40,4 +44,9 @@ export async function updateFacility(id: number, values: HospitalFormValues): Pr
 
 export async function deactivateFacility(id: number): Promise<void> {
   await api.delete(`/hospitals/${id}`);
+}
+
+export async function detectCurrentIp(): Promise<string> {
+  const { ip } = await api.get<{ ip: string }>("/hospitals/detect-ip");
+  return ip;
 }

@@ -4,8 +4,9 @@ import 'package:network_info_plus/network_info_plus.dart';
 
 /// WiFi-based access restriction service.
 ///
-/// Only the SSIDs listed in [allowedSsids] are considered hospital networks.
-/// Add or remove SSIDs here as the hospital infrastructure changes.
+/// The allowed SSID is per-hospital, configured by a super admin via the web
+/// admin panel (`hospitals.wifi_ssid`) and passed in to [isConnectedToHospitalWifi].
+/// This service holds no hardcoded network names.
 ///
 /// To bypass WiFi checking in a specific build (e.g. development):
 ///   flutter run --dart-define=BYPASS_WIFI=true
@@ -16,12 +17,13 @@ class NetworkService {
   static const bool _bypassWifi =
       bool.fromEnvironment('BYPASS_WIFI', defaultValue: false);
 
-  static const List<String> allowedSsids = ['Hospital_WiFi'];
-
   final _info = NetworkInfo();
 
   /// Returns `true` when the device is connected to a WiFi network whose
-  /// SSID is in [allowedSsids].
+  /// SSID matches [expectedSsid] (the current hospital's configured
+  /// `wifi_ssid`). If [expectedSsid] is null/empty — the hospital has not
+  /// configured a restriction — the check passes, matching the backend's
+  /// `GeofenceService` semantics.
   ///
   /// **Android**: requires ACCESS_FINE_LOCATION (or ACCESS_COARSE_LOCATION on
   /// API 29+) to read the SSID. The permission is already declared by the
@@ -33,8 +35,11 @@ class NetworkService {
   /// null on iOS without a provisioning profile that includes that entitlement.
   /// When null is returned on iOS the method returns `true` to avoid locking
   /// out real hospital staff — change this policy before production if needed.
-  Future<bool> isConnectedToHospitalWifi() async {
+  Future<bool> isConnectedToHospitalWifi(String? expectedSsid) async {
     if (_bypassWifi) return true;
+
+    // No restriction configured for this hospital.
+    if (expectedSsid == null || expectedSsid.isEmpty) return true;
 
     // Web (Chrome) is a UI-demo target only and a browser can never read the
     // WiFi SSID — and `Platform.isIOS` below is unsupported on web. Fail open
@@ -61,7 +66,7 @@ class NetworkService {
     // On Android a null SSID means not connected to WiFi at all.
     if (ssid == null) return false;
 
-    return allowedSsids.contains(ssid);
+    return ssid == expectedSsid;
   }
 
   /// Returns the raw SSID string (quotes stripped), or `null` if unavailable.

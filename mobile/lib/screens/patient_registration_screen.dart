@@ -15,6 +15,7 @@ import '../widgets/primary_button.dart';
 import 'fingerprint/fingerprint_liveness_camera_screen.dart';
 import 'face/liveness_camera_screen.dart';
 import 'result_screen.dart';
+import '../widgets/error_banner.dart';
 
 // ── Hand scan steps (four fingers per photo, sequential) ─────────────────────
 
@@ -121,14 +122,12 @@ class _PatientRegistrationScreenState
   Future<void> _openCameraForCurrentFinger(PatientModel patient) async {
     final handStep = _handSteps[_currentFingerIndex];
 
-    final result = await Navigator.push<FingerprintGalleryResult?>(
+    final result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
         builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
           fingerLabel: handStep.label,
-          galleryMode: true,
-          galleryTarget: 1,
         ),
       ),
     );
@@ -154,7 +153,7 @@ class _PatientRegistrationScreenState
   Future<void> _enrollHand(
     PatientModel patient,
     _HandStep handStep,
-    FingerprintGalleryResult capture,
+    XFile capture,
   ) async {
     setState(() {
       _fingerUploading = true;
@@ -169,7 +168,7 @@ class _PatientRegistrationScreenState
       final wifiSsid = await NetworkService().getCurrentSsid();
 
       final res = await FingerprintService().enrollHand(
-        File(capture.captures.first.path),
+        File(capture.path),
         token:        token,
         patientId:    patient.id.toString(),
         hand:         handStep.hand,
@@ -417,7 +416,7 @@ class _PatientRegistrationScreenState
           const SizedBox(height: 24),
 
           if (_apiError != null) ...[
-            _ErrorBanner(
+            ErrorBanner(
                 message: _apiError!,
                 onDismiss: () => setState(() => _apiError = null)),
             const SizedBox(height: 16),
@@ -609,7 +608,7 @@ class _FingerProgressView extends StatelessWidget {
           const SizedBox(height: 24),
 
           if (error != null) ...[
-            _ErrorBanner(message: error!, onDismiss: onDismissError),
+            ErrorBanner(message: error!, onDismiss: onDismissError),
             const SizedBox(height: 16),
           ],
 
@@ -800,7 +799,7 @@ class _FaceCaptureView extends StatelessWidget {
           const SizedBox(height: 24),
 
           if (error != null) ...[
-            _ErrorBanner(message: error!, onDismiss: onDismissError),
+            ErrorBanner(message: error!, onDismiss: onDismissError),
             const SizedBox(height: 16),
           ],
 
@@ -870,38 +869,6 @@ class _LoadingView extends StatelessWidget {
   }
 }
 
-class _ErrorBanner extends StatelessWidget {
-  final String message;
-  final VoidCallback onDismiss;
-
-  const _ErrorBanner({required this.message, required this.onDismiss});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline, color: AppColors.error, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(message,
-                style: const TextStyle(color: AppColors.error, fontSize: 13)),
-          ),
-          GestureDetector(
-            onTap: onDismiss,
-            child: const Icon(Icons.close, color: AppColors.error, size: 16),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// Two-option gender picker (Male / Female only).
 class _GenderPicker extends StatelessWidget {

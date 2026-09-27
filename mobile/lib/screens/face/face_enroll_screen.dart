@@ -8,6 +8,7 @@ import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/custom_text_field.dart';
+import '../../widgets/error_banner.dart';
 import '../../widgets/primary_button.dart';
 import 'liveness_camera_screen.dart';
 
@@ -172,7 +173,7 @@ class _FaceEnrollScreenState extends State<FaceEnrollScreen> {
           children: [
             // Error banner
             if (_error != null) ...[
-              _ErrorBanner(message: _error!, onDismiss: () => setState(() => _error = null)),
+              ErrorBanner(message: _error!, onDismiss: () => setState(() => _error = null)),
               const SizedBox(height: 16),
             ],
 
@@ -399,30 +400,3 @@ class _Chip extends StatelessWidget {
       );
 }
 
-class _ErrorBanner extends StatelessWidget {
-  final String message;
-  final VoidCallback onDismiss;
-  const _ErrorBanner({required this.message, required this.onDismiss});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-        decoration: BoxDecoration(
-          color: AppColors.error.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-        ),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Padding(
-              padding: EdgeInsets.only(top: 1),
-              child: Icon(Icons.error_outline, color: AppColors.error, size: 18)),
-          const SizedBox(width: 8),
-          Expanded(child: Text(message,
-              style: const TextStyle(color: AppColors.error, fontSize: 13, height: 1.4))),
-          GestureDetector(
-              onTap: onDismiss,
-              child: const Padding(padding: EdgeInsets.only(left: 8),
-                  child: Icon(Icons.close, color: AppColors.error, size: 16))),
-        ]),
-      );
-}

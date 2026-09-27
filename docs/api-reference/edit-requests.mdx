@@ -1,17 +1,21 @@
 ---
 title: Edit Requests
-description: Nurse-submitted patient demographic change requests and admin review queue
+description: Nurse-submitted, single-field patient demographic change requests and the admin review queue
 ---
 
 # Edit Requests
 
-Nurses cannot edit patient demographics directly. Instead they submit an edit request that an admin reviews and approves or rejects.
+Nurses cannot edit patient demographics directly (`PUT /api/patients/{patient}` is restricted to admin/super_admin). Instead they submit a **single-field** edit request that an admin or super_admin reviews and approves or rejects.
+
+<Note>
+  Each request changes exactly **one** field. To change multiple fields, submit multiple requests. This keeps the audit trail unambiguous about what was proposed, by whom, and why, per field.
+</Note>
 
 ---
 
 ## POST /api/patients/{patient}/edit-requests
 
-Submit a demographic edit request for a patient.
+Submit a demographic edit request for one field.
 
 **Roles:** nurse
 
@@ -19,13 +23,17 @@ Submit a demographic edit request for a patient.
 
 ```json
 {
-  "full_name": "Mira Kovačević-Begić",
-  "phone": "+387 61 999 000",
-  "reason": "Patient reported name change after marriage."
+  "field_name": "phone",
+  "new_value": "+255 61 999 000",
+  "reason": "Patient reported a new phone number at this visit."
 }
 ```
 
-Only include the fields you want changed. At least one demographic field is required.
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `field_name` | enum | Yes | One of `full_name`, `phone`, `date_of_birth`, `gender` |
+| `new_value` | string | Yes | Max 200 chars |
+| `reason` | string | Yes | Min 10, max 500 chars |
 
 **Response 201**
 
@@ -34,33 +42,46 @@ Only include the fields you want changed. At least one demographic field is requ
   "edit_request": {
     "id": 12,
     "patient_id": 42,
-    "submitted_by": 5,
+    "hospital_id": 2,
+    "requested_by": 5,
+    "field_name": "phone",
+    "old_value": "+255 61 123 456",
+    "new_value": "+255 61 999 000",
+    "reason": "Patient reported a new phone number at this visit.",
     "status": "pending",
-    "proposed_changes": {
-      "full_name": "Mira Kovačević-Begić",
-      "phone": "+387 61 999 000"
-    },
-    "reason": "Patient reported name change after marriage.",
-    "created_at": "2025-05-01T10:00:00Z"
+    "expires_at": "2026-05-08T10:00:00Z",
+    "created_at": "2026-05-01T10:00:00Z"
   }
 }
+```
+
+**Response 422:** new value equals current value
+
+```json
+{ "error": "New value is the same as the current value." }
+```
+
+**Response 409:** a pending request for this field already exists
+
+```json
+{ "error": "A pending request for this field already exists." }
 ```
 
 ---
 
 ## GET /api/edit-requests
 
-List all pending (and recent) edit requests for the caller's hospital.
+List pending edit requests for the caller's hospital (super_admin sees all hospitals).
 
 **Roles:** admin, super_admin
 
-**Response 200** — paginated list of edit request objects.
+**Response 200:** paginated list of edit request objects, ordered oldest-first, each with `patient` (id, full_name) and `requestedBy` (id, name) loaded.
 
 ---
 
 ## PUT /api/edit-requests/{editRequest}/approve
 
-Approve an edit request. The patient record is updated immediately.
+Approve an edit request. The patient's `field_name` is updated immediately.
 
 **Roles:** admin, super_admin
 
@@ -68,47 +89,50 @@ Approve an edit request. The patient record is updated immediately.
 
 ```json
 {
-  "message": "Edit request approved.",
-  "patient": { ... }
+  "message": "Request approved.",
+  "edit_request": { "...": "...", "status": "approved" }
 }
 ```
+
+**Response 409:** request is no longer pending
+
+**Response 410:** request has expired
+
+```json
+{ "error": "Request has expired." }
+```
+
+Approving writes both `edit_request_approved` and `patient_update` audit log entries.
 
 ---
 
 ## PUT /api/edit-requests/{editRequest}/reject
 
-Reject an edit request with an optional reason.
+Reject a pending edit request.
 
 **Roles:** admin, super_admin
-
-**Request body**
-
-```json
-{
-  "rejection_reason": "Insufficient documentation provided."
-}
-```
 
 **Response 200**
 
 ```json
 {
-  "message": "Edit request rejected."
+  "message": "Request rejected.",
+  "edit_request": { "...": "...", "status": "rejected" }
 }
 ```
+
+**Response 409:** request is no longer pending
 
 ---
 
 ## PUT /api/edit-requests/{editRequest}/cancel
 
-Cancel a pending edit request. Only the nurse who submitted it can cancel it, and only while it is still `pending`.
+Cancel a pending edit request. Enforced by `PatientEditRequestPolicy::cancel`: only the nurse who submitted it can cancel it, and only while it is still `pending`.
 
 **Roles:** nurse
 
 **Response 200**
 
 ```json
-{
-  "message": "Edit request cancelled."
-}
+{ "message": "Request cancelled." }
 ```

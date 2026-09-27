@@ -15,6 +15,7 @@ import '../../screens/clerk/clerk_dashboard.dart';
 import '../../screens/clerk/clerk_history_screen.dart';
 import '../../screens/clerk/clerk_summary_screen.dart';
 import '../../screens/visit/stage_queue_screen.dart';
+import '../../services/hospital_service.dart';
 import '../../services/location_service.dart';
 import '../../services/network_service.dart';
 import '../../theme/app_theme.dart';
@@ -48,6 +49,7 @@ class GeoGatedScreen extends StatefulWidget {
 class _GeoGatedScreenState extends State<GeoGatedScreen> {
   final _loc = LocationService();
   final _net = NetworkService();
+  final _hospitalService = HospitalService();
 
   bool? _inRange;
   bool? _onWifi;
@@ -60,9 +62,24 @@ class _GeoGatedScreenState extends State<GeoGatedScreen> {
 
   Future<void> _check() async {
     setState(() { _inRange = null; _onWifi = null; });
+
+    final user = context.read<AuthProvider>().user;
+    String? expectedSsid;
+    if (user?.hospitalId != null) {
+      try {
+        final hospital = await _hospitalService.getHospital(
+          token: user!.token,
+          hospitalId: user.hospitalId!,
+        );
+        expectedSsid = hospital['wifi_ssid'] as String?;
+      } catch (_) {
+        expectedSsid = null;
+      }
+    }
+
     final results = await Future.wait([
       _loc.isWithinHospitalRange(),
-      _net.isConnectedToHospitalWifi(),
+      _net.isConnectedToHospitalWifi(expectedSsid),
     ]);
     if (mounted) {
       setState(() { _inRange = results[0]; _onWifi = results[1]; });

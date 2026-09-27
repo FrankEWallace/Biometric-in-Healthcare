@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/patient.dart';
 import '../providers/auth_provider.dart';
+import '../services/face_service.dart';
 import '../services/fingerprint_service.dart';
 import '../services/location_service.dart';
 import '../services/network_service.dart';
@@ -12,8 +13,15 @@ import '../services/patient_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
 import 'ehr_screen.dart';
+import 'face/liveness_camera_screen.dart';
 import 'fingerprint/fingerprint_liveness_camera_screen.dart';
 import 'result_screen.dart';
+import '../widgets/access_restricted_dialog.dart';
+import '../widgets/error_banner.dart';
+import '../widgets/hand_option.dart';
+import '../widgets/verifying_view.dart';
+
+enum _VerifyMethod { fingerprint, face }
 
 class VerificationScreen extends StatefulWidget {
   const VerificationScreen({super.key});
@@ -36,6 +44,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   bool _isVerifying = false;
   String? _error;
   String _hand = 'right';
+  _VerifyMethod _method = _VerifyMethod.fingerprint;
 
   static const int _maxAttempts = 3;
   int _attemptCount = 0;
@@ -129,10 +138,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final XFile? result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
-        builder: (_) => FingerprintLivenessCameraScreen(
-          isHandCapture: true,
-          fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
-        ),
+        builder: (_) => _method == _VerifyMethod.fingerprint
+            ? FingerprintLivenessCameraScreen(
+                isHandCapture: true,
+                fingerLabel: _hand == 'right' ? 'Right Hand' : 'Left Hand',
+              )
+            : const LivenessCameraScreen(),
       ),
     );
 
@@ -143,7 +154,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   // ── Step 2: send to Laravel → Python → return verdict ────────────────────
 
-  Future<void> _verify() async {
+  Future<void> _verify() {
+    return _method == _VerifyMethod.fingerprint ? _verifyFingerprint() : _verifyFace();
+  }
+
+  Future<void> _verifyFingerprint() async {
     if (_capturedImage == null) return;
 
     final token = context.read<AuthProvider>().user?.token;
@@ -176,7 +191,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
       if (result.isAccessRestricted) {
         setState(() => _isVerifying = false);
-        await _showAccessRestrictedDialog();
+        await showAccessRestrictedDialog(context);
         if (mounted) setState(() => _capturedImage = null);
         return;
       }
@@ -213,9 +228,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
       if (result.isMatch && matchedPatientId != _selectedPatient!.id) {
         // The fingerprint matched a DIFFERENT enrolled patient — a more
-        // serious signal than a plain no-match, worth its own dialog.
+        // serious signal than a plain no-match, worth its own dialog. The
+        // matched identity is intentionally not shown here: revealing a
+        // third party's name to staff verifying someone else would let the
+        // scanner be used as an identity-lookup oracle. The true match is
+        // still captured server-side in the verification/audit log.
         setState(() => _isVerifying = false);
-        await _showMismatchDialog(matchedName);
+        await _showMismatchDialog();
         if (mounted) setState(() => _capturedImage = null);
         return;
       }
@@ -262,6 +281,224 @@ class _VerificationScreenState extends State<VerificationScreen> {
     }
   }
 
+  Future<void> _verifyFace() async {
+    if (_capturedImage == null) return;
+
+    final token = context.read<AuthProvider>().user?.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _error =
+          'Your session has expired. Please log out and log in again.');
+      return;
+    }
+
+    setState(() {
+      _isVerifying = true;
+      _error = null;
+      _attemptCount++;
+    });
+
+    try {
+      final position = await LocationService().getCurrentPosition();
+      final wifiSsid = await NetworkService().getCurrentSsid();
+
+      final result = await FaceService().verifyFace(
+        File(_capturedImage!.path),
+        token:        token,
+        gpsLatitude:  position?.latitude,
+        gpsLongitude: position?.longitude,
+        wifiSsid:     wifiSsid,
+      );
+
+      if (!mounted) return;
+
+      if (result.isError) {
+        setState(() { _error = 'A server error occurred. Please try again.'; _isVerifying = false; });
+        return;
+      }
+
+      if (result.isAccessRestricted) {
+        setState(() => _isVerifying = false);
+        await showAccessRestrictedDialog(context);
+        if (mounted) setState(() => _capturedImage = null);
+        return;
+      }
+
+      if (result.isNeedsReview) {
+        setState(() => _isVerifying = false);
+        final confirmed = await _showFaceReviewDialog(result);
+        if (!mounted) return;
+        if (confirmed == true) {
+          try {
+            if (result.logId != null) {
+              await FaceService().confirmManualReview(
+                token:     token,
+                logId:     result.logId!,
+                patientId: result.patientId,
+              );
+            }
+          } catch (_) {
+            // Non-blocking — audit failure should not block patient care
+          }
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => EhrScreen(
+                patientName:   result.patientName,
+                score:         result.score * 100,
+                matchedFinger: 'face',
+                ehr:           result.ehr,
+                insurance:     result.insurance,
+              ),
+            ),
+          );
+        } else {
+          setState(() => _capturedImage = null);
+        }
+        return;
+      }
+
+      if (result.isMatch && result.patientId == _selectedPatient!.id) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => EhrScreen(
+              patientName:   result.patientName,
+              score:         result.score * 100,
+              matchedFinger: 'face',
+              ehr:           result.ehr,
+              insurance:     result.insurance,
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (result.isMatch && result.patientId != _selectedPatient!.id) {
+        // The face matched a DIFFERENT enrolled patient — a more serious
+        // signal than a plain no-match, worth its own dialog. The matched
+        // identity is intentionally not shown (see fingerprint branch above).
+        setState(() => _isVerifying = false);
+        await _showMismatchDialog(method: 'face');
+        if (mounted) setState(() => _capturedImage = null);
+        return;
+      }
+
+      // no_match
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ResultScreen(
+            isSuccess:      false,
+            isRegistration: false,
+            patientName:    _selectedPatient!.fullName,
+            patientId:      'ID: ${_selectedPatient!.id}',
+            score:          result.score * 100,
+            matchedFinger:  'face',
+            attemptCount:   _attemptCount,
+            maxAttempts:    _maxAttempts,
+          ),
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _isVerifying   = false;
+          _capturedImage = null;
+        });
+      }
+    } on FaceException catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = _faceErrorMessage(e);
+          _isVerifying = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'An unexpected error occurred. Please try again.';
+          _isVerifying = false;
+        });
+      }
+    }
+  }
+
+  Future<bool?> _showFaceReviewDialog(FaceVerifyResult result) {
+    final scoreLabel = '${(result.score * 100).toStringAsFixed(1)}%';
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 22),
+          SizedBox(width: 8),
+          Text('Manual Review Required'),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'The face match score is borderline. Please verify the patient\'s ID card before proceeding.',
+              style: TextStyle(fontSize: 14, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Candidate: ${result.patientName}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  const SizedBox(height: 4),
+                  Text('Similarity score: $scoreLabel',
+                      style: const TextStyle(fontSize: 13, color: Color(0xFF92400E))),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Try Again'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFF59E0B)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirm Manually'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _faceErrorMessage(FaceException e) {
+    switch (e.kind) {
+      case FaceErrorKind.network:
+        return 'No connection. Check your network and try again.';
+      case FaceErrorKind.noFaceDetected:
+        return 'No face detected. Look straight at the camera in good lighting and retake.';
+      case FaceErrorKind.qualityTooLow:
+        return 'Image too blurry. Move to better lighting and retake.';
+      case FaceErrorKind.featureDisabled:
+        return 'Facial recognition is not enabled for this hospital.';
+      case FaceErrorKind.serviceUnavailable:
+        return 'Processing service temporarily unavailable. Please try again.';
+      case FaceErrorKind.unauthorized:
+        return 'Session expired. Please log out and log in again.';
+      case FaceErrorKind.serverError:
+        return 'A server error occurred. Please try again.';
+      default:
+        return e.message;
+    }
+  }
+
   /// needs_review means the backend could not auto-decide (placeholder
   /// matcher or missing calibrated threshold) — surface the advisory
   /// candidate; staff must confirm identity another way.
@@ -290,9 +527,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
     );
   }
 
-  /// The fingerprint matched a different enrolled patient than the one
-  /// selected — flag it distinctly from a plain no-match.
-  Future<void> _showMismatchDialog(String? matchedName) {
+  /// The biometric matched a different enrolled patient than the one
+  /// selected — flag it distinctly from a plain no-match. Intentionally
+  /// does not name the other patient: revealing a third party's identity to
+  /// staff verifying someone else would let the scanner double as an
+  /// identity-lookup oracle. The true match is still recorded server-side
+  /// in the verification/audit log for legitimate follow-up.
+  Future<void> _showMismatchDialog({String method = 'fingerprint'}) {
     return showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -302,10 +543,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
           Text('Identity Mismatch'),
         ]),
         content: Text(
-          matchedName != null
-              ? 'This fingerprint matches a different patient ($matchedName), '
-                  'not ${_selectedPatient?.fullName}.'
-              : 'This fingerprint does not belong to ${_selectedPatient?.fullName}.',
+          'This $method does not belong to ${_selectedPatient?.fullName}. '
+              'It is enrolled to a different patient record.',
           style: const TextStyle(fontSize: 14, height: 1.4),
         ),
         actions: [
@@ -321,29 +560,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
   /// access_restricted (plan 005): the patient was identified nationally, but
   /// this facility is not authorized to view their record. The server sends
   /// no PII in this case.
-  Future<void> _showAccessRestrictedDialog() {
-    return showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.lock_outline, color: Color(0xFF6B7280), size: 22),
-          SizedBox(width: 8),
-          Text('Access Restricted'),
-        ]),
-        content: const Text(
-          'This patient was identified, but they are registered at another '
-          'facility. You are not authorized to view their records here.',
-          style: TextStyle(fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
 
   /// Returns an actionable, user-facing message for each error kind.
   String _verifyErrorMessage(FingerprintException e) {
@@ -385,7 +601,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
       appBar: AppBar(title: const Text('Verify Patient')),
       body: SafeArea(
         child: _isVerifying
-            ? const _VerifyingView()
+            ? VerifyingView(
+                title: _method == _VerifyMethod.fingerprint
+                    ? 'Verifying fingerprint…'
+                    : 'Verifying face…',
+                subtitle: 'Comparing against stored template')
             : _buildContent(),
       ),
     );
@@ -411,16 +631,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 color: AppColors.secondary,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Row(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline,
+                  const Icon(Icons.info_outline,
                       color: AppColors.primary, size: 18),
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Search for the patient by name or ID, then capture their fingerprint to verify identity.',
-                      style: TextStyle(
+                      _method == _VerifyMethod.fingerprint
+                          ? 'Search for the patient by name or ID, then capture their fingerprint to verify identity.'
+                          : 'Search for the patient by name or ID, then capture their face to verify identity.',
+                      style: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 13,
                         height: 1.4,
@@ -432,9 +654,46 @@ class _VerificationScreenState extends State<VerificationScreen> {
             ),
             const SizedBox(height: 24),
 
+            // ── Method toggle ────────────────────────────────────────────
+            const Text(
+              'Verification method',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _MethodOption(
+                  icon: Icons.fingerprint,
+                  label: 'Fingerprint',
+                  selected: _method == _VerifyMethod.fingerprint,
+                  onTap: () => setState(() {
+                    _method = _VerifyMethod.fingerprint;
+                    _capturedImage = null;
+                    _error = null;
+                  }),
+                ),
+                const SizedBox(width: 12),
+                _MethodOption(
+                  icon: Icons.face_rounded,
+                  label: 'Face ID',
+                  selected: _method == _VerifyMethod.face,
+                  onTap: () => setState(() {
+                    _method = _VerifyMethod.face;
+                    _capturedImage = null;
+                    _error = null;
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
             // ── Error banner ────────────────────────────────────────────
             if (_error != null) ...[
-              _ErrorBanner(
+              ErrorBanner(
                 message: _error!,
                 onDismiss: () => setState(() => _error = null),
                 onRetry: _capturedImage != null ? _verify : null,
@@ -471,43 +730,45 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
             const SizedBox(height: 24),
 
-            // ── Hand selector ────────────────────────────────────────────
-            const Text(
-              'Which hand?',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+            // ── Hand selector (fingerprint method only) ─────────────────
+            if (_method == _VerifyMethod.fingerprint) ...[
+              const Text(
+                'Which hand?',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                _HandOption(
-                  label: 'Right Hand',
-                  selected: _hand == 'right',
-                  onTap: () => setState(() {
-                    _hand = 'right';
-                    _capturedImage = null;
-                  }),
-                ),
-                const SizedBox(width: 12),
-                _HandOption(
-                  label: 'Left Hand',
-                  selected: _hand == 'left',
-                  onTap: () => setState(() {
-                    _hand = 'left';
-                    _capturedImage = null;
-                  }),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  HandOption(
+                    label: 'Right Hand',
+                    selected: _hand == 'right',
+                    onTap: () => setState(() {
+                      _hand = 'right';
+                      _capturedImage = null;
+                    }),
+                  ),
+                  const SizedBox(width: 12),
+                  HandOption(
+                    label: 'Left Hand',
+                    selected: _hand == 'left',
+                    onTap: () => setState(() {
+                      _hand = 'left';
+                      _capturedImage = null;
+                    }),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+            ],
 
-            // ── Fingerprint capture section ─────────────────────────────
-            const Text(
-              'Fingerprint',
-              style: TextStyle(
+            // ── Capture section ──────────────────────────────────────────
+            Text(
+              _method == _VerifyMethod.fingerprint ? 'Fingerprint' : 'Face Photo',
+              style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppColors.textPrimary,
@@ -516,7 +777,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
             const SizedBox(height: 12),
 
             if (_capturedImage == null)
-              _ScanPrompt(onTap: _openCamera)
+              _ScanPrompt(
+                onTap: _openCamera,
+                icon: _method == _VerifyMethod.fingerprint ? Icons.fingerprint : Icons.face_rounded,
+                label: _method == _VerifyMethod.fingerprint
+                    ? 'Tap to capture fingerprint'
+                    : 'Tap to capture face',
+              )
             else
               _CapturedPreview(
                 imagePath: _capturedImage!.path,
@@ -535,8 +802,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
             if (_capturedImage == null)
               PrimaryButton(
-                label: 'Scan Fingerprint',
-                icon: Icons.fingerprint,
+                label: _method == _VerifyMethod.fingerprint ? 'Scan Fingerprint' : 'Scan Face',
+                icon: _method == _VerifyMethod.fingerprint ? Icons.fingerprint : Icons.face_rounded,
                 onPressed: _openCamera,
               ),
           ],
@@ -548,13 +815,59 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
 
-class _HandOption extends StatelessWidget {
+
+
+class _ScanPrompt extends StatelessWidget {
+  final VoidCallback onTap;
+  final IconData icon;
+  final String label;
+  const _ScanPrompt({required this.onTap, required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        height: 180,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F1923),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.3), width: 1.5),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 56,
+              color: AppColors.primary.withValues(alpha: 0.7),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MethodOption extends StatelessWidget {
+  final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
-  const _HandOption(
-      {required this.label, required this.selected, required this.onTap});
+  const _MethodOption({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -578,89 +891,21 @@ class _HandOption extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.back_hand_outlined,
-                color:
-                    selected ? AppColors.primary : AppColors.textSecondary,
+                icon,
+                color: selected ? AppColors.primary : AppColors.textSecondary,
                 size: 20,
               ),
               const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
-                  color:
-                      selected ? AppColors.primary : AppColors.textSecondary,
+                  color: selected ? AppColors.primary : AppColors.textSecondary,
                   fontSize: 13,
-                  fontWeight:
-                      selected ? FontWeight.w600 : FontWeight.normal,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _VerifyingView extends StatelessWidget {
-  const _VerifyingView();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(color: AppColors.primary),
-          SizedBox(height: 20),
-          Text(
-            'Verifying fingerprint…',
-            style: TextStyle(
-                color: AppColors.textSecondary, fontSize: 15),
-          ),
-          SizedBox(height: 6),
-          Text(
-            'Comparing against stored template',
-            style: TextStyle(
-                color: AppColors.textSecondary, fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScanPrompt extends StatelessWidget {
-  final VoidCallback onTap;
-  const _ScanPrompt({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        height: 180,
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F1923),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.3), width: 1.5),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.fingerprint,
-              size: 56,
-              color: AppColors.primary.withValues(alpha: 0.7),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Tap to capture fingerprint',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            ),
-          ],
         ),
       ),
     );
@@ -756,85 +1001,6 @@ class _CapturedPreview extends StatelessWidget {
   }
 }
 
-class _ErrorBanner extends StatelessWidget {
-  final String message;
-  final VoidCallback onDismiss;
-
-  /// When provided, shows a "Retry" button inside the banner.
-  final VoidCallback? onRetry;
-
-  const _ErrorBanner({
-    required this.message,
-    required this.onDismiss,
-    this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 1),
-                child: Icon(Icons.error_outline,
-                    color: AppColors.error, size: 18),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                      color: AppColors.error, fontSize: 13, height: 1.4),
-                ),
-              ),
-              GestureDetector(
-                onTap: onDismiss,
-                child: const Padding(
-                  padding: EdgeInsets.only(left: 8),
-                  child: Icon(Icons.close, color: AppColors.error, size: 16),
-                ),
-              ),
-            ],
-          ),
-          if (onRetry != null) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: GestureDetector(
-                onTap: onRetry,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: AppColors.error,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'Retry',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 // Shows the confirmed patient as a dismissible tile.
 class _SelectedPatientChip extends StatelessWidget {

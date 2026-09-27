@@ -1,6 +1,13 @@
 import { api } from "@/lib/api";
 
-export type StaffRole = "admin" | "nurse" | "doctor" | "super_admin";
+export type StaffRole =
+  | "admin"
+  | "nurse"
+  | "doctor"
+  | "clerk"
+  | "lab_technician"
+  | "pharmacist"
+  | "super_admin";
 
 export interface StaffUser {
   id: number;

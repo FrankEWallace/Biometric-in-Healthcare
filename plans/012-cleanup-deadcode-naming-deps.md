@@ -190,7 +190,11 @@ Stop and report back if:
 > pre-existing info lints OK) and `flutter test` (smoke test must pass) gate
 > every step.
 
-### A. Dead single-finger service + screen chain (grep-verified no callers)
+> **Status (2026-07-12): Parts A, B, C, D DONE** — A + D merged via PR #21;
+> C after plan 019; B (this addendum) collapses the dead gallery path. All four
+> parts of the 012b addendum are now complete.
+
+### A. Dead single-finger service + screen chain (grep-verified no callers) — DONE
 
 - `mobile/lib/services/fingerprint_service.dart` — `enrollGallery()` (~:352),
   `verifyFingerprint()` (~:408): **zero callers** in `lib/`.
@@ -210,7 +214,18 @@ Stop and report back if:
   screens use `FingerprintLivenessCameraScreen`, not `CameraScreen` — but the
   in-flight iOS work is uncommitted; re-grep against the live tree).
 
-### B. Dead gallery multi-shot path in FingerprintLivenessCameraScreen
+### B. Dead gallery multi-shot path in FingerprintLivenessCameraScreen — DONE
+
+> **Status (2026-07-12): DONE** — premise re-verified against the live tree
+> (both callers pass `galleryTarget: 1` and read only `capture.captures.first`,
+> never `livenessToken`). Removed `galleryMode`/`galleryTarget`, the
+> `FingerprintGalleryResult` class, `_startGalleryCapture()`,
+> `_ScreenState.repositioning`, `_GalleryProgressBar`, `_galleryShots`, and the
+> "shift your hand" reposition UI. Both enroll screens now consume the popped
+> `XFile` directly (`File(capture.path)`). The single-capture path
+> (`_startCapture` → pops `frames.last`) is unchanged and is now the only path,
+> so the STOP condition did not trigger. `dart analyze` 0 errors (9 pre-existing
+> info lints); `flutter test` green. Mobile-only — no server/VPS change.
 
 - Both `galleryMode: true` call sites pass `galleryTarget: 1`
   (`mobile/lib/screens/patient_registration_screen.dart:130-131`,
@@ -230,7 +245,18 @@ Stop and report back if:
   `livenessToken` plumbing. Do this AFTER part A. **STOP** if collapsing risks
   the single-capture path — report and leave as-is.
 
-### C. Consolidate duplicated private widgets/helpers
+### C. Consolidate duplicated private widgets/helpers — DONE
+
+> **Status (2026-07-12): DONE** — after plan 019 merged (so its copied
+> `_showAccessRestrictedDialog` folded into the consolidation). Extracted five
+> shared widgets into `mobile/lib/widgets/`: `HandOption`, `ErrorBanner` (superset
+> with optional `onRetry`), `VerifyingView` (parameterized `title`/`subtitle` —
+> the copies had drifted per-screen), `CaptureBadge` (renamed from `_Badge` to
+> avoid Material's `Badge`), and `showAccessRestrictedDialog()`. Removed the four
+> `_showAccessRestrictedDialog` copies and all private duplicates across 7 screens
+> (−731 lines). Minor reconciliations: `patient_registration`'s error banner
+> adopted the canonical padding, and `verification_screen`'s access dialog gained
+> the referral sentence. `dart analyze` 0 errors; `flutter test` passes.
 
 Grep-verified duplicate sites (extract into `mobile/lib/widgets/`, effort M,
 risk LOW–MED — mechanical, watch for silently-drifted copies):
@@ -247,12 +273,19 @@ risk LOW–MED — mechanical, watch for silently-drifted copies):
 - Note: plan 019 intentionally copies `_showAccessRestrictedDialog` into the
   multimodal screen; fold that into this consolidation too.
 
-### D. Related correctness note (not a deletion — see also)
+### D. Related correctness note (not a deletion — see also) — DONE
 
-`_verifyHandBothSides` issues TWO full `/verify/hand` 1:N calls per user
-"attempt" on a right-hand no-match (one right, one left), so one attempt can
+`_verifyHandBothSides` issued TWO full `/verify/hand` 1:N calls per user
+"attempt" on a right-hand no-match (one right, one left), so one attempt could
 produce two server verification-log rows and double the server throttle spend,
-while the client `_attempts` counter increments once. Consider a single
-both-hands server match or an explicit "try other hand" action. Track as a
-correctness follow-up; out of scope for pure cleanup but flagged here so the
-consolidation in part C doesn't cement the double-call into a shared helper.
+while the client `_attempts` counter incremented once.
+
+**Resolved (2026-07-12, PR #21) via the "single both-hands server match" option:**
+`VerificationController::verifyHand` now accepts `hand='both'`. It loads the
+candidate gallery once, scores each orientation with a stateless
+`scoreHandOrientation()` helper, keeps the higher fused score, and writes a
+**single** verification log + audit row per attempt. A `right`/`left` request is
+unchanged (exactly one `processHand` + one `matchHand`). Both clerk
+`_verifyHandBothSides` helpers collapse to one `verifyHand(hand: 'both')` call,
+and `HandVerifyAccessControlTest::both_hands_mode_writes_one_verification_log`
+locks in the one-row-per-attempt guarantee.

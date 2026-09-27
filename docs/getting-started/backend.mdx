@@ -3,7 +3,7 @@ title: Backend Setup
 description: Install, configure, and run the Laravel API
 ---
 
-# Backend Setup
+# Backend setup
 
 ## 1. Install dependencies
 
@@ -118,6 +118,8 @@ laravel/
 │   └── Services/
 │       ├── FingerprintService.php   ← calls Python service
 │       ├── GeofenceService.php      ← GPS boundary checks
+│       ├── PatientAccessService.php ← post-identification access-control seam (see /architecture#national-patient-identity)
+│       ├── VisitService.php         ← visit/stage lifecycle transitions
 │       └── HomisService.php         ← GoT-HoMIS EHR integration
 ├── database/migrations/
 └── routes/
@@ -126,5 +128,5 @@ laravel/
 ```
 
 <Note>
-  For hosting this on a VPS instead of running it locally, see [Deployment](/deployment) — it covers the Docker Compose setup, the network split for a reverse proxy, and transferring the ONNX model file.
+  For hosting this on a VPS instead of running it locally, see [Deployment](/deployment). It covers the Docker Compose setup, the network split for a reverse proxy, and transferring the ONNX model file.
 </Note>

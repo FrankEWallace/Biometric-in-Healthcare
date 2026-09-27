@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/patient.dart';
@@ -11,11 +12,19 @@ import '../../widgets/primary_button.dart';
 import '../fingerprint/fingerprint_liveness_camera_screen.dart';
 import '../face/face_enroll_screen.dart';
 
-/// Captures and enrolls fingerprints for an already-registered patient
-/// who has no biometric on file.
+/// Captures and enrolls fingerprints for an already-registered patient.
+///
+/// Used both for first enrollment (patient has no biometric on file) and,
+/// with [isRetake], for replacing poor-quality fingerprints — the backend
+/// overwrites the stored template per finger position on re-enrollment.
 class FingerprintEnrollScreen extends StatefulWidget {
   final PatientModel patient;
-  const FingerprintEnrollScreen({super.key, required this.patient});
+  final bool isRetake;
+  const FingerprintEnrollScreen({
+    super.key,
+    required this.patient,
+    this.isRetake = false,
+  });
 
   @override
   State<FingerprintEnrollScreen> createState() =>
@@ -38,14 +47,12 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
 
   Future<void> _openCamera() async {
     setState(() => _error = null);
-    final result = await Navigator.push<FingerprintGalleryResult?>(
+    final result = await Navigator.push<XFile?>(
       context,
       MaterialPageRoute(
         builder: (_) => FingerprintLivenessCameraScreen(
           isHandCapture: true,
           fingerLabel: _steps[_currentIndex].label,
-          galleryMode: true,
-          galleryTarget: 1,
         ),
       ),
     );
@@ -53,14 +60,14 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
     await _upload(result);
   }
 
-  Future<void> _upload(FingerprintGalleryResult capture) async {
+  Future<void> _upload(XFile capture) async {
     setState(() { _uploading = true; _error = null; });
     try {
       final position = await LocationService().getCurrentPosition();
       final wifiSsid = await NetworkService().getCurrentSsid();
 
       final res = await _fpService.enrollHand(
-        File(capture.captures.first.path),
+        File(capture.path),
         token:        _token,
         patientId:    widget.patient.id.toString(),
         hand:         _steps[_currentIndex].hand,
@@ -91,8 +98,9 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
         // All hands enrolled
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                'Fingerprint enrolled for ${widget.patient.fullName}.'),
+            content: Text(widget.isRetake
+                ? 'Fingerprints retaken for ${widget.patient.fullName}.'
+                : 'Fingerprint enrolled for ${widget.patient.fullName}.'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -165,7 +173,10 @@ class _FingerprintEnrollScreenState extends State<FingerprintEnrollScreen> {
 
     return Scaffold(
       backgroundColor: cs.surfaceContainerLow,
-      appBar: AppBar(title: const Text('Enroll Fingerprint')),
+      appBar: AppBar(
+          title: Text(widget.isRetake
+              ? 'Retake Fingerprints'
+              : 'Enroll Fingerprint')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),

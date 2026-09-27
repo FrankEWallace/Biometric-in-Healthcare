@@ -38,7 +38,7 @@ class UserController extends Controller
     {
         $this->authorize('create', User::class);
 
-        $allowedRoles = ['admin', 'nurse', 'doctor'];
+        $allowedRoles = ['admin', 'nurse', 'doctor', 'clerk', 'lab_technician', 'pharmacist'];
         if ($request->user()->isSuperAdmin()) {
             $allowedRoles[] = 'super_admin';
         }
@@ -101,7 +101,7 @@ class UserController extends Controller
         ];
 
         if ($isAdmin) {
-            $allowedRoles = ['admin', 'nurse', 'doctor'];
+            $allowedRoles = ['admin', 'nurse', 'doctor', 'clerk', 'lab_technician', 'pharmacist'];
             if ($caller->isSuperAdmin()) {
                 $allowedRoles[] = 'super_admin';
             }

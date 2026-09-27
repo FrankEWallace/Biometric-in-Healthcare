@@ -14,6 +14,7 @@ class Hospital extends Model
         'code',
         'city',
         'wifi_ssid',
+        'allowed_ip_ranges',
         'gps_latitude',
         'gps_longitude',
         'gps_radius_meters',
