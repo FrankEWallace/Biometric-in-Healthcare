@@ -211,7 +211,6 @@ class _MultimodalVerificationScreenState
     }
   }
 
-
   Future<bool?> _showReviewDialog(MultimodalVerifyResult result) {
     final faceLabel = '${(result.faceScore * 100).toStringAsFixed(1)}%';
     final fpLabel = result.fingerprintScore.toStringAsFixed(1);
@@ -490,6 +489,5 @@ class _CaptureStep extends StatelessWidget {
     );
   }
 }
-
 
 
